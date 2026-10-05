@@ -1,0 +1,41 @@
+name: Update stats
+
+on:
+  schedule:
+    - cron: "11 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: stats
+  cancel-in-progress: false
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Update stat channels
+        env:
+          DISCORD_BOT_TOKEN: ${{ secrets.DISCORD_BOT_TOKEN }}
+          GUILD_ID: ${{ secrets.GUILD_ID }}
+          TWITCH_CLIENT_ID: ${{ secrets.TWITCH_CLIENT_ID }}
+          TWITCH_CLIENT_SECRET: ${{ secrets.TWITCH_CLIENT_SECRET }}
+          TWITCH_LOGIN: ${{ secrets.TWITCH_LOGIN }}
+        run: python3 update_stats.py
+
+      - name: Keep the schedule alive
+        run: |
+          if [ "$(date -u +%d)" = "01" ]; then
+            date -u +%F > .keepalive
+            if [ -n "$(git status --porcelain .keepalive)" ]; then
+              git config user.name "github-actions"
+              git config user.email "github-actions@users.noreply.github.com"
+              git add .keepalive
+              git commit -m "Monthly keepalive"
+              git push
+            fi
+          fi
