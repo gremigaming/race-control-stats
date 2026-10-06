@@ -27,7 +27,27 @@ jobs:
           TWITCH_LOGIN: ${{ secrets.TWITCH_LOGIN }}
           YOUTUBE_API_KEY: ${{ secrets.YOUTUBE_API_KEY }}
           YOUTUBE_CHANNEL_ID: ${{ secrets.YOUTUBE_CHANNEL_ID }}
+          TIKTOK_CLIENT_KEY: ${{ vars.TIKTOK_CLIENT_KEY }}
+          TIKTOK_CLIENT_SECRET: ${{ secrets.TIKTOK_CLIENT_SECRET }}
+          TIKTOK_REFRESH_TOKEN: ${{ secrets.TIKTOK_REFRESH_TOKEN }}
+          TIKTOK_REFRESH_TOKEN_OUT: ${{ runner.temp }}/tiktok_refresh_token
         run: python3 update_stats.py
+
+      # TikTok can hand out a new login token on each run; store it or the next run fails
+      - name: Save new TikTok login
+        if: always()
+        env:
+          GH_TOKEN: ${{ secrets.GH_SECRETS_TOKEN }}
+          FILE: ${{ runner.temp }}/tiktok_refresh_token
+        run: |
+          if [ ! -s "$FILE" ]; then exit 0; fi
+          if [ -z "$GH_TOKEN" ]; then
+            echo "TikTok changed its login token but GH_SECRETS_TOKEN is missing, so it can't be saved."
+            rm -f "$FILE"; exit 1
+          fi
+          gh secret set TIKTOK_REFRESH_TOKEN --repo "${{ github.repository }}" < "$FILE"
+          rm -f "$FILE"
+          echo "Saved the new TikTok login."
 
       - name: Keep the schedule alive
         run: |

@@ -67,7 +67,8 @@ class FakeHttp:
 
     def __init__(self, live=False, followers=1234, subs=5678, hidden=False,
                  youtube_found=True, twitch_user_found=True,
-                 followers_error=None, youtube_error=None):
+                 followers_error=None, youtube_error=None,
+                 tiktok_followers=999, tiktok_refresh="rt-same", tiktok_token_error=None):
         self.live = live
         self.followers = followers
         self.subs = subs
@@ -76,6 +77,9 @@ class FakeHttp:
         self.twitch_user_found = twitch_user_found
         self.followers_error = followers_error
         self.youtube_error = youtube_error
+        self.tiktok_followers = tiktok_followers
+        self.tiktok_refresh = tiktok_refresh
+        self.tiktok_token_error = tiktok_token_error
 
     def __call__(self, method, url, headers=None, data=None, form=False):
         if url.startswith("https://id.twitch.tv/oauth2/token"):
@@ -97,7 +101,20 @@ class FakeHttp:
             if not self.hidden:
                 stats["subscriberCount"] = str(self.subs)
             return {"items": [{"statistics": stats}]}
+        if url == "https://open.tiktokapis.com/v2/oauth/token/":
+            if self.tiktok_token_error:
+                return {"error": self.tiktok_token_error}
+            return {"access_token": "tt-access", "refresh_token": self.tiktok_refresh}
+        if url.startswith("https://open.tiktokapis.com/v2/user/info/"):
+            assert headers["Authorization"] == "Bearer tt-access"
+            return {"data": {"user": {"follower_count": self.tiktok_followers}},
+                    "error": {"code": "ok"}}
         raise AssertionError(f"unexpected HTTP call {method} {url}")
+
+
+TIKTOK_CONFIG = {"TIKTOK_CLIENT_KEY": "tt-key", "TIKTOK_CLIENT_SECRET": "tt-secret",
+                 "TIKTOK_REFRESH_TOKEN": "rt-same"}
+ALL_CONFIG_NAMES = list(CONFIG) + list(TIKTOK_CONFIG)
 
 
 class UpdaterTest(unittest.TestCase):
@@ -112,7 +129,7 @@ class UpdaterTest(unittest.TestCase):
         with open(self.tiktok_file, "w", encoding="utf-8") as f:
             f.write(content if isinstance(content, str) else json.dumps(content))
 
-    def run_main(self, discord=None, http=None, config=CONFIG):
+    def run_main(self, discord=None, http=None, config=CONFIG, refresh_out=""):
         """Runs main() and returns (renames by channel id, exit code, output)."""
         discord = discord or FakeDiscord()
         http = http or FakeHttp()
@@ -123,7 +140,9 @@ class UpdaterTest(unittest.TestCase):
             stack.enter_context(mock.patch.object(update_stats, "http", http))
             stack.enter_context(mock.patch.object(update_stats, "TIKTOK_FILE",
                                                   self.tiktok_file))
-            for name in CONFIG:
+            stack.enter_context(mock.patch.object(update_stats,
+                                                  "TIKTOK_REFRESH_TOKEN_OUT", refresh_out))
+            for name in ALL_CONFIG_NAMES:
                 stack.enter_context(mock.patch.object(update_stats, name,
                                                       config.get(name, "")))
             stack.enter_context(contextlib.redirect_stdout(out))
@@ -134,7 +153,8 @@ class UpdaterTest(unittest.TestCase):
         return discord.renames, code, out.getvalue()
 
     def assertNoSecrets(self, output):
-        for secret in ("test-discord-token", "yt-secret-key", "csecret", "app-token"):
+        for secret in ("test-discord-token", "yt-secret-key", "csecret", "app-token",
+                       "tt-secret", "rt-same", "rt-new", "tt-access"):
             self.assertNotIn(secret, output)
 
     # ----- tests -----
@@ -230,6 +250,46 @@ class UpdaterTest(unittest.TestCase):
         renames, code, _ = self.run_main()
         self.assertEqual(code, 0)
         self.assertNotIn("5", renames)
+
+    # ----- TikTok API -----
+    def test_tiktok_api_followers(self):
+        self.write_tiktok({"followers": 1})  # the API wins over the file
+        out_file = self.tiktok_file + ".refresh"
+        renames, code, out = self.run_main(http=FakeHttp(tiktok_followers=12345),
+                                           config={**CONFIG, **TIKTOK_CONFIG},
+                                           refresh_out=out_file)
+        self.assertEqual(code, 0)
+        self.assertEqual(renames["5"], "\U0001F3B5\u2503" + B("tiktok: 12,345"))
+        self.assertFalse(os.path.exists(out_file))  # same refresh token, nothing to save
+        self.assertNoSecrets(out)
+
+    def test_tiktok_new_refresh_token_is_written_for_saving(self):
+        out_file = self.tiktok_file + ".refresh"
+        _, code, out = self.run_main(http=FakeHttp(tiktok_refresh="rt-new"),
+                                     config={**CONFIG, **TIKTOK_CONFIG},
+                                     refresh_out=out_file)
+        self.assertEqual(code, 0)
+        with open(out_file, encoding="utf-8") as f:
+            self.assertEqual(f.read(), "rt-new")
+        self.assertNoSecrets(out)
+
+    def test_tiktok_expired_login(self):
+        renames, code, out = self.run_main(http=FakeHttp(tiktok_token_error="invalid_grant"),
+                                           config={**CONFIG, **TIKTOK_CONFIG})
+        self.assertEqual(code, 1)
+        self.assertIn("FAILED update_tiktok", out)
+        self.assertIn("run the TikTok login workflow again", out)
+        self.assertNotIn("5", renames)
+        self.assertIn("1", renames)
+        self.assertNoSecrets(out)
+
+
+class TikTokLoginTest(unittest.TestCase):
+    def test_extract_code_from_full_address(self):
+        import tiktok_login
+        url = "https://github.com/gremigaming/race-control-stats/?code=abc%2A123%21&scopes=x&state=s"
+        self.assertEqual(tiktok_login.extract_code(url), "abc*123!")
+        self.assertEqual(tiktok_login.extract_code("  abc%2A123  "), "abc*123")
 
 
 class HttpTest(unittest.TestCase):

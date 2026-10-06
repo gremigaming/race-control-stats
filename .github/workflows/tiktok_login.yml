@@ -1,0 +1,43 @@
+name: TikTok login
+
+on:
+  workflow_dispatch:
+    inputs:
+      code:
+        description: "Leave empty the first time. Then paste the whole address TikTok sent you to."
+        required: false
+        default: ""
+
+permissions:
+  contents: read
+
+jobs:
+  login:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Log in to TikTok
+        env:
+          TIKTOK_CLIENT_KEY: ${{ vars.TIKTOK_CLIENT_KEY }}
+          TIKTOK_CLIENT_SECRET: ${{ secrets.TIKTOK_CLIENT_SECRET }}
+          TIKTOK_REDIRECT_URI: ${{ github.server_url }}/${{ github.repository }}/
+          TIKTOK_REFRESH_TOKEN_OUT: ${{ runner.temp }}/tiktok_refresh_token
+          CODE: ${{ inputs.code }}
+        run: |
+          if [ -n "$CODE" ]; then echo "::add-mask::$CODE"; fi
+          python3 tiktok_login.py "$CODE"
+
+      - name: Save the TikTok login as a secret
+        env:
+          GH_TOKEN: ${{ secrets.GH_SECRETS_TOKEN }}
+          FILE: ${{ runner.temp }}/tiktok_refresh_token
+        run: |
+          if [ ! -s "$FILE" ]; then exit 0; fi
+          if [ -z "$GH_TOKEN" ]; then
+            echo "Missing the GH_SECRETS_TOKEN secret, so the TikTok login can't be saved."
+            rm -f "$FILE"; exit 1
+          fi
+          gh secret set TIKTOK_REFRESH_TOKEN --repo "${{ github.repository }}" < "$FILE"
+          rm -f "$FILE"
+          echo "Saved. The next stats run will show your TikTok followers."

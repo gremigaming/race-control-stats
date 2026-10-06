@@ -22,6 +22,11 @@ TWITCH_CLIENT_SECRET = os.environ.get("TWITCH_CLIENT_SECRET", "")
 TWITCH_LOGIN = os.environ.get("TWITCH_LOGIN", "")
 YOUTUBE_API_KEY = os.environ.get("YOUTUBE_API_KEY", "")
 YOUTUBE_CHANNEL_ID = os.environ.get("YOUTUBE_CHANNEL_ID", "")
+TIKTOK_CLIENT_KEY = os.environ.get("TIKTOK_CLIENT_KEY", "")
+TIKTOK_CLIENT_SECRET = os.environ.get("TIKTOK_CLIENT_SECRET", "")
+TIKTOK_REFRESH_TOKEN = os.environ.get("TIKTOK_REFRESH_TOKEN", "")
+# Where to write TikTok's new refresh token when it changes, so the workflow can save it
+TIKTOK_REFRESH_TOKEN_OUT = os.environ.get("TIKTOK_REFRESH_TOKEN_OUT", "")
 
 
 def http(method, url, headers=None, data=None, form=False):
@@ -150,13 +155,50 @@ def youtube_subscribers():
 
 
 TIKTOK_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "tiktok.json")
+TIKTOK_API = "https://open.tiktokapis.com/v2"
 
 
 def tiktok_followers():
+    """Follower count from the TikTok API if it's set up, else from tiktok.json.
+
+    Returns None when neither is set up.
+    """
+    if TIKTOK_CLIENT_KEY and TIKTOK_CLIENT_SECRET and TIKTOK_REFRESH_TOKEN:
+        return tiktok_api_followers()
+    return tiktok_file_followers()
+
+
+def tiktok_api_followers():
+    """Reads follower_count with a fresh access token (they last 24 hours).
+
+    TikTok may hand back a new refresh token. It is written to
+    TIKTOK_REFRESH_TOKEN_OUT so the workflow can store it as the new secret.
+    """
+    token = http("POST", TIKTOK_API + "/oauth/token/", data={
+        "client_key": TIKTOK_CLIENT_KEY,
+        "client_secret": TIKTOK_CLIENT_SECRET,
+        "grant_type": "refresh_token",
+        "refresh_token": TIKTOK_REFRESH_TOKEN,
+    }, form=True)
+    if "access_token" not in token:
+        raise RuntimeError(f"TikTok login expired or invalid ({token.get('error', 'unknown error')}),"
+                           " run the TikTok login workflow again")
+    new_refresh = token.get("refresh_token")
+    if new_refresh and new_refresh != TIKTOK_REFRESH_TOKEN and TIKTOK_REFRESH_TOKEN_OUT:
+        with open(TIKTOK_REFRESH_TOKEN_OUT, "w", encoding="utf-8") as f:
+            f.write(new_refresh)
+    info = http("GET", TIKTOK_API + "/user/info/?fields=follower_count",
+                {"Authorization": f"Bearer {token['access_token']}"})
+    error = info.get("error", {})
+    if error.get("code", "ok") != "ok":
+        raise RuntimeError(f"TikTok user info failed: {error.get('code')}")
+    return int(info["data"]["user"]["follower_count"])
+
+
+def tiktok_file_followers():
     """Follower count from the hand edited tiktok.json, or None if not set.
 
-    TikTok's official API needs app review, so the number is typed in by
-    hand. Leave "followers" as null (or delete the file) to skip TikTok.
+    Leave "followers" as null (or delete the file) to skip TikTok.
     """
     try:
         with open(TIKTOK_FILE, encoding="utf-8") as f:
