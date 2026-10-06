@@ -1,8 +1,8 @@
 """The socials board in the Socials channel.
 
-One Race Control message: a card with Twitch, YouTube and TikTok side by side
-as text columns (big follower number, latest stream or video linked), a row of
-small previews underneath with each platform's colour, and link buttons. The stats workflow edits that same message every run,
+One Race Control message: a clean card per platform (Twitch, YouTube, TikTok)
+in its colour with the follower number, the latest stream or video linked and
+its own small preview picture, plus link buttons. The stats workflow edits that same message every run,
 and only when something on it changed.
 
 The workflow never posts a new board by itself. The first post is done once by
@@ -21,12 +21,12 @@ import urllib.request
 
 SOCIALS_CHANNEL_ID = os.environ.get("SOCIALS_CHANNEL_ID", "")
 TITLE = "Official channels"
-HEADER = f"## \U0001F3C1 GreMi_Gaming · {TITLE}"
+HEADER = f"## GreMi_Gaming\n-# {TITLE}"
+OLD_HEADERS = (f"## \U0001F3C1 GreMi_Gaming · {TITLE}",)
+TAGLINE = {"twitch": "Live sim racing", "youtube": "Races and highlights",
+           "tiktok": "Clips and highlights"}
 FILE_PREFIX = "socials-board-"
 
-# A dot in each platform's colour next to the small text
-DOT = {"twitch": "\U0001F7E3", "youtube": "\U0001F534", "tiktok": "\U0001FA75"}
-NEUTRAL = 0x2B2D31  # Discord's own card colour, so the side line blends in
 TWITCH_PURPLE = 0x9146FF
 YOUTUBE_RED = 0xFF0033
 TIKTOK_CYAN = 0x25F4EE
@@ -222,54 +222,66 @@ def bold_caps(text):
     return "".join(out)
 
 
-def latest_text(col):
-    """The lower part of a platform's text: the latest stream or video."""
+def platform_url(key):
+    return {"twitch": TWITCH_URL, "youtube": youtube_url(), "tiktok": TIKTOK_URL}[key]
+
+
+def card_text(col):
+    """A platform card: the number as a heading, then the latest stream or video
+    as one link with a small grey line under it."""
+    count = f"{col['count']:,}" if col.get("count") is not None else "\u2014"
+    lines = [f"## {count} {col['word']}"]
     preview, stream = col["preview"], col.get("stream")
     if stream:
         viewers = stream.get("viewer_count")
         meta = stream.get("game_name") or "Sim racing"
         if viewers is not None:
             meta += f" \u00b7 {viewers:,} watching"
-        return (f"\U0001F534 **Live now**\n{link(stream.get('title', ''), TWITCH_URL)}\n"
-                f"-# {meta}")
-    if preview:
-        text = f"**{preview['label']}**\n{link(preview['title'], preview['url'])}"
-        if col["key"] == "twitch":
-            text += "\n-# \u26AB Offline right now"
-        return text
-    url = {"twitch": TWITCH_URL, "youtube": youtube_url(), "tiktok": TIKTOK_URL}[col["key"]]
-    return f"[Follow on {col['name']}]({url})" if url else ""
+        lines += [f"\U0001F534 **Live now** \u00b7 {link(stream.get('title', ''), TWITCH_URL)}",
+                  f"-# {meta}"]
+    elif preview:
+        lines.append(link(preview["title"], preview["url"]))
+        meta = preview["label"] + (" \u00b7 offline right now" if col["key"] == "twitch" else "")
+        lines.append(f"-# {meta}")
+    else:
+        url = platform_url(col["key"])
+        lines += [f"[Follow on {col['name']}]({url})" if url else "",
+                  f"-# {TAGLINE[col['key']]}"]
+    return "\n".join(l for l in lines if l)
 
 
-def field_for(col):
-    """One platform's column: logo and name, a big number, then the latest stream
-    or video. Blank lines give each part room."""
+def embed_for(col, thumb_name):
     e = EMOJI[col["key"]]
-    count = f"{col['count']:,}" if col.get("count") is not None else "\u2014"
-    return {"name": f"<:{e['name']}:{e['id']}> {bold_caps(col['name'])}",
-            "value": f"## {count}\n-# {DOT[col['key']]} {col['word']}\n\u200b\n{latest_text(col)}",
-            "inline": True}
+    embed = {"color": col["color"],
+             "author": {"name": col["name"],
+                        "icon_url": f"https://cdn.discordapp.com/emojis/{e['id']}.png?size=64"},
+             "description": card_text(col)}
+    if platform_url(col["key"]):
+        embed["author"]["url"] = platform_url(col["key"])
+    if thumb_name:
+        embed["thumbnail"] = {"url": f"attachment://{thumb_name}"}
+    return embed
 
 
 def build(stats, columns=None):
-    """(message, [(file name, picture bytes)]) for the board: one card with the
-    three platforms side by side and a row of their previews underneath."""
+    """(message, [(file name, picture bytes), ...]) for the board: a clean card per
+    platform in its colour, each with its own small preview picture."""
     import board_image
     columns = columns or gather(stats)
-    live = columns[0]["live"]
-    tiles = [(fetch_bytes(c["preview"].get("thumb")) if c["preview"] else None, c["color"])
-             for c in columns]
-    name = f"{FILE_PREFIX}previews-{fingerprint(columns)}.png"
-    embed = {
-        # the side line turns Twitch purple while live
-        "color": TWITCH_PURPLE if live else NEUTRAL,
-        "fields": [field_for(c) for c in columns],
-        "image": {"url": f"attachment://{name}"},
-    }
-    message = {"content": HEADER, "embeds": [embed], "components": components_for(columns),
-               "attachments": [{"id": 0, "filename": name}],
+    fp = fingerprint(columns)
+    files, embeds = [], []
+    for c in columns:
+        thumb = None
+        if c["preview"]:
+            thumb = board_image.thumbnail(fetch_bytes(c["preview"].get("thumb")))
+        name = f"{FILE_PREFIX}{c['key']}-{fp}.png" if thumb else None
+        if thumb:
+            files.append((name, thumb))
+        embeds.append(embed_for(c, name))
+    message = {"content": HEADER, "embeds": embeds, "components": components_for(columns),
+               "attachments": [{"id": i, "filename": n} for i, (n, _) in enumerate(files)],
                "allowed_mentions": {"parse": []}}
-    return message, [(name, board_image.preview_row(tiles))]
+    return message, files
 
 
 def buttons(message):
@@ -320,7 +332,8 @@ def find_board(stats):
     me = stats.discord("GET", "/users/@me")["id"]
     for msg in stats.discord("GET", f"/channels/{SOCIALS_CHANNEL_ID}/messages?limit=50"):
         title = (msg.get("embeds") or [{}])[0].get("title", "")
-        if msg["author"]["id"] == me and (msg.get("content") == HEADER or title == TITLE):
+        known = msg.get("content") in (HEADER,) + OLD_HEADERS or title == TITLE
+        if msg["author"]["id"] == me and known:
             return msg
     return None
 
