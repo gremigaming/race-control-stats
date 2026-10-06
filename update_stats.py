@@ -1,7 +1,8 @@
-"""Updates the stat voice channels (member count, Twitch live status).
+"""Updates the stat voice channels (members, Twitch live status, YouTube subscribers).
 
 Runs on a schedule via GitHub Actions. Only renames a channel when its
 value actually changed, to stay well inside Discord's rename rate limit.
+One failing data source never blocks the others.
 """
 import json
 import os
@@ -18,11 +19,14 @@ GUILD_ID = os.environ["GUILD_ID"]
 TWITCH_CLIENT_ID = os.environ.get("TWITCH_CLIENT_ID", "")
 TWITCH_CLIENT_SECRET = os.environ.get("TWITCH_CLIENT_SECRET", "")
 TWITCH_LOGIN = os.environ.get("TWITCH_LOGIN", "")
+YOUTUBE_API_KEY = os.environ.get("YOUTUBE_API_KEY", "")
+YOUTUBE_CHANNEL_ID = os.environ.get("YOUTUBE_CHANNEL_ID", "")
 
 
 def http(method, url, headers=None, data=None, form=False):
     headers = dict(headers or {})
     headers.setdefault("User-Agent", UA)
+    safe_url = url.split("?")[0]  # never print query strings (they can hold keys)
     body = None
     if data is not None:
         if form:
@@ -49,10 +53,10 @@ def http(method, url, headers=None, data=None, form=False):
             if e.code >= 500:
                 time.sleep(2)
                 continue
-            raise RuntimeError(f"{method} {url} failed: {e.code} {e.read()[:200]!r}")
+            raise RuntimeError(f"{method} {safe_url} failed: {e.code} {e.read()[:200]!r}")
         except urllib.error.URLError:
             time.sleep(2)
-    raise RuntimeError(f"{method} {url} failed after retries")
+    raise RuntimeError(f"{method} {safe_url} failed after retries")
 
 
 def discord(method, path, data=None):
@@ -93,7 +97,26 @@ def twitch_is_live():
     return len(streams.get("data", [])) > 0
 
 
-# Stage 2 (later): twitch_followers(), youtube_subscribers(), tiktok_followers()
+def youtube_subscribers():
+    """Subscriber count, or None if not configured or the channel hides it.
+
+    YouTube rounds this to 3 significant figures above 1,000 subscribers.
+    """
+    if not (YOUTUBE_API_KEY and YOUTUBE_CHANNEL_ID):
+        return None
+    url = ("https://www.googleapis.com/youtube/v3/channels?part=statistics&id="
+           + urllib.parse.quote(YOUTUBE_CHANNEL_ID)
+           + "&key=" + urllib.parse.quote(YOUTUBE_API_KEY))
+    items = http("GET", url).get("items", [])
+    if not items:
+        raise RuntimeError("YouTube channel not found, check YOUTUBE_CHANNEL_ID")
+    stats = items[0]["statistics"]
+    if stats.get("hiddenSubscriberCount"):
+        return None
+    return int(stats["subscriberCount"])
+
+
+# Later: twitch_followers(), tiktok_followers(), race stats
 
 
 # ---------- channel handling ----------
@@ -118,17 +141,37 @@ def set_name(channel, emoji, label):
     print(f"updated:   {label}")
 
 
+def update_members(stat):
+    ch = stat.get("\U0001F465")
+    if ch:
+        set_name(ch, "\U0001F465", f"members: {member_count():,}")
+
+
+def update_status(stat):
+    ch = stat.get("\U0001F534")
+    live = twitch_is_live()
+    if ch and live is not None:
+        set_name(ch, "\U0001F534", "status: live now" if live else "status: offline")
+
+
+def update_youtube(stat):
+    ch = stat.get("\u25B6\uFE0F")
+    subs = youtube_subscribers()
+    if ch and subs is not None:
+        set_name(ch, "\u25B6\uFE0F", f"youtube: {subs:,}")
+
+
 def main():
     stat = find_stat_channels()
-
-    members_ch = stat.get("\U0001F465")
-    if members_ch:
-        set_name(members_ch, "\U0001F465", f"members: {member_count():,}")
-
-    live = twitch_is_live()
-    status_ch = stat.get("\U0001F534")
-    if status_ch and live is not None:
-        set_name(status_ch, "\U0001F534", "status: live now" if live else "status: offline")
+    failed = False
+    for task in (update_members, update_status, update_youtube):
+        try:
+            task(stat)
+        except Exception as e:
+            failed = True
+            print(f"FAILED {task.__name__}: {e}")
+    if failed:
+        raise SystemExit(1)
 
 
 if __name__ == "__main__":
