@@ -8,7 +8,7 @@ import io
 from PIL import Image, ImageDraw, ImageOps
 
 # Bump when the pictures are made differently, so the live board is redrawn
-LAYOUT = 7
+LAYOUT = 8
 
 SIZE = (480, 270)
 

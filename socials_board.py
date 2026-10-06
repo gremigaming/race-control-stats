@@ -220,7 +220,7 @@ def sans_bold(text):
 HEADER = f"## {sans_bold('GreMi_Gaming')}\n-# {sans_bold(TITLE)}"
 
 # Titles are cut to one line so every card has the same height
-TITLE_LIMIT = 34
+TITLE_LIMIT = 36
 # An invisible line (braille blanks) that pushes every card to the same width
 WIDTH_LINE = "-# " + "\u2800" * 58
 
