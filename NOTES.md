@@ -19,6 +19,7 @@ Repo for the owner of GreMi_Gaming (Twitch, YouTube, TikTok streamer; F1 and Le 
 - Each source runs in its own try block so one failure never blocks others; exit non-zero if any failed.
 - Never print keys or tokens, including in errors. `http()` strips query strings because the YouTube key is in the query.
 - Send a `DiscordBot (url, version)` User-Agent. Retry on 429 (`retry_after`), 5xx and network errors.
+- Tests use simulated responses only (no network): `python3 -m unittest discover -s tests -t .`. They run on every pull request via `tests.yml`.
 - Secrets (GitHub Actions, private repo): `DISCORD_BOT_TOKEN`, `GUILD_ID` (currently the TEST server), `TWITCH_CLIENT_ID`, `TWITCH_CLIENT_SECRET`, `TWITCH_LOGIN`, `YOUTUBE_API_KEY`, `YOUTUBE_CHANNEL_ID`. The Discord token has Administrator. Worth suggesting a separate bot with only Manage Channels at the real-server rollout.
 
 ## Source status
