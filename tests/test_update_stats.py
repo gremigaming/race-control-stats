@@ -136,6 +136,7 @@ ALL_CONFIG_NAMES = list(CONFIG) + list(TIKTOK_CONFIG)
 class UpdaterTest(unittest.TestCase):
     def setUp(self):
         update_stats._twitch_cache.clear()
+        update_stats._once_cache.clear()
         tmp = tempfile.TemporaryDirectory()
         self.addCleanup(tmp.cleanup)
         self.tiktok_file = os.path.join(tmp.name, "tiktok.json")
@@ -332,6 +333,21 @@ class UpdaterTest(unittest.TestCase):
         self.assertNotIn("5", renames)
         self.assertIn("1", renames)
         self.assertNoSecrets(out)
+
+    def test_sources_are_asked_once_per_run(self):
+        http = FakeHttp()
+        token_calls = []
+        def counting(method, url, *a, **k):
+            if url.endswith("/oauth/token/"):
+                token_calls.append(url)
+            return http(method, url, *a, **k)
+        with mock.patch.object(update_stats, "http", counting), \
+                contextlib.ExitStack() as stack:
+            for name, value in TIKTOK_CONFIG.items():
+                stack.enter_context(mock.patch.object(update_stats, name, value))
+            self.assertEqual(update_stats.tiktok_followers(), 999)
+            self.assertEqual(update_stats.tiktok_followers(), 999)
+        self.assertEqual(len(token_calls), 1)  # a second refresh could break the login
 
 
 class TikTokLoginTest(unittest.TestCase):

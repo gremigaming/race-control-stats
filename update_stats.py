@@ -84,6 +84,27 @@ def bold_caps(text):
 
 
 # ---------- data sources ----------
+_once_cache = {}
+
+
+def once(fn):
+    """Asks a data source only once per run, so the stat channels and the
+    socials board share one answer (TikTok must not refresh its login twice).
+    Errors are remembered too, so a failing source fails the same way twice."""
+    def wrapper():
+        if fn.__name__ not in _once_cache:
+            try:
+                _once_cache[fn.__name__] = (fn(), None)
+            except Exception as e:
+                _once_cache[fn.__name__] = (None, e)
+        value, error = _once_cache[fn.__name__]
+        if error is not None:
+            raise error
+        return value
+    wrapper.__name__ = fn.__name__
+    return wrapper
+
+
 def member_count():
     guild = discord("GET", f"/guilds/{GUILD_ID}?with_counts=true")
     return guild["approximate_member_count"]
@@ -116,10 +137,19 @@ def twitch_is_live():
         streams = http("GET",
                        "https://api.twitch.tv/helix/streams?user_login="
                        + urllib.parse.quote(TWITCH_LOGIN), headers)
-        _twitch_cache["live"] = len(streams.get("data", [])) > 0
+        data = streams.get("data", [])
+        _twitch_cache["live"] = len(data) > 0
+        _twitch_cache["stream"] = data[0] if data else None
     return _twitch_cache["live"]
 
 
+def twitch_stream():
+    """The live stream (title, game_name, viewer_count, ...), or None when offline."""
+    twitch_is_live()
+    return _twitch_cache.get("stream")
+
+
+@once
 def twitch_followers():
     """Follower total, or None if Twitch isn't configured.
 
@@ -139,6 +169,7 @@ def twitch_followers():
     return int(result["total"])
 
 
+@once
 def youtube_subscribers():
     """Subscriber count, or None if not configured or the channel hides it.
 
@@ -162,6 +193,7 @@ TIKTOK_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "tiktok.j
 TIKTOK_API = "https://open.tiktokapis.com/v2"
 
 
+@once
 def tiktok_followers():
     """Follower count from the TikTok API if it's set up, else from tiktok.json.
 
@@ -297,11 +329,18 @@ def update_tiktok(stat):
         set_name(ch, "\U0001F3B5", f"tiktok: {followers:,}")
 
 
+def update_socials_board(stat):
+    import socials_board
+    import sys
+    # this module itself, also when it runs as __main__, so both share one set of answers
+    socials_board.update(sys.modules[__name__])
+
+
 def main():
     stat = find_stat_channels()
     failed = False
     for task in (update_members, update_status, update_live_role, update_twitch,
-                 update_youtube, update_tiktok):
+                 update_youtube, update_tiktok, update_socials_board):
         try:
             task(stat)
         except Exception as e:
