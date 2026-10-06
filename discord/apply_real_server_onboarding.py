@@ -17,7 +17,7 @@ def req(method,path,body=None):
     return json.loads(b) if b.strip() else None
 
 MEMBER='1097214965640855764'
-NOTIFY='1117766461147070554'  # opt-in Twitch role; becomes Notify Me in Phase 3
+NOTIFY='1117766461147070554'  # Notify Me (was the opt-in Twitch role): the only role announcements ping
 F1='1508728733111161023'; LMU='1508728759182692422'  # F1 chat and LMU chat are locked to these roles
 LEAGUE='1556952638413742180'  # League Racer: Community Leagues is locked to it
 COLOURS=[('Red','1080505166513590355','🔴'),('Orange','1080523600110571611','🟠'),('Yellow','1080523771712118824','🟡'),
@@ -51,7 +51,7 @@ PROMPTS=[
  prompt('Pick your livery: what colour is your name?',
    [opt(n,e,roles=(r,)) for n,r,e in COLOURS]+[opt('Let my highest role decide','🏁','Show the colour of your highest role',roles=(MEMBER,))],True,True),
  prompt('Want the radio on?',[
-   opt('Box box: ping me','📻','When GreMi goes live or uploads',roles=(NOTIFY,)),
+   opt('Box box: ping me','📻','Streams, uploads and big server news',roles=(NOTIFY,)),
    opt('Radio silence please','🔇',roles=(MEMBER,))],True,False),
 ]
 # Keep the ids of questions and answers that already exist (matched by title), so members keep their picks
