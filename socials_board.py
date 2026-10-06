@@ -21,8 +21,7 @@ import urllib.request
 
 SOCIALS_CHANNEL_ID = os.environ.get("SOCIALS_CHANNEL_ID", "")
 TITLE = "Official channels"
-HEADER = f"## GreMi_Gaming\n-# {TITLE}"
-OLD_HEADERS = (f"## \U0001F3C1 GreMi_Gaming · {TITLE}",)
+OLD_HEADERS = (f"## \U0001F3C1 GreMi_Gaming · {TITLE}", f"## GreMi_Gaming\n-# {TITLE}")
 TAGLINE = {"twitch": "Live sim racing", "youtube": "Races and highlights",
            "tiktok": "Clips and highlights"}
 FILE_PREFIX = "socials-board-"
@@ -203,10 +202,33 @@ def components_for(columns):
         for label, url, key in links if url]}]
 
 
-def link(title, url):
+def sans_bold(text):
+    """Math Sans Bold letters and digits (the look GreMi picked), e.g. \U0001D5DA\U0001D5FF\U0001D5F2\U0001D5E0\U0001D5F6."""
+    out = []
+    for ch in text:
+        if "A" <= ch <= "Z":
+            out.append(chr(0x1D5D4 + ord(ch) - ord("A")))
+        elif "a" <= ch <= "z":
+            out.append(chr(0x1D5EE + ord(ch) - ord("a")))
+        elif "0" <= ch <= "9":
+            out.append(chr(0x1D7EC + ord(ch) - ord("0")))
+        else:
+            out.append(ch)
+    return "".join(out)
+
+
+HEADER = f"## {sans_bold('GreMi_Gaming')}\n-# {sans_bold(TITLE)}"
+
+# Titles are cut to one line so every card has the same height
+TITLE_LIMIT = 34
+# An invisible line (braille blanks) that pushes every card to the same width
+WIDTH_LINE = "-# " + "\u2800" * 58
+
+
+def link(title, url, limit=TITLE_LIMIT):
     import board_image
-    text = short(board_image.clean(title), 70) or "Watch"
-    text = text.replace("[", "(").replace("]", ")")
+    text = short(board_image.clean(title), limit) or "Watch"
+    text = sans_bold(text.replace("[", "(").replace("]", ")"))
     return f"[{text}]({url})" if url else text
 
 
@@ -227,33 +249,35 @@ def platform_url(key):
 
 
 def card_text(col):
-    """A platform card: the number as a heading, then the latest stream or video
-    as one link with a small grey line under it."""
+    """A platform card, always four lines so the cards match: the number as a
+    heading, the latest stream or video as one link, a small grey line, and an
+    invisible line that sets the width."""
     count = f"{col['count']:,}" if col.get("count") is not None else "\u2014"
-    lines = [f"## {count} {col['word']}"]
+    lines = [f"## {sans_bold(count + ' ' + col['word'])}"]
     preview, stream = col["preview"], col.get("stream")
     if stream:
         viewers = stream.get("viewer_count")
-        meta = stream.get("game_name") or "Sim racing"
+        meta = "Live now \u00b7 " + (stream.get("game_name") or "Sim racing")
         if viewers is not None:
             meta += f" \u00b7 {viewers:,} watching"
-        lines += [f"\U0001F534 **Live now** \u00b7 {link(stream.get('title', ''), TWITCH_URL)}",
-                  f"-# {meta}"]
+        lines += [f"\U0001F534 {link(stream.get('title', ''), TWITCH_URL, TITLE_LIMIT - 3)}",
+                  f"-# {sans_bold(meta)}"]
     elif preview:
-        lines.append(link(preview["title"], preview["url"]))
         meta = preview["label"] + (" \u00b7 offline right now" if col["key"] == "twitch" else "")
-        lines.append(f"-# {meta}")
+        lines += [link(preview["title"], preview["url"]), f"-# {sans_bold(meta)}"]
     else:
         url = platform_url(col["key"])
-        lines += [f"[Follow on {col['name']}]({url})" if url else "",
-                  f"-# {TAGLINE[col['key']]}"]
-    return "\n".join(l for l in lines if l)
+        follow = sans_bold(f"Follow on {col['name']}")
+        lines += [f"[{follow}]({url})" if url else follow,
+                  f"-# {sans_bold(TAGLINE[col['key']])}"]
+    lines.append(WIDTH_LINE)
+    return "\n".join(lines)
 
 
 def embed_for(col, thumb_name):
     e = EMOJI[col["key"]]
     embed = {"color": col["color"],
-             "author": {"name": col["name"],
+             "author": {"name": sans_bold(col["name"]),
                         "icon_url": f"https://cdn.discordapp.com/emojis/{e['id']}.png?size=64"},
              "description": card_text(col)}
     if platform_url(col["key"]):

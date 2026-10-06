@@ -125,6 +125,7 @@ class BoardTest(unittest.TestCase):
         self.assertEqual(twitch["thumb"], "https://img/banner.png")
 
     def test_live(self):
+        B = socials_board.sans_bold
         cols = self.gather(fake_stats(stream=STREAM))
         self.assertEqual(cols[0]["badge"], "LIVE \u00b7 1,234")
         self.assertTrue(cols[0]["live"])
@@ -132,9 +133,8 @@ class BoardTest(unittest.TestCase):
         self.assertEqual(socials_board.components_for(cols)[0]["components"][0]["label"],
                          "Watch live")
         text = socials_board.card_text(cols[0])
-        self.assertIn("Live now", text)
-        self.assertIn("[Spa 6h, stint 2](https://twitch.tv/GreMi_Gaming)", text)
-        self.assertIn("-# Le Mans Ultimate \u00b7 1,234 watching", text)
+        self.assertIn(f"[{B('Spa 6h, stint 2')}](https://twitch.tv/GreMi_Gaming)", text)
+        self.assertIn(B("Live now \u00b7 Le Mans Ultimate \u00b7 1,234 watching"), text)
     def test_tiktok_without_permission_has_no_preview(self):
         stats = fake_stats(http=FakeHttp(tiktok_error="scope_not_authorized"))
         cols, out = self.quiet(socials_board.gather, stats)
@@ -155,29 +155,38 @@ class BoardTest(unittest.TestCase):
                          ["Twitch", "YouTube", "TikTok"])
 
     def test_platform_cards(self):
+        B = socials_board.sans_bold
         cols = self.gather(fake_stats())
         twitch, youtube, tiktok = (socials_board.embed_for(c, f"{c['key']}.png") for c in cols)
         self.assertEqual([e["color"] for e in (twitch, youtube, tiktok)],
                          [socials_board.TWITCH_PURPLE, socials_board.YOUTUBE_RED,
                           socials_board.TIKTOK_CYAN])
-        self.assertEqual(twitch["author"]["name"], "Twitch")
+        self.assertEqual(twitch["author"]["name"], B("Twitch"))
         self.assertEqual(twitch["description"],
-                         "## 1,639 followers\n[Monza league race](https://twitch.tv/videos/9)\n"
-                         "-# Last stream \u00b7 offline right now")
-        self.assertIn("[My first Le Mans](https://www.youtube.com/watch?v=abc)",
-                      youtube["description"])
-        self.assertIn("Last lap at Spa", tiktok["description"])
+                         f"## {B('1,639 followers')}\n"
+                         f"[{B('Monza league race')}](https://twitch.tv/videos/9)\n"
+                         f"-# {B('Last stream')} \u00b7 {B('offline right now')}\n"
+                         + socials_board.WIDTH_LINE)
+        self.assertIn(B("My first Le Mans"), youtube["description"])
+        self.assertIn(B("Last lap at Spa"), tiktok["description"])
         self.assertEqual(youtube["thumbnail"]["url"], "attachment://youtube.png")
+        # same number of lines on every card, so they are the same height
+        self.assertEqual({e["description"].count("\n") for e in (twitch, youtube, tiktok)}, {3})
     def test_cards_without_videos(self):
+        B = socials_board.sans_bold
         cols = self.gather(fake_stats(http=FakeHttp(vod=False, yt_video=False), tiktok_token=None))
         tiktok = socials_board.embed_for(cols[2], None)
-        self.assertIn("[Follow on TikTok]", tiktok["description"])
-        self.assertIn("-# Clips and highlights", tiktok["description"])
+        self.assertIn(f"[{B('Follow on TikTok')}]", tiktok["description"])
+        self.assertIn(B("Clips and highlights"), tiktok["description"])
+        self.assertEqual(tiktok["description"].count("\n"), 3)
         self.assertNotIn("thumbnail", tiktok)
-    def test_titles_are_cleaned_for_links(self):
+    def test_titles_are_cleaned_and_cut_to_one_line(self):
+        B = socials_board.sans_bold
         self.assertEqual(socials_board.link("\U0001F680 [NEW] race !join", "https://x"),
-                         "[(NEW) race](https://x)")
-
+                         f"[{B('(NEW) race')}](https://x)")
+        long = socials_board.link("word " * 30, "https://x")
+        self.assertLessEqual(len(long.split("](")[0]) - 1, socials_board.TITLE_LIMIT)
+        self.assertEqual(B("Az 09,"), "\U0001D5D4\U0001D607 \U0001D7EC\U0001D7F5,")
     def test_fingerprint_ignores_changing_picture_addresses(self):
         a = self.gather(fake_stats())
         b = self.gather(fake_stats())
