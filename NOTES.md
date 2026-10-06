@@ -26,7 +26,7 @@ Repo for the owner of GreMi_Gaming (Twitch, YouTube, TikTok streamer; F1 and Le 
 - Twitch live status (app token, `/helix/streams`): working. `LIVE NOW` unproven until a real stream.
 - YouTube subscribers: working. Rounded to 3 significant figures above 1,000; hidden counts return nothing.
 - Twitch followers: just added, UNVERIFIED. Reads `total` from `/helix/channels/followers` with the app token. Docs say a user token with `moderator:read:followers` is needed; forum reports say the total works without. If a run shows 401, switch to the authorization code flow (confidential client, redirect `http://localhost`). Twitch refresh tokens may change on refresh, so store the new one each time.
-- TikTok: official API needs app review. Start with a hand edited `tiktok.json` the script reads.
+- TikTok: official API needs app review, so the count comes from a hand edited `tiktok.json` (`{"followers": 1234}`; `null` skips TikTok).
 - Later: Pits n' Giggles race files turned into stats. Ask for a sample first. Files likely contain other drivers' names, so keep the repo private and warn members before publishing.
 
 ## First tasks
