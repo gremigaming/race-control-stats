@@ -27,15 +27,12 @@ Repo for the owner of GreMi_Gaming (Twitch, YouTube, TikTok streamer; F1 and Le 
 - Members (`approximate_member_count`, includes bots): working.
 - Twitch live status (app token, `/helix/streams`): working. `LIVE NOW` unproven until a real stream.
 - YouTube subscribers: working. Rounded to 3 significant figures above 1,000; hidden counts return nothing.
-- Twitch followers: just added, UNVERIFIED. Reads `total` from `/helix/channels/followers` with the app token. Docs say a user token with `moderator:read:followers` is needed; forum reports say the total works without. If a run shows 401, switch to the authorization code flow (confidential client, redirect `http://localhost`). Twitch refresh tokens may change on refresh, so store the new one each time.
+- Twitch followers: working with the app token (`total` from `/helix/channels/followers`), verified 2026-10-06 (1,639). If it ever returns 401, switch to the authorization code flow (confidential client, redirect `http://localhost`, scope `moderator:read:followers`); Twitch refresh tokens may change on refresh, so store the new one each time.
 - TikTok: official API needs app review, so the count comes from a hand edited `tiktok.json` (`{"followers": 1234}`; `null` skips TikTok).
 - Later: Pits n' Giggles race files turned into stats. Ask for a sample first. Files likely contain other drivers' names, so keep the repo private and warn members before publishing.
 
 ## First tasks
-1. The last reported run failed with `SyntaxError: unterminated f-string literal` on the `members` line (pasted line break). Confirm the file compiles and the workflow is green.
-2. Confirm Twitch followers, or implement the user-token fallback.
-3. Add `tiktok.json` support.
-4. Add tests using simulated responses (patch `update_stats.discord` and `update_stats.http`): normal values, hidden YouTube count, wrong channel ID, API outage, unconfigured source, Twitch 401, unknown Twitch login.
+Done 2026-10-06: fixed the truncated `update_stats.py`, confirmed Twitch followers, added `tiktok.json` support and tests.
 
 ## Discord access from Claude Code
 Never put the bot token in an environment variable, file, commit or chat (environment variables are readable by anyone using the environment). On Pro and Max, the owner stores it as an API credential on the environment: host `discord.com`, header `Authorization`, prefix `Bot`. The proxy attaches it, so call `https://discord.com/api/v10/...` with no Authorization header. Verify with `GET /users/@me`. This comes from the docs and is untested; if it fails, tell the owner instead of improvising.
