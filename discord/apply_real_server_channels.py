@@ -98,7 +98,8 @@ for cat,items in LAYOUT.items():
         new=C(e,n)
         if any(x['name']==new for x in cur.values()): L('create',new,'-',new,'already exists, skipped'); continue
         if DRY: L('create',new,'-',new,'dry'); continue
-        g=req('POST',f'/guilds/{G}/channels',{'name':new,'type':0,'parent_id':cat}); time.sleep(1)
+        ow=[{k:o[k] for k in ('id','type','allow','deny')} for o in cur[cat]['permission_overwrites']]
+        g=req('POST',f'/guilds/{G}/channels',{'name':new,'type':0,'parent_id':cat,'permission_overwrites':ow}); time.sleep(1)
         g=req('GET',f"/channels/{g['id']}")
         def norm(ow): return sorted((o['id'],str(o['allow']),str(o['deny'])) for o in ow)
         synced=norm(g['permission_overwrites'])==norm(cur[cat]['permission_overwrites'])
