@@ -40,11 +40,10 @@ def prompt(title,options,single,required,in_onboarding=True):
 
 PROMPTS=[
  prompt('What makes your heart race?',[
-   opt('Formula 1','🏎️','F1 chat and the latest F1 news',('F1NEWS',),roles=(F1,)),
-   opt('Le Mans Ultimate and endurance','⏱️','LMU and endurance chat',roles=(LMU,))],False,False),
+   opt('Formula 1','🏎️','F1 chat, setups and the latest F1 news',('F1NEWS',),roles=(F1,)),
+   opt('Le Mans Ultimate and endurance','⏱️','LMU chat and setups',roles=(LMU,))],False,False),
  prompt('What brings you to the paddock?',[
    opt('Pit wall viewer','📺','Streams, the schedule and new content',('SCHEDULE','NEWCONTENT','PROMO')),
-   opt('Setup tinkerer','🛠️','Setups and tips',('SETUPS',)),
    opt('League racer','🏆','Put me on the grid',roles=(LEAGUE,)),
    opt('Prize hunter','🎁','Giveaways and events',('GIVEAWAYS',)),
    opt('Stats nerd','📊',"GreMi's followers, live status and server members",('ST_TWITCH','ST_YT','ST_TT','ST_MEMBERS','ST_STATUS')),
