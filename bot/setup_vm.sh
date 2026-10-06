@@ -8,6 +8,8 @@ set -euo pipefail
 DIR=/opt/race-control
 ENV_FILE=/etc/race-control.env
 REPO=https://github.com/gremigaming/race-control-stats.git
+# The Claude Code routine "Race Control: Discord tag alert"
+ROUTINE_ID=trig_01CLWEFWpyN4G8xmHr77Mg4T
 
 echo "== Installing Python and git"
 apt-get update -qq
@@ -26,9 +28,10 @@ python3 -m venv "$DIR/.venv"
 if [ ! -s "$ENV_FILE" ] || [ "${1:-}" = "--keys" ]; then
   echo "== Keys (what you paste stays hidden)"
   read -rsp "Discord bot token: " DTOKEN </dev/tty; echo
-  read -rsp "Claude API key: " AKEY </dev/tty; echo
+  read -rsp "Claude routine token: " RTOKEN </dev/tty; echo
   umask 077
-  printf 'DISCORD_BOT_TOKEN=%s\nANTHROPIC_API_KEY=%s\n' "$DTOKEN" "$AKEY" > "$ENV_FILE"
+  printf 'DISCORD_BOT_TOKEN=%s\nROUTINE_FIRE_TOKEN=%s\nROUTINE_ID=%s\n' \
+    "$DTOKEN" "$RTOKEN" "$ROUTINE_ID" > "$ENV_FILE"
   chmod 600 "$ENV_FILE"
 fi
 

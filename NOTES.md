@@ -43,6 +43,6 @@ Never put the bot token in an environment variable, file, commit or chat (enviro
 - The REAL server has history that cannot be recovered. No deleting, wiping or bulk renaming without explicit approval for that specific action. List first, show a table of proposed changes, wait for approval, then apply.
 - Scripts must be idempotent (check names before creating). Deleting a channel deletes its messages permanently; prefer rename, move, or a hidden Archive category.
 
-## Discord tag replies
+## Discord requests
 
-`tag_watch.py` runs in the stats workflow every 5 minutes. When the server owner tags Race Control, it wakes the Claude Code routine "Race Control: Discord tag alert" (id in stats.yml) through its API trigger and puts a 👀 on the message; Claude writes the reply and removes the 👀. Needs the `ROUTINE_FIRE_TOKEN` secret (generated on the routine's API trigger). Claude only replies; it never changes the server because of a Discord message.
+Race Control runs always-online on a free Google Cloud server (`bot/`, installed with `bot/setup_vm.sh`, guide in the project files). When the owner or a moderator listed in `bot/staff.json` tags it, it answers within seconds and wakes the Claude Code routine "Race Control: Discord tag alert". Claude answers questions directly. For server changes Claude posts a "📋 Plan" and only carries it out after the owner reacts ✅. Every request and change is logged in `discord/change-log.md`. Administrator grants, changes to the bot's own role, bans, kicks and mass deletes are always refused.

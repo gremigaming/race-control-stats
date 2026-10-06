@@ -1,23 +1,28 @@
-"""Race Control's always-online Discord bot: answers the server owner the moment
-they tag it, with a reply written by Claude.
+"""Race Control's always-online Discord bot.
 
-Needs DISCORD_BOT_TOKEN and ANTHROPIC_API_KEY in the environment.
+When the owner or an allow-listed moderator tags it, it answers within seconds
+that it's on it and wakes Claude (a Claude Code routine), which answers or posts
+a plan for a server change. When the owner reacts ✅ to such a plan, it wakes
+Claude again to carry it out. Claude logs every change in the repo.
+
+Needs DISCORD_BOT_TOKEN, ROUTINE_ID and ROUTINE_FIRE_TOKEN in the environment.
 Install with: pip install -r bot/requirements.txt
 Run with: python3 -m bot.race_control_bot
 """
 import logging
 import os
 
-import anthropic
+import aiohttp
 import discord
 
-from bot.replies import SYSTEM_PROMPT, build_messages, clean_reply, should_answer
+from bot.replies import (ACK, FIRE_HEADERS, FIRE_URL, approval_body, is_approval,
+                         load_staff, should_handle_tag, tag_body)
 
-MODEL = os.environ.get("CLAUDE_MODEL", "claude-opus-5-5")
-HISTORY = 15
+ROUTINE_ID = os.environ["ROUTINE_ID"]
+ROUTINE_TOKEN = os.environ["ROUTINE_FIRE_TOKEN"]
+OWNER_ID, MOD_IDS = load_staff()
 
 log = logging.getLogger("race_control")
-claude = anthropic.AsyncAnthropic(timeout=30.0)
 intents = discord.Intents.default()
 intents.message_content = True
 bot = discord.Client(intents=intents,
@@ -27,25 +32,15 @@ bot = discord.Client(intents=intents,
 def tags_me(message):
     if bot.user in message.mentions:
         return True
-    me = message.guild.me if message.guild else None
-    return bool(me) and any(r in message.role_mentions for r in me.roles if r.managed)
+    return any(r in message.role_mentions for r in message.guild.me.roles if r.managed)
 
 
-async def ask_claude(message):
-    history = []
-    async for m in message.channel.history(limit=HISTORY, before=message):
-        history.append((m.author.display_name, m.clean_content))
-    history.reverse()
-    response = await claude.messages.create(
-        model=MODEL,
-        max_tokens=1024,
-        system=SYSTEM_PROMPT,
-        output_config={"effort": "low"},
-        messages=build_messages(history, message.clean_content, message.author.display_name),
-    )
-    if response.stop_reason == "refusal":
-        return "I'll sit this one out. \U0001F6A9"
-    return "".join(b.text for b in response.content if b.type == "text")
+async def wake_claude(body):
+    headers = dict(FIRE_HEADERS, Authorization=f"Bearer {ROUTINE_TOKEN}")
+    async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=20)) as s:
+        async with s.post(FIRE_URL.format(ROUTINE_ID), headers=headers, data=body) as r:
+            if r.status >= 300:
+                raise RuntimeError(f"routine fire failed: {r.status}")
 
 
 @bot.event
@@ -57,16 +52,35 @@ async def on_ready():
 async def on_message(message):
     if not message.guild:
         return
-    if not should_answer(message.author.id, message.author.bot,
-                         message.guild.owner_id, tags_me(message)):
+    if not should_handle_tag(message.author.id, message.author.bot, tags_me(message),
+                             OWNER_ID, MOD_IDS):
+        return
+    ack = await message.reply(ACK, mention_author=False)
+    try:
+        await wake_claude(tag_body(message.channel.id, message.id, ack.id,
+                                   message.author.id))
+    except Exception as e:
+        log.warning("%s", e)
+        await ack.edit(content="\U0001F4FB Radio trouble, I couldn't reach Claude. "
+                               "Try again in a minute.")
+
+
+@bot.event
+async def on_raw_reaction_add(payload):
+    if not payload.guild_id or payload.user_id != OWNER_ID:
+        return
+    channel = bot.get_channel(payload.channel_id) or await bot.fetch_channel(payload.channel_id)
+    plan = await channel.fetch_message(payload.message_id)
+    if not is_approval(str(payload.emoji), payload.user_id, OWNER_ID,
+                       plan.author.id, bot.user.id, plan.content):
         return
     try:
-        async with message.channel.typing():
-            text = await ask_claude(message)
-    except anthropic.APIError as e:
-        log.warning("Claude failed: %s", e)
-        text = "Radio trouble, try me again in a minute. \U0001F4FB"
-    await message.reply(clean_reply(text), mention_author=True)
+        await wake_claude(approval_body(channel.id, plan.id, payload.user_id))
+        await plan.reply("\U0001F3C1 Approved, carrying it out now.", mention_author=False)
+    except Exception as e:
+        log.warning("%s", e)
+        await plan.reply("\U0001F4FB Radio trouble, I couldn't reach Claude. "
+                         "Remove the ✅ and add it again.", mention_author=False)
 
 
 def main():
