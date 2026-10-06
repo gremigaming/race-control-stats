@@ -33,7 +33,7 @@ class RepliesTests(unittest.TestCase):
         self.assertFalse(replies.is_approval(replies.APPROVE, OWNER, OWNER, BOT, BOT, "hi"))
 
     def test_bodies_carry_only_ids(self):
-        tag = json.loads(replies.tag_body(10, 20, 30, 40))["text"]
-        self.assertIn("channel=10 message=20 ack=30 author=40", tag)
+        tag = json.loads(replies.tag_body(10, 20, 40))["text"]
+        self.assertIn("channel=10 message=20 author=40", tag)
         ok = json.loads(replies.approval_body(10, 50, 1))["text"]
         self.assertIn("channel=10 plan=50 approver=1", ok)

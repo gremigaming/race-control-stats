@@ -2,7 +2,7 @@
 network code here, so it can be tested on its own.
 
 Flow: the owner or a moderator on the allow-list tags Race Control. The bot
-answers within seconds and wakes Claude. Claude answers questions directly; for
+wakes Claude and shows typing until Claude replies. Claude answers questions directly; for
 a server change it posts a plan starting with PLAN_MARK, and only carries it out
 after the owner reacts to that plan with APPROVE.
 """
@@ -10,7 +10,6 @@ import json
 import pathlib
 
 STAFF_FILE = pathlib.Path(__file__).with_name("staff.json")
-ACK = "\U0001F6A6 Copy that, Race Control is on it. Answer coming up in about a minute."
 PLAN_MARK = "\U0001F4CB Plan"
 APPROVE = "✅"
 FIRE_URL = "https://api.anthropic.com/v1/claude_code/routines/{}/fire"
@@ -38,12 +37,12 @@ def is_approval(emoji, reactor_id, owner_id, message_author_id, bot_id, content)
             and message_author_id == bot_id and content.startswith(PLAN_MARK))
 
 
-def tag_body(channel_id, message_id, ack_id, author_id):
+def tag_body(channel_id, message_id, author_id):
     """Only ids go to Claude; Claude reads the message itself and checks the
     author again, so nothing typed in Discord can pretend to be staff."""
     return json.dumps({"text": (
         "Discord tag to handle.\n"
-        f"channel={channel_id} message={message_id} ack={ack_id} author={author_id}")})
+        f"channel={channel_id} message={message_id} author={author_id}")})
 
 
 def approval_body(channel_id, plan_id, approver_id):

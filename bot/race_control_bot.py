@@ -1,21 +1,22 @@
 """Race Control's always-online Discord bot.
 
-When the owner or an allow-listed moderator tags it, it answers within seconds
-that it's on it and wakes Claude (a Claude Code routine), which answers or posts
-a plan for a server change. When the owner reacts ✅ to such a plan, it wakes
+When the owner or an allow-listed moderator tags it, it wakes Claude (a Claude
+Code routine) and shows "typing..." until Claude's reply lands. Claude answers,
+or posts a plan for a server change. When the owner reacts ✅ to such a plan, it wakes
 Claude again to carry it out. Claude logs every change in the repo.
 
 Needs DISCORD_BOT_TOKEN, ROUTINE_ID and ROUTINE_FIRE_TOKEN in the environment.
 Install with: pip install -r bot/requirements.txt
 Run with: python3 -m bot.race_control_bot
 """
+import asyncio
 import logging
 import os
 
 import aiohttp
 import discord
 
-from bot.replies import (ACK, FIRE_HEADERS, FIRE_URL, approval_body, is_approval,
+from bot.replies import (FIRE_HEADERS, FIRE_URL, approval_body, is_approval,
                          load_staff, should_handle_tag, tag_body)
 
 ROUTINE_ID = os.environ["ROUTINE_ID"]
@@ -48,21 +49,47 @@ async def on_ready():
     log.info("Race Control is online as %s", bot.user)
 
 
+# Tags and plans Claude is working on: message id -> set when Claude's reply lands
+waiting = {}
+TYPING_FOR = 300  # seconds to keep showing "Race Control is typing..."
+
+
+async def type_until_answered(channel, message_id):
+    done = waiting.setdefault(message_id, asyncio.Event())
+    try:
+        async with channel.typing():
+            await asyncio.wait_for(done.wait(), TYPING_FOR)
+    except asyncio.TimeoutError:
+        log.warning("no answer for %s after %ss", message_id, TYPING_FOR)
+    finally:
+        waiting.pop(message_id, None)
+
+
+async def hand_over(channel, message_id, body, failed_text, reply_to):
+    try:
+        await wake_claude(body)
+    except Exception as e:
+        log.warning("%s", e)
+        await reply_to.reply(failed_text, mention_author=False)
+        return
+    await type_until_answered(channel, message_id)
+
+
 @bot.event
 async def on_message(message):
     if not message.guild:
         return
+    ref = message.reference.message_id if message.reference else None
+    if message.author == bot.user and ref in waiting:
+        waiting[ref].set()  # Claude answered, stop typing
+        return
     if not should_handle_tag(message.author.id, message.author.bot, tags_me(message),
                              OWNER_ID, MOD_IDS):
         return
-    ack = await message.reply(ACK, mention_author=False)
-    try:
-        await wake_claude(tag_body(message.channel.id, message.id, ack.id,
-                                   message.author.id))
-    except Exception as e:
-        log.warning("%s", e)
-        await ack.edit(content="\U0001F4FB Radio trouble, I couldn't reach Claude. "
-                               "Try again in a minute.")
+    await hand_over(message.channel, message.id,
+                    tag_body(message.channel.id, message.id, message.author.id),
+                    "\U0001F4FB Radio trouble, I couldn't reach Claude. Try again in a minute.",
+                    message)
 
 
 @bot.event
@@ -74,13 +101,9 @@ async def on_raw_reaction_add(payload):
     if not is_approval(str(payload.emoji), payload.user_id, OWNER_ID,
                        plan.author.id, bot.user.id, plan.content):
         return
-    try:
-        await wake_claude(approval_body(channel.id, plan.id, payload.user_id))
-        await plan.reply("\U0001F3C1 Approved, carrying it out now.", mention_author=False)
-    except Exception as e:
-        log.warning("%s", e)
-        await plan.reply("\U0001F4FB Radio trouble, I couldn't reach Claude. "
-                         "Remove the ✅ and add it again.", mention_author=False)
+    await hand_over(channel, plan.id, approval_body(channel.id, plan.id, payload.user_id),
+                    "\U0001F4FB Radio trouble, I couldn't reach Claude. "
+                    "Remove the \u2705 and add it again.", plan)
 
 
 def main():
