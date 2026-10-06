@@ -34,6 +34,16 @@ jobs:
           TIKTOK_REFRESH_TOKEN_OUT: ${{ runner.temp }}/tiktok_refresh_token
         run: python3 update_stats.py
 
+      # Wakes Claude when Milan tags Race Control in Discord, so Claude can answer
+      - name: Hand Discord tags to Claude
+        if: always()
+        env:
+          DISCORD_BOT_TOKEN: ${{ secrets.DISCORD_BOT_TOKEN }}
+          GUILD_ID: "1079917337165172876"
+          ROUTINE_ID: trig_01CLWEFWpyN4G8xmHr77Mg4T
+          ROUTINE_FIRE_TOKEN: ${{ secrets.ROUTINE_FIRE_TOKEN }}
+        run: python3 tag_watch.py
+
       # TikTok can hand out a new login token on each run; store it or the next run fails
       - name: Save new TikTok login
         if: always()
