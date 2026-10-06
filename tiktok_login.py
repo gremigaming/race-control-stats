@@ -18,7 +18,8 @@ CLIENT_KEY = os.environ.get("TIKTOK_CLIENT_KEY", "")
 CLIENT_SECRET = os.environ.get("TIKTOK_CLIENT_SECRET", "")
 REDIRECT_URI = os.environ.get("TIKTOK_REDIRECT_URI", "")
 OUT = os.environ.get("TIKTOK_REFRESH_TOKEN_OUT", "")
-SCOPES = "user.info.basic,user.info.stats"
+# video.list lets the socials board show the latest TikTok
+SCOPES = "user.info.basic,user.info.stats,video.list"
 
 
 def authorize_url():

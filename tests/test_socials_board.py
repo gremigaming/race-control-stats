@@ -1,4 +1,4 @@
-"""Tests for socials_board.py with simulated sources (no network)."""
+"""Tests for socials_board.py and board_image.py with simulated sources (no network)."""
 import contextlib
 import io
 import os
@@ -9,50 +9,60 @@ from unittest import mock
 os.environ.setdefault("DISCORD_BOT_TOKEN", "test-discord-token")
 os.environ.setdefault("GUILD_ID", "111")
 
+import board_image  # noqa: E402
 import socials_board  # noqa: E402
 
-STREAM = {"title": " Spa 6h, stint 2 ", "game_name": "Le Mans Ultimate",
+STREAM = {"title": "Spa 6h, stint 2", "game_name": "Le Mans Ultimate",
           "viewer_count": 1234, "started_at": "2026-10-06T18:00:00Z",
           "thumbnail_url": "https://static-cdn.jtvnw.net/x-{width}x{height}.jpg"}
 
 
+def png():
+    from PIL import Image
+    out = io.BytesIO()
+    Image.new("RGB", (320, 180), (90, 40, 160)).save(out, "PNG")
+    return out.getvalue()
+
+
 class FakeHttp:
-    def __init__(self, vod=True, banner="https://img/banner.png", yt_video=True,
-                 processing=False):
-        self.vod, self.banner, self.yt_video, self.processing = vod, banner, yt_video, processing
+    def __init__(self, vod=True, yt_video=True, processing=False, tiktok=True,
+                 tiktok_error=None):
+        self.vod, self.yt_video, self.processing = vod, yt_video, processing
+        self.tiktok, self.tiktok_error = tiktok, tiktok_error
 
     def __call__(self, method, url, headers=None, data=None, form=False):
         if "/helix/users" in url:
-            return {"data": [{"id": "42", "profile_image_url": "https://img/avatar.png",
-                              "offline_image_url": self.banner}]}
+            return {"data": [{"id": "42", "offline_image_url": "https://img/banner.png"}]}
         if "/helix/videos" in url:
             if not self.vod:
                 return {"data": []}
             thumb = ("https://vod-secure.twitch.tv/_404/404_processing_%{width}x%{height}.png"
                      if self.processing else "https://img/vod-%{width}x%{height}.jpg")
-            return {"data": [{"title": "Monza league race", "url": "https://twitch.tv/videos/9",
-                              "thumbnail_url": thumb}]}
+            return {"data": [{"id": "9", "title": "Monza league race",
+                              "url": "https://twitch.tv/videos/9", "thumbnail_url": thumb}]}
         if "/youtube/v3/channels" in url:
-            return {"items": [{"snippet": {"thumbnails": {"high": {"url": "https://img/yt.png"}}},
-                               "contentDetails": {"relatedPlaylists": {"uploads": "UU1"}}}]}
+            return {"items": [{"contentDetails": {"relatedPlaylists": {"uploads": "UU1"}}}]}
         if "/youtube/v3/playlistItems" in url:
             if not self.yt_video:
                 return {"items": []}
             return {"items": [{"snippet": {
                 "title": "My first Le Mans", "resourceId": {"videoId": "abc"},
-                "thumbnails": {"high": {"url": "https://i.ytimg.com/vi/abc/hq.jpg"},
-                               "maxres": {"url": "https://i.ytimg.com/vi/abc/max.jpg"}}}}]}
+                "thumbnails": {"medium": {"url": "https://i.ytimg.com/vi/abc/mq.jpg"}}}}]}
+        if "/video/list/" in url:
+            assert method == "POST" and headers["Authorization"] == "Bearer tt-access"
+            if self.tiktok_error:
+                return {"error": {"code": self.tiktok_error}}
+            videos = [{"id": "77", "title": "", "video_description": "Last lap at Spa",
+                       "share_url": "https://www.tiktok.com/@x/video/77",
+                       "cover_image_url": "https://p16.tiktokcdn.com/cover.jpg?x-expires=1"}]
+            return {"data": {"videos": videos if self.tiktok else []},
+                    "error": {"code": "ok"}}
         raise AssertionError(f"unexpected HTTP call {method} {url}")
 
 
 def fake_stats(stream=None, twitch=1639, youtube=2690, tiktok=3904, board=None,
-               tiktok_error=None, http=None, configured=True):
+               http=None, configured=True, tiktok_token="tt-access"):
     calls = []
-
-    def tiktok_followers():
-        if tiktok_error:
-            raise RuntimeError(tiktok_error)
-        return tiktok
 
     def discord(method, path, data=None):
         calls.append((method, path, data))
@@ -61,154 +71,171 @@ def fake_stats(stream=None, twitch=1639, youtube=2690, tiktok=3904, board=None,
         if path.endswith("/messages?limit=50"):
             old = {"id": "1", "author": {"id": "someone"}, "content": "links", "embeds": []}
             return [board, old] if board else [old]
-        if method == "PATCH":
-            return {}
         raise AssertionError(f"unexpected Discord call {method} {path}")
 
     return types.SimpleNamespace(
         twitch_followers=lambda: twitch, youtube_subscribers=lambda: youtube,
-        tiktok_followers=tiktok_followers, twitch_stream=lambda: stream,
+        tiktok_followers=lambda: tiktok, twitch_stream=lambda: stream,
         twitch_headers=lambda: {"Client-Id": "x"} if configured else None,
         http=http or FakeHttp(), discord=discord, calls=calls,
+        _tiktok_access={"token": tiktok_token} if tiktok_token else {},
+        TIKTOK_API="https://open.tiktokapis.com/v2",
         TWITCH_LOGIN="gremi_gaming", YOUTUBE_API_KEY="yt-key" if configured else "",
         YOUTUBE_CHANNEL_ID="UCgremi" if configured else "")
-
-
-def posted(message):
-    """The message as Discord would return it after posting."""
-    return {"id": "99", "author": {"id": "bot"}, **message}
 
 
 class BoardTest(unittest.TestCase):
     def setUp(self):
         for patcher in (mock.patch.object(socials_board, "SOCIALS_CHANNEL_ID", "555"),
                         mock.patch.dict(os.environ, {"YOUTUBE_CHANNEL_ID": "UCgremi",
-                                                     "YOUTUBE_URL": ""})):
+                                                     "YOUTUBE_URL": ""}),
+                        mock.patch.object(socials_board, "fetch_bytes",
+                                          lambda url: png() if url else None)):
             patcher.start()
             self.addCleanup(patcher.stop)
 
-    def build(self, stats):
-        with contextlib.redirect_stdout(io.StringIO()):
-            return socials_board.build(stats)
-
-    def update(self, stats):
+    def quiet(self, fn, *args):
         out = io.StringIO()
         with contextlib.redirect_stdout(out):
-            socials_board.update(stats)
-        return out.getvalue()
+            result = fn(*args)
+        return result, out.getvalue()
 
-    def test_one_coloured_card_per_platform(self):
-        msg = self.build(fake_stats())
-        self.assertEqual(msg["content"], socials_board.HEADER)
-        twitch, youtube, tiktok = msg["embeds"]
-        self.assertEqual([c["color"] for c in msg["embeds"]],
+    def gather(self, stats):
+        return self.quiet(socials_board.gather, stats)[0]
+
+    def test_columns_side_by_side_in_brand_colours(self):
+        cols = self.gather(fake_stats())
+        self.assertEqual([c["name"] for c in cols], ["Twitch", "YouTube", "TikTok"])
+        self.assertEqual([c["color"] for c in cols],
                          [socials_board.TWITCH_PURPLE, socials_board.YOUTUBE_RED,
                           socials_board.TIKTOK_CYAN])
-        self.assertIn("**1,639** followers", twitch["description"])
-        self.assertIn("**2,690** subscribers", youtube["description"])
-        self.assertIn("**3,904** followers", tiktok["description"])
-        labels = [b["label"] for b in msg["components"][0]["components"]]
-        self.assertEqual(labels, ["Twitch", "YouTube", "TikTok"])
+        self.assertEqual([c["count"] for c in cols], [1639, 2690, 3904])
+        self.assertEqual(cols[0]["badge"], "OFFLINE")
+
+    def test_previews(self):
+        twitch, youtube, tiktok = (c["preview"] for c in self.gather(fake_stats()))
+        self.assertEqual((twitch["label"], twitch["title"], twitch["thumb"]),
+                         ("Last stream", "Monza league race", "https://img/vod-320x180.jpg"))
+        self.assertEqual((youtube["label"], youtube["url"]),
+                         ("Latest video", "https://www.youtube.com/watch?v=abc"))
+        self.assertEqual((tiktok["label"], tiktok["title"]), ("Latest TikTok", "Last lap at Spa"))
+
+    def test_processing_broadcast_uses_banner(self):
+        twitch = self.gather(fake_stats(http=FakeHttp(processing=True)))[0]["preview"]
+        self.assertEqual(twitch["thumb"], "https://img/banner.png")
+
+    def test_live(self):
+        cols = self.gather(fake_stats(stream=STREAM))
+        self.assertEqual(cols[0]["badge"], "LIVE · 1,234")
+        self.assertTrue(cols[0]["live"])
+        self.assertEqual(cols[0]["preview"]["label"], "Live now")
+        self.assertEqual(cols[0]["preview"]["thumb"], "https://static-cdn.jtvnw.net/x-320x180.jpg")
+        rows = socials_board.components_for(cols)
+        self.assertEqual(rows[0]["components"][0]["label"], "Watch live")
+        self.assertEqual([b["label"] for b in rows[1]["components"]],
+                         ["Latest video", "Latest TikTok"])
+
+    def test_tiktok_without_permission_has_no_preview(self):
+        stats = fake_stats(http=FakeHttp(tiktok_error="scope_not_authorized"))
+        cols, out = self.quiet(socials_board.gather, stats)
+        self.assertIsNone(cols[2]["preview"])
+        self.assertIn("scope_not_authorized", out)
+        self.assertIsNone(self.gather(fake_stats(tiktok_token=None))[2]["preview"])
+
+    def test_unconfigured_sources(self):
+        cols = self.gather(fake_stats(configured=False, twitch=None, youtube=None,
+                                      tiktok_token=None))
+        self.assertEqual([c["preview"] for c in cols], [None, None, None])
+        msg, picture, _ = self.quiet(socials_board.build, fake_stats(configured=False))[0]
+        self.assertTrue(picture.startswith(b"\x89PNG"))
+
+    def test_buttons(self):
+        rows = socials_board.components_for(self.gather(fake_stats()))
+        self.assertEqual([b["label"] for b in rows[0]["components"]],
+                         ["Twitch", "YouTube", "TikTok"])
+        self.assertEqual([b["label"] for b in rows[1]["components"]],
+                         ["Last stream", "Latest video", "Latest TikTok"])
+
+    def test_fingerprint_ignores_changing_picture_addresses(self):
+        a = self.gather(fake_stats())
+        b = self.gather(fake_stats())
+        b[2]["preview"]["thumb"] += "&x-expires=2"
+        self.assertEqual(socials_board.fingerprint(a), socials_board.fingerprint(b))
+        self.assertNotEqual(socials_board.fingerprint(a),
+                            socials_board.fingerprint(self.gather(fake_stats(tiktok=3905))))
+
+    def test_build(self):
+        (msg, picture, name), _ = self.quiet(socials_board.build, fake_stats())
+        self.assertTrue(picture.startswith(b"\x89PNG"))
+        self.assertTrue(name.startswith("socials-board-") and name.endswith(".png"))
+        self.assertEqual(msg["content"], socials_board.HEADER)
+        self.assertEqual(msg["embeds"], [])
+        self.assertEqual(msg["attachments"], [{"id": 0, "filename": name}])
         self.assertEqual(msg["allowed_mentions"], {"parse": []})
 
-    def test_offline_twitch_shows_last_stream(self):
-        twitch = self.build(fake_stats())["embeds"][0]
-        self.assertIn("Offline", twitch["description"])
-        self.assertIn("[Monza league race](https://twitch.tv/videos/9)", twitch["description"])
-        self.assertEqual(twitch["image"]["url"], "https://img/vod-1280x720.jpg")
-        self.assertEqual(twitch["thumbnail"]["url"], "https://img/avatar.png")
-
-    def test_offline_twitch_falls_back_to_banner(self):
-        for http in (FakeHttp(vod=False), FakeHttp(processing=True)):
-            twitch = self.build(fake_stats(http=http))["embeds"][0]
-            self.assertEqual(twitch["image"]["url"], "https://img/banner.png")
-
-    def test_live_twitch(self):
-        msg = self.build(fake_stats(stream=STREAM))
-        twitch = msg["embeds"][0]
-        self.assertIn("Live now", twitch["description"])
-        self.assertIn("> Spa 6h, stint 2", twitch["description"])
-        self.assertIn("1,234 watching", twitch["description"])
-        self.assertNotIn("Last stream", twitch["description"])
-        self.assertEqual(twitch["image"]["url"],
-                         "https://static-cdn.jtvnw.net/x-1280x720.jpg?s=20261006180000")
-        self.assertEqual(msg["components"][0]["components"][0]["label"], "Watch live")
-
-    def test_youtube_latest_video(self):
-        youtube = self.build(fake_stats())["embeds"][1]
-        self.assertIn("[My first Le Mans](https://www.youtube.com/watch?v=abc)",
-                      youtube["description"])
-        self.assertEqual(youtube["image"]["url"], "https://i.ytimg.com/vi/abc/max.jpg")
-        self.assertEqual(youtube["thumbnail"]["url"], "https://img/yt.png")
-
-    def test_youtube_without_uploads(self):
-        youtube = self.build(fake_stats(http=FakeHttp(yt_video=False)))["embeds"][1]
-        self.assertNotIn("image", youtube)
-        self.assertNotIn("Latest video", youtube["description"])
-
-    def test_unconfigured_sources_still_build(self):
-        msg = self.build(fake_stats(configured=False, twitch=None, youtube=None))
-        self.assertEqual(len(msg["embeds"]), 3)
-        self.assertIn("**—** followers", msg["embeds"][0]["description"])
-
-    def test_failing_source_shows_placeholder(self):
-        tiktok = self.build(fake_stats(tiktok_error="down"))["embeds"][2]
-        self.assertIn("**—** followers", tiktok["description"])
-
-    def test_detail_failure_keeps_the_card(self):
-        def broken(*a, **k):
-            raise RuntimeError("down")
-        msg = self.build(fake_stats(http=broken))
-        self.assertIn("**1,639** followers", msg["embeds"][0]["description"])
-        self.assertNotIn("thumbnail", msg["embeds"][0])
-
-    def test_long_titles_are_shortened(self):
-        self.assertEqual(len(socials_board.short("x" * 200)), 90)
-        self.assertEqual(socials_board.short(" a \n b "), "a b")
-
-    def test_no_youtube_button_without_channel(self):
-        with mock.patch.dict(os.environ, {"YOUTUBE_CHANNEL_ID": "", "YOUTUBE_URL": ""}):
-            msg = self.build(fake_stats())
-        labels = [b["label"] for b in msg["components"][0]["components"]]
-        self.assertEqual(labels, ["Twitch", "TikTok"])
+    def run_update(self, stats):
+        sent = []
+        with mock.patch.object(socials_board, "send",
+                               lambda *a: sent.append(a) or {}):
+            _, out = self.quiet(socials_board.update, stats)
+        return sent, out
 
     def test_not_posted_yet_is_skipped(self):
-        stats = fake_stats()
-        out = self.update(stats)
+        sent, out = self.run_update(fake_stats())
         self.assertIn("not posted yet", out)
-        self.assertFalse([c for c in stats.calls if c[0] != "GET"])
+        self.assertEqual(sent, [])
 
     def test_unchanged_board_is_not_edited(self):
-        board = posted(self.build(fake_stats()))
-        stats = fake_stats(board=board)
-        self.assertIn("unchanged: socials board", self.update(stats))
-        self.assertFalse([c for c in stats.calls if c[0] == "PATCH"])
+        (msg, _, name), _ = self.quiet(socials_board.build, fake_stats())
+        board = {"id": "99", "author": {"id": "bot"}, "content": msg["content"], "embeds": [],
+                 "attachments": [{"filename": name}], "components": msg["components"]}
+        sent, out = self.run_update(fake_stats(board=board))
+        self.assertIn("unchanged: socials board", out)
+        self.assertEqual(sent, [])
 
-    def test_changed_numbers_edit_the_board(self):
-        board = posted(self.build(fake_stats(twitch=1600)))
-        stats = fake_stats(board=board)
-        self.assertIn("updated:   socials board", self.update(stats))
-        patches = [c for c in stats.calls if c[0] == "PATCH"]
-        self.assertEqual(patches[0][1], "/channels/555/messages/99")
+    def test_changed_numbers_redraw_the_picture(self):
+        (msg, _, name), _ = self.quiet(socials_board.build, fake_stats(twitch=1600))
+        board = {"id": "99", "author": {"id": "bot"}, "content": msg["content"], "embeds": [],
+                 "attachments": [{"filename": name}], "components": msg["components"]}
+        sent, out = self.run_update(fake_stats(board=board))
+        self.assertIn("updated:   socials board", out)
+        method, path = sent[0][1], sent[0][2]
+        self.assertEqual((method, path), ("PATCH", "/channels/555/messages/99"))
 
-    def test_going_live_edits_the_board(self):
-        board = posted(self.build(fake_stats()))
-        stats = fake_stats(stream=STREAM, board=board)
-        self.assertIn("updated:", self.update(stats))
-
-    def test_old_single_card_board_is_found_and_replaced(self):
-        old = {"id": "99", "author": {"id": "bot"}, "content": "",
-               "embeds": [{"title": "Official channels", "color": 0xC8102E}]}
-        stats = fake_stats(board=old)
-        self.assertIn("updated:", self.update(stats))
-        patch = [c for c in stats.calls if c[0] == "PATCH"][0]
-        self.assertEqual(len(patch[2]["embeds"]), 3)
+    def test_old_card_board_is_replaced(self):
+        old = {"id": "99", "author": {"id": "bot"}, "content": socials_board.HEADER,
+               "embeds": [{"title": "Twitch"}], "attachments": []}
+        sent, _ = self.run_update(fake_stats(board=old))
+        self.assertEqual(sent[0][3]["embeds"], [])
 
     def test_switched_off_without_channel(self):
         stats = fake_stats()
         with mock.patch.object(socials_board, "SOCIALS_CHANNEL_ID", ""):
-            self.update(stats)
+            self.run_update(stats)
         self.assertEqual(stats.calls, [])
+
+
+class ImageTest(unittest.TestCase):
+    def test_clean_titles(self):
+        self.assertEqual(board_image.clean(
+            "\U0001F680 F1 26 VIEWER LOBBIES \U0001F680 ∣ ⚔️ GREMI'S GRID "
+            "⚔️∣ !join !discord"), "F1 26 VIEWER LOBBIES | GREMI'S GRID")
+
+    def test_wrap_adds_ellipsis(self):
+        from PIL import Image, ImageDraw
+        d = ImageDraw.Draw(Image.new("RGB", (10, 10)))
+        lines = board_image.wrap(d, "one two three four five six seven eight nine ten",
+                                 board_image.font("SemiBold", 19), 120, 2)
+        self.assertEqual(len(lines), 2)
+        self.assertTrue(lines[-1].endswith("…"))
+
+    def test_render_size(self):
+        from PIL import Image
+        cols = [{"name": n, "color": 0x9146FF, "count": 5, "word": "followers",
+                 "preview": {"label": "Latest", "title": "x", "image": b"broken"}}
+                for n in ("Twitch", "YouTube", "TikTok")]
+        img = Image.open(io.BytesIO(board_image.render(cols)))
+        self.assertEqual(img.size, (board_image.W, board_image.H))
 
 
 if __name__ == "__main__":

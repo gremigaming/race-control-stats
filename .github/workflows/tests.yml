@@ -13,5 +13,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Install Pillow (draws the socials board picture)
+        run: python3 -m pip install --quiet "pillow>=10,<13"
+
       - name: Run tests
         run: python3 -m unittest discover -s tests -t . -v

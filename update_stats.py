@@ -189,6 +189,9 @@ def youtube_subscribers():
     return int(stats["subscriberCount"])
 
 
+# The TikTok access token of this run, so the socials board can read the latest video
+_tiktok_access = {}
+
 TIKTOK_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "tiktok.json")
 TIKTOK_API = "https://open.tiktokapis.com/v2"
 
@@ -223,6 +226,7 @@ def tiktok_api_followers():
     if new_refresh and new_refresh != TIKTOK_REFRESH_TOKEN and TIKTOK_REFRESH_TOKEN_OUT:
         with open(TIKTOK_REFRESH_TOKEN_OUT, "w", encoding="utf-8") as f:
             f.write(new_refresh)
+    _tiktok_access["token"] = token["access_token"]
     info = http("GET", TIKTOK_API + "/user/info/?fields=follower_count",
                 {"Authorization": f"Bearer {token['access_token']}"})
     error = info.get("error", {})
