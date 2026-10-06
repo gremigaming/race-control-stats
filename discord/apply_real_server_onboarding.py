@@ -1,5 +1,6 @@
 # Phase 5 of the real server rollout: replace the old Onboarding with the racing-themed,
 # mostly channel-based questions Milan approved on 2026-10-06 (see the rollout plan doc).
+# Every name-colour answer (the required question) gives Member, so finishing Onboarding = verified.
 # Answers that should give nothing extra give the Member role, as the old "Highest role color" answer did,
 # because Discord wants every option to add a channel or a role.
 # Discord allows only 4 questions on the join screen here, so stats is an answer in the paddock question.
@@ -20,6 +21,9 @@ MEMBER='1097214965640855764'
 NOTIFY='1117766461147070554'  # Notify Me (was the opt-in Twitch role): the only role announcements ping
 F1='1508728733111161023'; LMU='1508728759182692422'  # F1 chat and LMU chat are locked to these roles
 LEAGUE='1556952638413742180'  # League Racer: Community Leagues is locked to it
+# Interest roles that unlock their channels (verification plan, 2026-10-06)
+_rb={r['name']:r['id'] for r in req('GET',f'/guilds/{G}/roles')}
+PIT,PRIZE,STATS=_rb['Pit Wall'],_rb['Prize Hunter'],_rb['Stats Nerd']
 COLOURS=[('Red','1080505166513590355','🔴'),('Orange','1080523600110571611','🟠'),('Yellow','1080523771712118824','🟡'),
  ('Green','1080523900267540510','🟢'),('Blue','1080524010137342002','🔵'),('Purple','1080524094128279603','🟣'),('Pink','1080524165565652992','🩷')]
 CH=dict(RULES='1079917581386924052',START='1080049074054635530',SOCIALS='1083312808759926844',INTRO='1556941692139995157',
@@ -29,7 +33,8 @@ CH=dict(RULES='1079917581386924052',START='1080049074054635530',SOCIALS='1083312
  F1NEWS='1080049792924778566',PADDOCK='1079917340298321943',RR1='1079921783119028284',RR2='1079922201668636752',
  WATCH='1096155578037981214', ST_TWITCH='1556945376290938890',ST_YT='1556945381949186139',ST_TT='1556945398076145664',
  ST_MEMBERS='1556945406640787467',ST_STATUS='1556945412949147738',AFK='1096020822071717928',SUPPORT='1556941718874751006',BOTCMD='1085852731887058944')
-DEFAULTS=[CH[k] for k in ('RULES','START','SOCIALS','INTRO','ANN','GENERAL','FEEDBACK','CLIPS','SUPPORT','BOTCMD','PADDOCK','RR1','RR2','WATCH','AFK')]
+# Discord requires default channels to be visible to @everyone, so this is the public lobby; the rest is locked to roles
+DEFAULTS=[CH[k] for k in ('RULES','START','SOCIALS','INTRO','ANN','GENERAL','FEEDBACK','SUPPORT','BOTCMD')]
 
 _n=[int(time.time()*1000-1420070400000)<<22]
 def sid(): _n[0]+=1; return str(_n[0])
@@ -40,16 +45,16 @@ def prompt(title,options,single,required,in_onboarding=True):
 
 PROMPTS=[
  prompt('What makes your heart race?',[
-   opt('Formula 1','🏎️','F1 chat, setups and the latest F1 news',('F1NEWS',),roles=(F1,)),
+   opt('Formula 1','🏎️','F1 chat, setups and the latest F1 news',roles=(F1,)),
    opt('Le Mans Ultimate and endurance','⏱️','LMU chat and setups',roles=(LMU,))],False,False),
  prompt('What brings you to the paddock?',[
-   opt('Pit wall viewer','📺','Streams, the schedule and new content',('SCHEDULE','NEWCONTENT','PROMO')),
+   opt('Pit wall viewer','📺','Streams, the schedule and new content',roles=(PIT,)),
    opt('League racer','🏆','Put me on the grid',roles=(LEAGUE,)),
-   opt('Prize hunter','🎁','Giveaways and events',('GIVEAWAYS',)),
-   opt('Stats nerd','📊',"GreMi's followers, live status and server members",('ST_TWITCH','ST_YT','ST_TT','ST_MEMBERS','ST_STATUS')),
+   opt('Prize hunter','🎁','Giveaways and events',roles=(PRIZE,)),
+   opt('Stats nerd','📊',"GreMi's followers, live status and server members",roles=(STATS,)),
    opt('Just here for the vibes','😎','Nothing extra, voice channels are always open',roles=(MEMBER,))],False,False),
  prompt('Pick your livery: what colour is your name?',
-   [opt(n,e,roles=(r,)) for n,r,e in COLOURS]+[opt('Let my highest role decide','🏁','Show the colour of your highest role',roles=(MEMBER,))],True,True),
+   [opt(n,e,roles=(r,MEMBER)) for n,r,e in COLOURS]+[opt('Let my highest role decide','🏁','Show the colour of your highest role',roles=(MEMBER,))],True,True),
  prompt('Want the radio on?',[
    opt('Box box: ping me','📻','Streams, uploads and big server news',roles=(NOTIFY,)),
    opt('Radio silence please','🔇',roles=(MEMBER,))],True,False),
