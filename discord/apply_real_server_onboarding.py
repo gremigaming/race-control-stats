@@ -19,6 +19,7 @@ def req(method,path,body=None):
 MEMBER='1097214965640855764'
 NOTIFY='1117766461147070554'  # opt-in Twitch role; becomes Notify Me in Phase 3
 F1='1508728733111161023'; LMU='1508728759182692422'  # F1 chat and LMU chat are locked to these roles
+LEAGUE='1556952638413742180'  # League Racer: Community Leagues is locked to it
 COLOURS=[('Red','1080505166513590355','🔴'),('Orange','1080523600110571611','🟠'),('Yellow','1080523771712118824','🟡'),
  ('Green','1080523900267540510','🟢'),('Blue','1080524010137342002','🔵'),('Purple','1080524094128279603','🟣'),('Pink','1080524165565652992','🩷')]
 CH=dict(RULES='1079917581386924052',START='1080049074054635530',SOCIALS='1083312808759926844',INTRO='1556941692139995157',
@@ -44,7 +45,7 @@ PROMPTS=[
  prompt('What brings you to the paddock?',[
    opt('Pit wall viewer','📺','Streams, the schedule and new content',('SCHEDULE','NEWCONTENT','PROMO')),
    opt('Setup tinkerer','🛠️','Setups and tips',('SETUPS',)),
-   opt('League racer','🏆','Put me on the grid',('LEAGUES',)),
+   opt('League racer','🏆','Put me on the grid',roles=(LEAGUE,)),
    opt('Prize hunter','🎁','Giveaways and events',('GIVEAWAYS',)),
    opt('Stats nerd','📊',"GreMi's followers, live status and server members",('ST_TWITCH','ST_YT','ST_TT','ST_MEMBERS','ST_STATUS')),
    opt('Just here for the vibes','😎','Nothing extra, voice channels are always open',roles=(MEMBER,))],False,False),
