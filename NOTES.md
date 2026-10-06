@@ -8,8 +8,9 @@ Repo for the owner of GreMi_Gaming (Twitch, YouTube, TikTok streamer; F1 and Le 
 ## Working style
 - Direct, natural tone, polished but not overly formal. No em dashes.
 - Show code in chat in full inline, not as a downloadable file.
-- The owner is not a developer by trade: exact click paths, small steps. Open pull requests instead of asking them to paste code (a pasted line break once caused a SyntaxError).
+- The owner is not a developer by trade: exact click paths, small steps. Push changes yourself instead of asking them to paste or upload code (a pasted line break, and once a truncated upload, caused a SyntaxError).
 - Never ask for tokens or keys in chat.
+- Git: push every change straight to `main` and keep `main` as the only branch (owner's choice, 2026-10-06). No pull requests or extra branches.
 
 ## Updater rules
 - Python standard library only.
