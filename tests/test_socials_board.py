@@ -161,9 +161,9 @@ class BoardTest(unittest.TestCase):
         self.assertEqual([e["color"] for e in (twitch, youtube, tiktok)],
                          [socials_board.TWITCH_PURPLE, socials_board.YOUTUBE_RED,
                           socials_board.TIKTOK_CYAN])
-        self.assertEqual(twitch["author"]["name"], B("Twitch"))
+        self.assertEqual(twitch["author"]["name"], "Twitch")
         self.assertEqual(twitch["description"],
-                         f"## {B('1,639 followers')}\n"
+                         "## 1,639 followers\n"
                          f"[{B('Monza league race')}](https://twitch.tv/videos/9)\n"
                          f"-# {B('Last stream')} \u00b7 {B('offline right now')}\n"
                          + socials_board.WIDTH_LINE)
@@ -265,7 +265,7 @@ class ImageTest(unittest.TestCase):
             [(png(), 0x9146FF), (b"broken", 0xFF0033), (None, 0x25F4EE)])))
         self.assertEqual(img.width, board_image.ROW_W)
 
-    def test_thumbnail_is_16_by_9(self):
+    def test_thumbnail_is_4_by_3(self):
         from PIL import Image
         img = Image.open(io.BytesIO(board_image.thumbnail(png())))
         self.assertEqual(img.size, board_image.SIZE)

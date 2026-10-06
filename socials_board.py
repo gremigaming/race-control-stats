@@ -253,7 +253,7 @@ def card_text(col):
     heading, the latest stream or video as one link, a small grey line, and an
     invisible line that sets the width."""
     count = f"{col['count']:,}" if col.get("count") is not None else "\u2014"
-    lines = [f"## {sans_bold(count + ' ' + col['word'])}"]
+    lines = [f"## {count} {col['word']}"]
     preview, stream = col["preview"], col.get("stream")
     if stream:
         viewers = stream.get("viewer_count")
@@ -277,7 +277,7 @@ def card_text(col):
 def embed_for(col, thumb_name):
     e = EMOJI[col["key"]]
     embed = {"color": col["color"],
-             "author": {"name": sans_bold(col["name"]),
+             "author": {"name": col["name"],
                         "icon_url": f"https://cdn.discordapp.com/emojis/{e['id']}.png?size=64"},
              "description": card_text(col)}
     if platform_url(col["key"]):
