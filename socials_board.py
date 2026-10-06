@@ -11,10 +11,9 @@ hand (after the owner approved it):
 """
 import os
 import sys
-from datetime import datetime, timezone
 
 SOCIALS_CHANNEL_ID = os.environ.get("SOCIALS_CHANNEL_ID", "")
-FOOTER = "Race Control \u00b7 updated automatically"
+TITLE = "Official channels"
 
 RED = 0xC8102E      # racing red while offline
 PURPLE = 0x9146FF   # Twitch purple while live
@@ -90,17 +89,12 @@ def build(stats):
         {"name": f"{emoji_text('tiktok')} TikTok", "value": count(tiktok, "followers"),
          "inline": True},
     ]
-    grid = [v for v in (twitch, youtube, tiktok) if v is not None]
-    footer = FOOTER + (f" \u00b7 {sum(grid):,} total" if grid else "")
-
     embed = {
         "author": {"name": "GreMi_Gaming"},
-        "title": "Official channels",
+        "title": TITLE,
         "description": status,
         "color": PURPLE if stream else RED,
         "fields": fields,
-        "footer": {"text": footer},
-        "timestamp": datetime.now(timezone.utc).isoformat(),
     }
     icon = server_icon(stats)
     if icon:
@@ -123,7 +117,7 @@ def build(stats):
 
 
 def signature(message):
-    """What a reader sees, without the timestamp, so unchanged boards aren't edited."""
+    """What a reader sees, so unchanged boards aren't edited."""
     embed = (message.get("embeds") or [{}])[0]
     fields = tuple((f.get("name"), f.get("value")) for f in embed.get("fields", []))
     buttons = tuple((b.get("label"), b.get("url"))
@@ -131,6 +125,7 @@ def signature(message):
                     for b in row.get("components", []))
     return (embed.get("title"), embed.get("description"), embed.get("color"), fields,
             (embed.get("image") or {}).get("url"), (embed.get("footer") or {}).get("text"),
+            embed.get("timestamp") is not None,
             (embed.get("author") or {}).get("icon_url"), buttons)
 
 
@@ -138,8 +133,8 @@ def find_board(stats):
     """The board message in the Socials channel, or None if it isn't posted yet."""
     me = stats.discord("GET", "/users/@me")["id"]
     for msg in stats.discord("GET", f"/channels/{SOCIALS_CHANNEL_ID}/messages?limit=50"):
-        footer = ((msg.get("embeds") or [{}])[0].get("footer") or {}).get("text", "")
-        if msg["author"]["id"] == me and footer.startswith(FOOTER):
+        title = (msg.get("embeds") or [{}])[0].get("title", "")
+        if msg["author"]["id"] == me and title == TITLE:
             return msg
     return None
 

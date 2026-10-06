@@ -70,7 +70,8 @@ class BoardTest(unittest.TestCase):
         values = [f["value"] for f in embed["fields"]]
         self.assertEqual(values, ["**1,639**\nfollowers", "**2,690**\nsubscribers",
                                   "**3,904**\nfollowers"])
-        self.assertTrue(embed["footer"]["text"].endswith("8,233 total"))
+        self.assertNotIn("footer", embed)
+        self.assertNotIn("timestamp", embed)
         self.assertEqual(embed["author"]["icon_url"],
                          "https://cdn.discordapp.com/icons/111/abc.png?size=128")
         self.assertNotIn("image", embed)
@@ -94,7 +95,6 @@ class BoardTest(unittest.TestCase):
             embed = socials_board.build(fake_stats(tiktok_error="down"))["embeds"][0]
         tiktok = next(f for f in embed["fields"] if "TikTok" in f["name"])
         self.assertEqual(tiktok["value"], "**\u2014**\nfollowers")
-        self.assertTrue(embed["footer"]["text"].endswith("4,329 total"))
 
     def test_no_youtube_button_without_channel(self):
         with mock.patch.dict(os.environ, {"YOUTUBE_CHANNEL_ID": "", "YOUTUBE_URL": ""}):
@@ -110,7 +110,6 @@ class BoardTest(unittest.TestCase):
 
     def test_unchanged_board_is_not_edited(self):
         board = posted(socials_board.build(fake_stats()))
-        board["embeds"][0]["timestamp"] = "2020-01-01T00:00:00+00:00"
         stats = fake_stats(board=board)
         self.assertIn("unchanged: socials board", self.update(stats))
         self.assertFalse([c for c in stats.calls if c[0] == "PATCH"])
@@ -127,9 +126,11 @@ class BoardTest(unittest.TestCase):
         stats = fake_stats(stream=STREAM, board=board)
         self.assertIn("updated:", self.update(stats))
 
-    def test_new_total_edits_the_board(self):
+    def test_old_footer_is_removed(self):
         board = posted(socials_board.build(fake_stats()))
-        stats = fake_stats(youtube=2700, board=board)
+        board["embeds"][0]["footer"] = {"text": "Race Control \u00b7 updated automatically"}
+        board["embeds"][0]["timestamp"] = "2026-10-06T13:36:00+00:00"
+        stats = fake_stats(board=board)
         self.assertIn("updated:", self.update(stats))
 
     def test_switched_off_without_channel(self):
