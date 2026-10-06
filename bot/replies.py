@@ -23,7 +23,9 @@ FIRE_HEADERS = {
 
 def load_staff(path=STAFF_FILE):
     data = json.loads(path.read_text())
-    return int(data["owner"]), {int(i) for i in data["moderators"].values()}
+    mods = data["moderators"]
+    ids = mods.values() if isinstance(mods, dict) else mods
+    return int(data["owner"]), {int(i) for i in ids}
 
 
 def should_handle_tag(author_id, author_is_bot, mentions_bot, owner_id, mod_ids):
