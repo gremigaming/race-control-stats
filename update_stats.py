@@ -176,4 +176,42 @@ def set_name(channel, emoji, label):
 def update_members(stat):
     ch = stat.get("\U0001F465")
     if ch:
-        set_name(ch, "\U0001F465", f"members:
+        set_name(ch, "\U0001F465", f"members: {member_count():,}")
+
+
+def update_status(stat):
+    ch = stat.get("\U0001F534")
+    live = twitch_is_live()
+    if ch and live is not None:
+        set_name(ch, "\U0001F534", "status: live now" if live else "status: offline")
+
+
+def update_twitch(stat):
+    ch = stat.get("\U0001F7E3")
+    followers = twitch_followers()
+    if ch and followers is not None:
+        set_name(ch, "\U0001F7E3", f"twitch: {followers:,}")
+
+
+def update_youtube(stat):
+    ch = stat.get("\u25B6\uFE0F")
+    subs = youtube_subscribers()
+    if ch and subs is not None:
+        set_name(ch, "\u25B6\uFE0F", f"youtube: {subs:,}")
+
+
+def main():
+    stat = find_stat_channels()
+    failed = False
+    for task in (update_members, update_status, update_twitch, update_youtube):
+        try:
+            task(stat)
+        except Exception as e:
+            failed = True
+            print(f"FAILED {task.__name__}: {e}")
+    if failed:
+        raise SystemExit(1)
+
+
+if __name__ == "__main__":
+    main()
