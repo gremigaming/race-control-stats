@@ -1,4 +1,4 @@
-"""Updates the stat voice channels (members, Twitch live status, YouTube subscribers).
+"""Updates the stat voice channels (members, Twitch live status and followers, YouTube).
 
 Runs on a schedule via GitHub Actions. Only renames a channel when its
 value actually changed, to stay well inside Discord's rename rate limit.
@@ -81,20 +81,52 @@ def member_count():
     return guild["approximate_member_count"]
 
 
-def twitch_is_live():
-    """True/False, or None if Twitch isn't configured."""
+_twitch_cache = {}
+
+
+def twitch_headers():
+    """App-token headers for the Twitch API, or None if Twitch isn't configured."""
     if not (TWITCH_CLIENT_ID and TWITCH_CLIENT_SECRET and TWITCH_LOGIN):
         return None
-    token = http("POST", "https://id.twitch.tv/oauth2/token", data={
-        "client_id": TWITCH_CLIENT_ID,
-        "client_secret": TWITCH_CLIENT_SECRET,
-        "grant_type": "client_credentials",
-    }, form=True)["access_token"]
+    if "headers" not in _twitch_cache:
+        token = http("POST", "https://id.twitch.tv/oauth2/token", data={
+            "client_id": TWITCH_CLIENT_ID,
+            "client_secret": TWITCH_CLIENT_SECRET,
+            "grant_type": "client_credentials",
+        }, form=True)["access_token"]
+        _twitch_cache["headers"] = {"Client-Id": TWITCH_CLIENT_ID,
+                                    "Authorization": f"Bearer {token}"}
+    return _twitch_cache["headers"]
+
+
+def twitch_is_live():
+    """True/False, or None if Twitch isn't configured."""
+    headers = twitch_headers()
+    if headers is None:
+        return None
     streams = http("GET",
                    "https://api.twitch.tv/helix/streams?user_login="
-                   + urllib.parse.quote(TWITCH_LOGIN),
-                   {"Client-Id": TWITCH_CLIENT_ID, "Authorization": f"Bearer {token}"})
+                   + urllib.parse.quote(TWITCH_LOGIN), headers)
     return len(streams.get("data", [])) > 0
+
+
+def twitch_followers():
+    """Follower total, or None if Twitch isn't configured.
+
+    Only the total is read, which Twitch returns without special permissions.
+    """
+    headers = twitch_headers()
+    if headers is None:
+        return None
+    users = http("GET",
+                 "https://api.twitch.tv/helix/users?login="
+                 + urllib.parse.quote(TWITCH_LOGIN), headers).get("data", [])
+    if not users:
+        raise RuntimeError("Twitch user not found, check TWITCH_LOGIN")
+    result = http("GET",
+                  "https://api.twitch.tv/helix/channels/followers?first=1&broadcaster_id="
+                  + users[0]["id"], headers)
+    return int(result["total"])
 
 
 def youtube_subscribers():
@@ -116,7 +148,7 @@ def youtube_subscribers():
     return int(stats["subscriberCount"])
 
 
-# Later: twitch_followers(), tiktok_followers(), race stats
+# Later: tiktok_followers(), race stats
 
 
 # ---------- channel handling ----------
@@ -144,35 +176,4 @@ def set_name(channel, emoji, label):
 def update_members(stat):
     ch = stat.get("\U0001F465")
     if ch:
-        set_name(ch, "\U0001F465", f"members: {member_count():,}")
-
-
-def update_status(stat):
-    ch = stat.get("\U0001F534")
-    live = twitch_is_live()
-    if ch and live is not None:
-        set_name(ch, "\U0001F534", "status: live now" if live else "status: offline")
-
-
-def update_youtube(stat):
-    ch = stat.get("\u25B6\uFE0F")
-    subs = youtube_subscribers()
-    if ch and subs is not None:
-        set_name(ch, "\u25B6\uFE0F", f"youtube: {subs:,}")
-
-
-def main():
-    stat = find_stat_channels()
-    failed = False
-    for task in (update_members, update_status, update_youtube):
-        try:
-            task(stat)
-        except Exception as e:
-            failed = True
-            print(f"FAILED {task.__name__}: {e}")
-    if failed:
-        raise SystemExit(1)
-
-
-if __name__ == "__main__":
-    main()
+        set_name(ch, "\U0001F465", f"members:
