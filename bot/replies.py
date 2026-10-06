@@ -8,6 +8,7 @@ after the owner reacts to that plan with APPROVE.
 """
 import json
 import pathlib
+import unicodedata
 
 STAFF_FILE = pathlib.Path(__file__).with_name("staff.json")
 PLAN_MARK = "\U0001F4CB Plan"
@@ -49,3 +50,9 @@ def approval_body(channel_id, plan_id, approver_id):
     return json.dumps({"text": (
         "Discord plan approved with the owner's checkmark.\n"
         f"channel={channel_id} plan={plan_id} approver={approver_id}")})
+
+
+def plain(name):
+    """Fancy channel names (bold letters, emoji, separators) to plain lowercase words."""
+    text = unicodedata.normalize("NFKC", name)
+    return "".join(c for c in text.lower() if c.isalnum() or c in " -_").strip(" -_")

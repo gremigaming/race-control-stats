@@ -1,11 +1,14 @@
 """Race Control's always-online Discord bot.
 
-When the owner or an allow-listed moderator tags it, it wakes Claude (a Claude
-Code routine) and shows "typing..." until Claude's reply lands. Claude answers,
-or posts a plan for a server change. When the owner reacts ✅ to such a plan, it wakes
-Claude again to carry it out. Claude logs every change in the repo.
+When the owner or an allow-listed moderator tags it, it shows "typing..." and
+answers within seconds through the Claude API with read-only lookups (bot/brain.py).
+Change requests, and anything it can't answer, wake Claude Code (a routine)
+instead, which posts a plan for a server change. When the owner reacts ✅ to such
+a plan, it wakes Claude again to carry it out. Claude logs every change in the repo.
 
 Needs DISCORD_BOT_TOKEN, ROUTINE_ID and ROUTINE_FIRE_TOKEN in the environment.
+With ANTHROPIC_API_KEY set, quick answers come from the Claude API; without it,
+every tag goes to Claude Code.
 Install with: pip install -r bot/requirements.txt
 Run with: python3 -m bot.race_control_bot
 """
@@ -13,8 +16,13 @@ import asyncio
 import logging
 import os
 
+import time
+
 import aiohttp
+import anthropic
 import discord
+
+from bot.brain import Brain, HandOff
 
 from bot.replies import (FIRE_HEADERS, FIRE_URL, approval_body, is_approval,
                          load_staff, should_handle_tag, tag_body)
@@ -22,10 +30,13 @@ from bot.replies import (FIRE_HEADERS, FIRE_URL, approval_body, is_approval,
 ROUTINE_ID = os.environ["ROUTINE_ID"]
 ROUTINE_TOKEN = os.environ["ROUTINE_FIRE_TOKEN"]
 OWNER_ID, MOD_IDS = load_staff()
+API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
+brain = Brain(API_KEY) if API_KEY else None
 
 log = logging.getLogger("race_control")
 intents = discord.Intents.default()
 intents.message_content = True
+intents.members = True
 bot = discord.Client(intents=intents,
                      allowed_mentions=discord.AllowedMentions.none())
 
@@ -86,6 +97,17 @@ async def on_message(message):
     if not should_handle_tag(message.author.id, message.author.bot, tags_me(message),
                              OWNER_ID, MOD_IDS):
         return
+    if brain:
+        try:
+            async with message.channel.typing():
+                text = await brain.answer(message)
+            secs = round(time.time() - message.created_at.timestamp())
+            await message.reply(f"{text}\n-# \u23F1\uFE0F {secs} s", mention_author=False)
+            return
+        except HandOff as e:
+            log.info("handing to Claude Code: %s", e)
+        except anthropic.APIError as e:
+            log.warning("Claude API failed, handing to Claude Code: %s", e)
     await hand_over(message.channel, message.id,
                     tag_body(message.channel.id, message.id, message.author.id),
                     "\U0001F4FB Radio trouble, I couldn't reach Claude. Try again in a minute.",

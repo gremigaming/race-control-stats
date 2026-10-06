@@ -29,9 +29,10 @@ if [ ! -s "$ENV_FILE" ] || [ "${1:-}" = "--keys" ]; then
   echo "== Keys (what you paste stays hidden)"
   read -rsp "Discord bot token: " DTOKEN </dev/tty; echo
   read -rsp "Claude routine token: " RTOKEN </dev/tty; echo
+  read -rsp "Claude API key for quick answers (press Enter to skip): " AKEY </dev/tty; echo
   umask 077
-  printf 'DISCORD_BOT_TOKEN=%s\nROUTINE_FIRE_TOKEN=%s\nROUTINE_ID=%s\n' \
-    "$DTOKEN" "$RTOKEN" "$ROUTINE_ID" > "$ENV_FILE"
+  printf 'DISCORD_BOT_TOKEN=%s\nROUTINE_FIRE_TOKEN=%s\nROUTINE_ID=%s\nANTHROPIC_API_KEY=%s\n' \
+    "$DTOKEN" "$RTOKEN" "$ROUTINE_ID" "$AKEY" > "$ENV_FILE"
   chmod 600 "$ENV_FILE"
 fi
 

@@ -37,3 +37,11 @@ class RepliesTests(unittest.TestCase):
         self.assertIn("channel=10 message=20 author=40", tag)
         ok = json.loads(replies.approval_body(10, 50, 1))["text"]
         self.assertIn("channel=10 plan=50 approver=1", ok)
+
+
+class PlainNameTests(unittest.TestCase):
+    def test_fancy_names_become_plain(self):
+        self.assertEqual(replies.plain("\U0001F5D3\uFE0F\u2503\U0001D5E6\U0001D5E7\U0001D5E5\U0001D5D8\U0001D5D4\U0001D5E0-\U0001D5E6\U0001D5D6\U0001D5DB\U0001D5D8\U0001D5D7\U0001D5E8\U0001D5DF\U0001D5D8"),
+                         "stream-schedule")
+        self.assertEqual(replies.plain("\U0001F7E3\u2503\U0001D5E7\U0001D5EA\U0001D5DC\U0001D5E7\U0001D5D6\U0001D5DB: \U0001D7ED,\U0001D7F2\U0001D7EF\U0001D7F5"),
+                         "twitch 1639")
