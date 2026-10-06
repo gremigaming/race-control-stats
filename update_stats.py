@@ -1,4 +1,5 @@
-"""Updates the stat voice channels (members, Twitch live status and followers, YouTube).
+"""Updates the stat voice channels (members, Twitch live status and followers,
+YouTube, TikTok).
 
 Runs on a schedule via GitHub Actions. Only renames a channel when its
 value actually changed, to stay well inside Discord's rename rate limit.
@@ -148,7 +149,31 @@ def youtube_subscribers():
     return int(stats["subscriberCount"])
 
 
-# Later: tiktok_followers(), race stats
+TIKTOK_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "tiktok.json")
+
+
+def tiktok_followers():
+    """Follower count from the hand edited tiktok.json, or None if not set.
+
+    TikTok's official API needs app review, so the number is typed in by
+    hand. Leave "followers" as null (or delete the file) to skip TikTok.
+    """
+    try:
+        with open(TIKTOK_FILE, encoding="utf-8") as f:
+            data = json.load(f)
+    except FileNotFoundError:
+        return None
+    except ValueError:
+        raise RuntimeError("tiktok.json is not valid JSON")
+    value = data.get("followers") if isinstance(data, dict) else None
+    if value is None:
+        return None
+    if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+        raise RuntimeError('tiktok.json "followers" must be a whole number, like 1234')
+    return value
+
+
+# Later: race stats
 
 
 # ---------- channel handling ----------
@@ -200,10 +225,18 @@ def update_youtube(stat):
         set_name(ch, "\u25B6\uFE0F", f"youtube: {subs:,}")
 
 
+def update_tiktok(stat):
+    ch = stat.get("\U0001F3B5")
+    followers = tiktok_followers()
+    if ch and followers is not None:
+        set_name(ch, "\U0001F3B5", f"tiktok: {followers:,}")
+
+
 def main():
     stat = find_stat_channels()
     failed = False
-    for task in (update_members, update_status, update_twitch, update_youtube):
+    for task in (update_members, update_status, update_twitch, update_youtube,
+                 update_tiktok):
         try:
             task(stat)
         except Exception as e:
