@@ -46,7 +46,7 @@ PROMPTS=[
    opt('Setup tinkerer','🛠️','Setups and tips',('SETUPS',)),
    opt('League racer','🏆','Put me on the grid',('LEAGUES',)),
    opt('Prize hunter','🎁','Giveaways and events',('GIVEAWAYS',)),
-   opt('Live timing fan','📊','The stats scoreboard: Twitch, YouTube, TikTok and members',('ST_TWITCH','ST_YT','ST_TT','ST_MEMBERS','ST_STATUS')),
+   opt('Stats nerd','📊',"GreMi's followers, live status and server members",('ST_TWITCH','ST_YT','ST_TT','ST_MEMBERS','ST_STATUS')),
    opt('Just here for the vibes','😎','Nothing extra, voice channels are always open',roles=(MEMBER,))],False,False),
  prompt('Pick your livery: what colour is your name?',
    [opt(n,e,roles=(r,)) for n,r,e in COLOURS]+[opt('Let my highest role decide','🏁','Show the colour of your highest role',roles=(MEMBER,))],True,True),
@@ -54,6 +54,15 @@ PROMPTS=[
    opt('Box box: ping me','📻','When GreMi goes live or uploads',roles=(NOTIFY,)),
    opt('Radio silence please','🔇',roles=(MEMBER,))],True,False),
 ]
+# Keep the ids of questions and answers that already exist (matched by title), so members keep their picks
+_cur=req('GET',f'/guilds/{G}/onboarding')['prompts']
+for p in PROMPTS:
+    old=next((q for q in _cur if q['title']==p['title']),None)
+    if not old: continue
+    p['id']=old['id']
+    for o in p['options']:
+        oo=next((x for x in old['options'] if x['title']==o['title']),None)
+        if oo: o['id']=oo['id']
 BODY={'prompts':PROMPTS,'default_channel_ids':DEFAULTS,'enabled':True,'mode':0}
 
 chans={c['id']:c for c in req('GET',f'/guilds/{G}/channels')}
