@@ -2,6 +2,7 @@
 # mostly channel-based questions Milan approved on 2026-10-06 (see the rollout plan doc).
 # Answers that should give nothing extra give the Member role, as the old "Highest role color" answer did,
 # because Discord wants every option to add a channel or a role.
+# Discord allows only 4 questions on the join screen here, so stats is an answer in the paddock question.
 # Usage: --dry prints the payload and checks every channel is visible to @everyone; no flag applies it.
 # Auth: relies on the cloud environment proxy adding the bot token for discord.com.
 import json,subprocess,sys,time
@@ -25,15 +26,16 @@ CH=dict(RULES='1079917581386924052',START='1080049074054635530',SOCIALS='1083312
  GIVEAWAYS='1082967543142162522',SCHEDULE='1105048860461645907',PROMO='1079924693890510962',NEWCONTENT='1080505995467431986',
  SETUPS='1477423394118041630',LEAGUES='1532005211235684362',F1CHAT='1556941705322692608',LMUCHAT='1556941712130310244',
  F1NEWS='1080049792924778566',PADDOCK='1079917340298321943',RR1='1079921783119028284',RR2='1079922201668636752',
- WATCH='1096155578037981214',AFK='1096020822071717928',SUPPORT='1556941718874751006',BOTCMD='1085852731887058944')
+ WATCH='1096155578037981214', ST_TWITCH='1556945376290938890',ST_YT='1556945381949186139',ST_TT='1556945398076145664',
+ ST_MEMBERS='1556945406640787467',ST_STATUS='1556945412949147738',AFK='1096020822071717928',SUPPORT='1556941718874751006',BOTCMD='1085852731887058944')
 DEFAULTS=[CH[k] for k in ('RULES','START','SOCIALS','INTRO','ANN','GENERAL','FEEDBACK','CLIPS','SUPPORT','BOTCMD','PADDOCK','RR1','RR2','WATCH','AFK')]
 
 _n=[int(time.time()*1000-1420070400000)<<22]
 def sid(): _n[0]+=1; return str(_n[0])
 def opt(title,emoji,desc='',chans=(),roles=()):
     return {'id':sid(),'title':title,'description':desc,'emoji_name':emoji,'channel_ids':[CH[c] for c in chans],'role_ids':list(roles)}
-def prompt(title,options,single,required):
-    return {'id':sid(),'type':0,'title':title,'options':options,'single_select':single,'required':required,'in_onboarding':True}
+def prompt(title,options,single,required,in_onboarding=True):
+    return {'id':sid(),'type':0,'title':title,'options':options,'single_select':single,'required':required,'in_onboarding':in_onboarding}
 
 PROMPTS=[
  prompt('What makes your heart race?',[
@@ -44,6 +46,7 @@ PROMPTS=[
    opt('Setup tinkerer','🛠️','Setups and tips',('SETUPS',)),
    opt('League racer','🏆','Put me on the grid',('LEAGUES',)),
    opt('Prize hunter','🎁','Giveaways and events',('GIVEAWAYS',)),
+   opt('Live timing fan','📊','The stats scoreboard: Twitch, YouTube, TikTok and members',('ST_TWITCH','ST_YT','ST_TT','ST_MEMBERS','ST_STATUS')),
    opt('Just here for the vibes','😎','Nothing extra, voice channels are always open',roles=(MEMBER,))],False,False),
  prompt('Pick your livery: what colour is your name?',
    [opt(n,e,roles=(r,)) for n,r,e in COLOURS]+[opt('Let my highest role decide','🏁','Show the colour of your highest role',roles=(MEMBER,))],True,True),
@@ -72,7 +75,9 @@ if DRY: sys.exit(0)
 if hidden: sys.exit('stopping: Onboarding can only show channels @everyone can see')
 
 before=req('GET',f'/guilds/{G}/onboarding')
-json.dump(before,open(OUT+'real-server-onboarding-before-phase5.json','w'),ensure_ascii=False,indent=1)
+import os
+bf=OUT+'real-server-onboarding-before-phase5.json'
+if not os.path.exists(bf): json.dump(before,open(bf,'w'),ensure_ascii=False,indent=1)
 req('PUT',f'/guilds/{G}/onboarding',BODY); time.sleep(1)
 after=req('GET',f'/guilds/{G}/onboarding')
 json.dump(after,open(OUT+'real-server-onboarding-after-phase5.json','w'),ensure_ascii=False,indent=1)
