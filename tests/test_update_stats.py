@@ -43,11 +43,16 @@ def stat_channels():
 
 
 class FakeDiscord:
-    def __init__(self, members=250, outage=False, channels=None):
+    def __init__(self, members=250, outage=False, channels=None, owner_roles=None,
+                 live_role=True, role_error=None):
         self.members = members
         self.outage = outage
         self.channels = channels or stat_channels()
         self.renames = {}
+        self.owner_roles = list(owner_roles or [])
+        self.live_role = live_role
+        self.role_error = role_error
+        self.role_changes = []
 
     def __call__(self, method, path, data=None):
         if self.outage:
@@ -56,6 +61,17 @@ class FakeDiscord:
             return self.channels
         if "with_counts" in path:
             return {"approximate_member_count": self.members}
+        if path.endswith("/roles"):
+            return [{"id": "77", "name": "LIVE RIGHT NOW"}] if self.live_role else []
+        if path.endswith("/members/555"):
+            return {"roles": self.owner_roles}
+        if "/members/555/roles/" in path:
+            if self.role_error:
+                raise RuntimeError(self.role_error)
+            self.role_changes.append((method, path.rsplit("/", 1)[1]))
+            return {}
+        if method == "GET" and path.count("/") == 2:
+            return {"owner_id": "555"}
         if method == "PATCH":
             self.renames[path.rsplit("/", 1)[1]] = data["name"]
             return {}
@@ -176,6 +192,40 @@ class UpdaterTest(unittest.TestCase):
         renames, code, _ = self.run_main(http=FakeHttp(live=False))
         self.assertEqual(code, 0)
         self.assertEqual(renames["2"], "\U0001F534┃" + B("status: offline"))
+
+    def test_live_role_added_when_live(self):
+        discord = FakeDiscord()
+        _, code, out = self.run_main(discord, FakeHttp(live=True))
+        self.assertEqual(code, 0)
+        self.assertEqual(discord.role_changes, [("PUT", "77")])
+        self.assertIn("live role added", out)
+
+    def test_live_role_removed_when_offline(self):
+        discord = FakeDiscord(owner_roles=["77"])
+        _, code, _ = self.run_main(discord, FakeHttp(live=False))
+        self.assertEqual(code, 0)
+        self.assertEqual(discord.role_changes, [("DELETE", "77")])
+
+    def test_live_role_left_alone_when_already_right(self):
+        discord = FakeDiscord(owner_roles=["77"])
+        _, code, _ = self.run_main(discord, FakeHttp(live=True))
+        self.assertEqual(code, 0)
+        self.assertEqual(discord.role_changes, [])
+
+    def test_live_role_failure_does_not_block_others(self):
+        discord = FakeDiscord(role_error="PUT failed: 403 Missing Permissions")
+        renames, code, out = self.run_main(discord, FakeHttp(live=True))
+        self.assertEqual(code, 1)
+        self.assertIn("FAILED update_live_role", out)
+        self.assertEqual(renames["2"], "\U0001F534┃" + B("status: live now"))
+        self.assertIn("3", renames)
+
+    def test_missing_live_role_fails_only_that_step(self):
+        renames, code, out = self.run_main(FakeDiscord(live_role=False), FakeHttp(live=True))
+        self.assertEqual(code, 1)
+        self.assertIn("no role named", out)
+        self.assertIn("2", renames)
+        self.assertIn("3", renames)
 
     def test_unchanged_name_is_not_renamed(self):
         channels = stat_channels()

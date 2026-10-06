@@ -27,6 +27,8 @@ TIKTOK_CLIENT_SECRET = os.environ.get("TIKTOK_CLIENT_SECRET", "")
 TIKTOK_REFRESH_TOKEN = os.environ.get("TIKTOK_REFRESH_TOKEN", "")
 # Where to write TikTok's new refresh token when it changes, so the workflow can save it
 TIKTOK_REFRESH_TOKEN_OUT = os.environ.get("TIKTOK_REFRESH_TOKEN_OUT", "")
+# Role the server owner gets while live on Twitch (matched by name, empty turns it off)
+LIVE_ROLE_NAME = os.environ.get("LIVE_ROLE_NAME", "LIVE RIGHT NOW")
 
 
 def http(method, url, headers=None, data=None, form=False):
@@ -106,14 +108,16 @@ def twitch_headers():
 
 
 def twitch_is_live():
-    """True/False, or None if Twitch isn't configured."""
-    headers = twitch_headers()
-    if headers is None:
-        return None
-    streams = http("GET",
-                   "https://api.twitch.tv/helix/streams?user_login="
-                   + urllib.parse.quote(TWITCH_LOGIN), headers)
-    return len(streams.get("data", [])) > 0
+    """True/False, or None if Twitch isn't configured. Asked once per run."""
+    if "live" not in _twitch_cache:
+        headers = twitch_headers()
+        if headers is None:
+            return None
+        streams = http("GET",
+                       "https://api.twitch.tv/helix/streams?user_login="
+                       + urllib.parse.quote(TWITCH_LOGIN), headers)
+        _twitch_cache["live"] = len(streams.get("data", [])) > 0
+    return _twitch_cache["live"]
 
 
 def twitch_followers():
@@ -253,6 +257,25 @@ def update_status(stat):
         set_name(ch, "\U0001F534", "status: live now" if live else "status: offline")
 
 
+def update_live_role(stat):
+    """Gives the server owner the live role while live on Twitch, removes it after."""
+    live = twitch_is_live()
+    if not LIVE_ROLE_NAME or live is None:
+        return
+    role = next((r for r in discord("GET", f"/guilds/{GUILD_ID}/roles")
+                 if r["name"] == LIVE_ROLE_NAME), None)
+    if role is None:
+        raise RuntimeError(f"no role named {LIVE_ROLE_NAME!r}")
+    owner = discord("GET", f"/guilds/{GUILD_ID}")["owner_id"]
+    has = role["id"] in discord("GET", f"/guilds/{GUILD_ID}/members/{owner}")["roles"]
+    if live == has:
+        print(f"unchanged: live role {'on' if has else 'off'}")
+        return
+    discord("PUT" if live else "DELETE",
+            f"/guilds/{GUILD_ID}/members/{owner}/roles/{role['id']}")
+    print(f"updated:   live role {'added' if live else 'removed'}")
+
+
 def update_twitch(stat):
     ch = stat.get("\U0001F7E3")
     followers = twitch_followers()
@@ -277,8 +300,8 @@ def update_tiktok(stat):
 def main():
     stat = find_stat_channels()
     failed = False
-    for task in (update_members, update_status, update_twitch, update_youtube,
-                 update_tiktok):
+    for task in (update_members, update_status, update_live_role, update_twitch,
+                 update_youtube, update_tiktok):
         try:
             task(stat)
         except Exception as e:
