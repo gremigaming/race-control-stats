@@ -3,6 +3,7 @@ look up live server facts. Anything it can't answer, and every request to change
 the server, is handed to Claude Code (the routine) instead.
 """
 import logging
+import os
 import time
 
 import aiohttp
@@ -11,7 +12,9 @@ import discord
 
 from bot.replies import plain
 
-MODEL = "claude-opus-5-5"
+# Small model on purpose: quick chat answers are cheap and fast. Set QUICK_MODEL on the
+# server to try another one.
+MODEL = os.environ.get("QUICK_MODEL", "claude-haiku-4-5")
 BRIEFING_URL = ("https://raw.githubusercontent.com/gremigaming/race-control-stats/"
                 "main/bot/briefing.md")
 BRIEFING_TTL = 600
@@ -114,8 +117,8 @@ class Brain:
         for _ in range(MAX_ROUNDS):
             response = await self.claude.messages.create(
                 model=MODEL, max_tokens=800, system=system, tools=TOOLS,
-                output_config={"effort": "low"}, cache_control={"type": "ephemeral"},
-                messages=messages)
+                cache_control={"type": "ephemeral"}, messages=messages,
+                **({} if "haiku" in MODEL else {"output_config": {"effort": "low"}}))
             u = response.usage
             log.info("claude usage: in %s, cache read %s, out %s", u.input_tokens,
                      u.cache_read_input_tokens, u.output_tokens)
