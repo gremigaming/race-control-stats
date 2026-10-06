@@ -283,7 +283,8 @@ def embed_for(col, thumb_name):
     if platform_url(col["key"]):
         embed["author"]["url"] = platform_url(col["key"])
     if thumb_name:
-        embed["thumbnail"] = {"url": f"attachment://{thumb_name}"}
+        # under the text rather than beside it, which squeezes the text on phones
+        embed["image"] = {"url": f"attachment://{thumb_name}"}
     return embed
 
 

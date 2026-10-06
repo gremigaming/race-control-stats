@@ -169,7 +169,8 @@ class BoardTest(unittest.TestCase):
                          + socials_board.WIDTH_LINE)
         self.assertIn(B("My first Le Mans"), youtube["description"])
         self.assertIn(B("Last lap at Spa"), tiktok["description"])
-        self.assertEqual(youtube["thumbnail"]["url"], "attachment://youtube.png")
+        self.assertEqual(youtube["image"]["url"], "attachment://youtube.png")
+        self.assertNotIn("thumbnail", youtube)
         # same number of lines on every card, so they are the same height
         self.assertEqual({e["description"].count("\n") for e in (twitch, youtube, tiktok)}, {3})
     def test_cards_without_videos(self):
@@ -179,7 +180,7 @@ class BoardTest(unittest.TestCase):
         self.assertIn(f"[{B('Follow on TikTok')}]", tiktok["description"])
         self.assertIn(B("Clips and highlights"), tiktok["description"])
         self.assertEqual(tiktok["description"].count("\n"), 3)
-        self.assertNotIn("thumbnail", tiktok)
+        self.assertNotIn("image", tiktok)
     def test_titles_are_cleaned_and_cut_to_one_line(self):
         B = socials_board.sans_bold
         self.assertEqual(socials_board.link("\U0001F680 [NEW] race !join", "https://x"),
@@ -201,7 +202,7 @@ class BoardTest(unittest.TestCase):
         self.assertEqual(len(names), 3)
         self.assertTrue(all(d.startswith(b"\x89PNG") for _, d in files))
         self.assertEqual(msg["content"], socials_board.HEADER)
-        self.assertEqual([e["thumbnail"]["url"] for e in msg["embeds"]],
+        self.assertEqual([e["image"]["url"] for e in msg["embeds"]],
                          [f"attachment://{n}" for n in names])
         self.assertEqual(msg["attachments"], [{"id": i, "filename": n}
                                               for i, n in enumerate(names)])
@@ -221,8 +222,8 @@ class BoardTest(unittest.TestCase):
     def posted(self, stats):
         (msg, files), _ = self.quiet(socials_board.build, stats)
         # Discord hides pictures used by embeds from the attachment list
-        embeds = [dict(e, thumbnail={"url": "https://cdn.discordapp.com/attachments/1/2/"
-                                     + e["thumbnail"]["url"].split("://")[1] + "?ex=abc"})
+        embeds = [dict(e, image={"url": "https://cdn.discordapp.com/attachments/1/2/"
+                                 + e["image"]["url"].split("://")[1] + "?ex=abc"})
                   for e in msg["embeds"]]
         return {"id": "99", "author": {"id": "bot"}, "content": msg["content"],
                 "embeds": embeds, "components": msg["components"], "attachments": []}
@@ -259,16 +260,12 @@ class ImageTest(unittest.TestCase):
             "\U0001F680 F1 26 VIEWER LOBBIES \U0001F680 ∣ ⚔️ GREMI'S GRID "
             "⚔️∣ !join !discord"), "F1 26 VIEWER LOBBIES | GREMI'S GRID")
 
-    def test_preview_row(self):
-        from PIL import Image
-        img = Image.open(io.BytesIO(board_image.preview_row(
-            [(png(), 0x9146FF), (b"broken", 0xFF0033), (None, 0x25F4EE)])))
-        self.assertEqual(img.width, board_image.ROW_W)
-
-    def test_thumbnail_is_4_by_3(self):
+    def test_thumbnail_sits_on_the_left_half(self):
         from PIL import Image
         img = Image.open(io.BytesIO(board_image.thumbnail(png())))
-        self.assertEqual(img.size, board_image.SIZE)
+        self.assertEqual(img.size, board_image.CANVAS)
+        self.assertEqual(img.getpixel((board_image.CANVAS[0] - 1, 100))[3], 0)  # see-through
+        self.assertEqual(img.getpixel((100, 100))[3], 255)
         self.assertIsNone(board_image.thumbnail(b"broken"))
 
 if __name__ == "__main__":
