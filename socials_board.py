@@ -1,8 +1,8 @@
 """The socials board in the Socials channel.
 
-One Race Control message with a text card per platform (Twitch, YouTube,
-TikTok) in the platform's colour: follower number, the latest stream or video
-linked, and that video's own small preview picture, plus link buttons. The stats workflow edits that same message every run,
+One Race Control message: a card with Twitch, YouTube and TikTok side by side
+as text columns (big follower number, latest stream or video linked), a row of
+small previews underneath with each platform's colour, and link buttons. The stats workflow edits that same message every run,
 and only when something on it changed.
 
 The workflow never posts a new board by itself. The first post is done once by
@@ -24,6 +24,9 @@ TITLE = "Official channels"
 HEADER = f"## \U0001F3C1 GreMi_Gaming · {TITLE}"
 FILE_PREFIX = "socials-board-"
 
+# A dot in each platform's colour next to the small text
+DOT = {"twitch": "\U0001F7E3", "youtube": "\U0001F534", "tiktok": "\U0001FA75"}
+NEUTRAL = 0x2B2D31  # Discord's own card colour, so the side line blends in
 TWITCH_PURPLE = 0x9146FF
 YOUTUBE_RED = 0xFF0033
 TIKTOK_CYAN = 0x25F4EE
@@ -238,45 +241,35 @@ def latest_text(col):
     return f"[Follow on {col['name']}]({url})" if url else ""
 
 
-def embed_for(col, thumb_name):
-    """One platform: its colour on the side, its name, the big number, the latest
-    stream or video, and its own small preview picture."""
+def field_for(col):
+    """One platform's column: logo and name, a big number, then the latest stream
+    or video. Blank lines give each part room."""
     e = EMOJI[col["key"]]
     count = f"{col['count']:,}" if col.get("count") is not None else "\u2014"
-    url = {"twitch": TWITCH_URL, "youtube": youtube_url(), "tiktok": TIKTOK_URL}[col["key"]]
-    embed = {
-        "color": col["color"],
-        "author": {"name": bold_caps(col["name"]),
-                   "icon_url": f"https://cdn.discordapp.com/emojis/{e['id']}.png?size=64"},
-        # blank lines and the small "-#" text give the numbers room to breathe
-        "description": f"## {count}\n-# {col['word']}\n\u200b\n{latest_text(col)}\n\u200b",
-    }
-    if url:
-        embed["author"]["url"] = url
-    if thumb_name:
-        embed["thumbnail"] = {"url": f"attachment://{thumb_name}"}
-    return embed
+    return {"name": f"<:{e['name']}:{e['id']}> {bold_caps(col['name'])}",
+            "value": f"## {count}\n-# {DOT[col['key']]} {col['word']}\n\u200b\n{latest_text(col)}",
+            "inline": True}
 
 
 def build(stats, columns=None):
-    """(message, [(file name, picture bytes), ...]) for the board: one embed per
-    platform, each with its own small preview picture."""
+    """(message, [(file name, picture bytes)]) for the board: one card with the
+    three platforms side by side and a row of their previews underneath."""
     import board_image
     columns = columns or gather(stats)
-    fp = fingerprint(columns)
-    files, embeds = [], []
-    for c in columns:
-        thumb = None
-        if c["preview"]:
-            thumb = board_image.thumbnail(fetch_bytes(c["preview"].get("thumb")))
-        name = f"{FILE_PREFIX}{c['key']}-{fp}.png" if thumb else None
-        if thumb:
-            files.append((name, thumb))
-        embeds.append(embed_for(c, name))
-    message = {"content": HEADER, "embeds": embeds, "components": components_for(columns),
-               "attachments": [{"id": i, "filename": n} for i, (n, _) in enumerate(files)],
+    live = columns[0]["live"]
+    tiles = [(fetch_bytes(c["preview"].get("thumb")) if c["preview"] else None, c["color"])
+             for c in columns]
+    name = f"{FILE_PREFIX}previews-{fingerprint(columns)}.png"
+    embed = {
+        # the side line turns Twitch purple while live
+        "color": TWITCH_PURPLE if live else NEUTRAL,
+        "fields": [field_for(c) for c in columns],
+        "image": {"url": f"attachment://{name}"},
+    }
+    message = {"content": HEADER, "embeds": [embed], "components": components_for(columns),
+               "attachments": [{"id": 0, "filename": name}],
                "allowed_mentions": {"parse": []}}
-    return message, files
+    return message, [(name, board_image.preview_row(tiles))]
 
 
 def buttons(message):
