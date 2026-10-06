@@ -25,6 +25,14 @@ python3 -m venv "$DIR/.venv"
 "$DIR/.venv/bin/pip" install -q --upgrade pip
 "$DIR/.venv/bin/pip" install -q -r "$DIR/bot/requirements.txt"
 
+if [ "${1:-}" = "--api-key" ] && [ -s "$ENV_FILE" ]; then
+  echo "== Claude API key (what you paste stays hidden)"
+  read -rsp "Claude API key: " AKEY </dev/tty; echo
+  sed -i '/^ANTHROPIC_API_KEY=/d' "$ENV_FILE"
+  printf 'ANTHROPIC_API_KEY=%s\n' "$AKEY" >> "$ENV_FILE"
+  chmod 600 "$ENV_FILE"
+fi
+
 if [ ! -s "$ENV_FILE" ] || [ "${1:-}" = "--keys" ]; then
   echo "== Keys (what you paste stays hidden)"
   read -rsp "Discord bot token: " DTOKEN </dev/tty; echo
