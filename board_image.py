@@ -9,13 +9,15 @@ import os
 from PIL import Image, ImageDraw, ImageFont, ImageOps
 
 # Bump when the drawing changes, so the live board is redrawn
-LAYOUT = 2
+LAYOUT = 3
 
 FONTS = os.path.join(os.path.dirname(os.path.abspath(__file__)), "assets", "fonts")
 
 # Discord shows a single picture about 550 pixels wide, so everything is drawn
 # large enough to stay readable at a little over half size.
-W, H = 1000, 500
+W = 1000
+HEAD_H = 236
+PREVIEW_H = 205
 PAD = 16             # outside edge
 GAP = 16             # between columns
 INNER = 22           # inside a column
@@ -109,9 +111,10 @@ def logo(col, size):
     return img
 
 
-def draw_column(img, x, col):
+def draw_header(img, x, col):
+    """The top of a column: brand colour line, logo, name, live badge, big number."""
     d = ImageDraw.Draw(img)
-    top, bottom = PAD, H - PAD
+    top, bottom = PAD, HEAD_H - PAD
     accent = rgba(col["color"])
     d.rounded_rectangle((x, top, x + COL_W, bottom), 18, fill=PANEL, outline=EDGE, width=2)
     # brand colour line along the top edge
@@ -133,42 +136,48 @@ def draw_column(img, x, col):
         d.text((bx + bw / 2, y + 20), label, font=f, fill=TEXT, anchor="mm")
 
     y += 58
-    number = f"{col['count']:,}" if col.get("count") is not None else "—"
+    number = f"{col['count']:,}" if col.get("count") is not None else "\u2014"
     d.text((cx, y), number, font=font("ExtraBold", 64), fill=TEXT, anchor="lt")
     d.text((cx, y + 74), col["word"], font=font("SemiBold", 25), fill=MUTED, anchor="lt")
 
-    # preview: label, then the picture across the column, then the title
-    preview = col.get("preview")
-    py = y + 122
-    tw = COL_W - 2 * INNER
-    th = tw * 9 // 16
-    label_font, title_font = font("Bold", 17), font("SemiBold", 20)
-    if not preview:
-        # keep the columns the same height: a quiet box with the logo
-        d.rounded_rectangle((cx, py + 26, cx + tw, py + 26 + th), 12, fill=(43, 45, 49, 255))
-        img.alpha_composite(logo(col, 56), (cx + tw // 2 - 28, py + 26 + th // 2 - 44))
-        d.text((cx + tw / 2, py + 26 + th // 2 + 30), f"Follow on {col['name']}",
-               font=font("SemiBold", 19), fill=MUTED, anchor="mm")
-        return
-    label = (wrap(d, preview["label"].upper(), label_font, tw, 1) or [""])[0]
-    d.text((cx, py), label, font=label_font,
-           fill=LIVE_RED if col.get("live") else accent, anchor="lt")
-    thumb = picture(preview.get("image"), (tw, th))
+
+def draw_preview(img, x, col):
+    """The bottom of a column: the latest stream or video picture."""
+    d = ImageDraw.Draw(img)
+    y, w, h = PAD, COL_W, PREVIEW_H - 2 * PAD
+    preview = col.get("preview") or {}
+    thumb = picture(preview.get("image"), (w, h))
     if thumb is not None:
-        img.alpha_composite(rounded(thumb, 12), (cx, py + 26))
-    else:
-        d.rounded_rectangle((cx, py + 26, cx + tw, py + 26 + th), 12, fill=(43, 45, 49, 255))
-    for i, line in enumerate(wrap(d, clean(preview.get("title", "")), title_font, tw, 2)):
-        d.text((cx, py + 26 + th + 30 + i * 25), line, font=title_font, fill=TEXT, anchor="ls")
+        img.alpha_composite(rounded(thumb, 16), (x, y))
+        # thin brand colour line under the picture ties it to its column
+        d.rounded_rectangle((x + 12, y + h - 6, x + w - 12, y + h - 2), 2,
+                            fill=rgba(col["color"]))
+        return
+    # nothing to show yet: a quiet box with the logo
+    d.rounded_rectangle((x, y, x + w, y + h), 16, fill=PANEL, outline=EDGE, width=2)
+    img.alpha_composite(logo(col, 56), (x + w // 2 - 28, y + h // 2 - 44))
+    d.text((x + w / 2, y + h // 2 + 30), f"Follow on {col['name']}",
+           font=font("SemiBold", 21), fill=MUTED, anchor="mm")
 
 
-def render(columns):
-    """PNG bytes of the board. columns: list of 3 dicts with name, color, count,
-    word, optional badge/live, logo (image bytes) and preview
-    {label, title, image (bytes)}."""
-    img = Image.new("RGBA", (W, H), (0, 0, 0, 0))
-    for i, col in enumerate(columns[:3]):
-        draw_column(img, PAD + i * (COL_W + GAP), col)
+def png(img):
     out = io.BytesIO()
     img.save(out, "PNG", optimize=True)
     return out.getvalue()
+
+
+def render_header(columns):
+    """PNG bytes of the three column headers side by side. columns: list of 3 dicts
+    with name, color, count, word, optional badge/live and logo (image bytes)."""
+    img = Image.new("RGBA", (W, HEAD_H), (0, 0, 0, 0))
+    for i, col in enumerate(columns[:3]):
+        draw_header(img, PAD + i * (COL_W + GAP), col)
+    return png(img)
+
+
+def render_previews(columns):
+    """PNG bytes of the three preview pictures side by side (preview["image"] bytes)."""
+    img = Image.new("RGBA", (W, PREVIEW_H), (0, 0, 0, 0))
+    for i, col in enumerate(columns[:3]):
+        draw_preview(img, PAD + i * (COL_W + GAP), col)
+    return png(img)

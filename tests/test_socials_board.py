@@ -126,14 +126,16 @@ class BoardTest(unittest.TestCase):
 
     def test_live(self):
         cols = self.gather(fake_stats(stream=STREAM))
-        self.assertEqual(cols[0]["badge"], "LIVE · 1,234")
+        self.assertEqual(cols[0]["badge"], "LIVE \u00b7 1,234")
         self.assertTrue(cols[0]["live"])
         self.assertEqual(cols[0]["preview"]["label"], "Live now")
         self.assertEqual(cols[0]["preview"]["thumb"], "https://static-cdn.jtvnw.net/x-320x180.jpg")
-        rows = socials_board.components_for(cols)
-        self.assertEqual(rows[0]["components"][0]["label"], "Watch live")
-        self.assertEqual([b["label"] for b in rows[1]["components"]],
-                         ["Latest video", "Latest TikTok"])
+        self.assertEqual(socials_board.components_for(cols)[0]["components"][0]["label"],
+                         "Watch live")
+        name, value = (lambda f: (f["name"], f["value"]))(socials_board.fields_for(cols)[0])
+        self.assertIn("Live now", name)
+        self.assertIn("[Spa 6h, stint 2](https://twitch.tv/GreMi_Gaming)", value)
+        self.assertIn("Le Mans Ultimate \u00b7 1,234 watching", value)
 
     def test_tiktok_without_permission_has_no_preview(self):
         stats = fake_stats(http=FakeHttp(tiktok_error="scope_not_authorized"))
@@ -146,15 +148,34 @@ class BoardTest(unittest.TestCase):
         cols = self.gather(fake_stats(configured=False, twitch=None, youtube=None,
                                       tiktok_token=None))
         self.assertEqual([c["preview"] for c in cols], [None, None, None])
-        msg, picture, _ = self.quiet(socials_board.build, fake_stats(configured=False))[0]
-        self.assertTrue(picture.startswith(b"\x89PNG"))
+        (msg, files), _ = self.quiet(socials_board.build, fake_stats(configured=False))
+        self.assertTrue(all(data.startswith(b"\x89PNG") for _, data in files))
 
     def test_buttons(self):
         rows = socials_board.components_for(self.gather(fake_stats()))
         self.assertEqual([b["label"] for b in rows[0]["components"]],
                          ["Twitch", "YouTube", "TikTok"])
-        self.assertEqual([b["label"] for b in rows[1]["components"]],
+
+    def test_text_columns(self):
+        fields = socials_board.fields_for(self.gather(fake_stats()))
+        self.assertEqual([f["name"] for f in fields],
                          ["Last stream", "Latest video", "Latest TikTok"])
+        self.assertTrue(all(f["inline"] for f in fields))
+        self.assertIn("[Monza league race](https://twitch.tv/videos/9)", fields[0]["value"])
+        self.assertIn("Offline", fields[0]["value"])
+        self.assertEqual(fields[1]["value"],
+                         "[My first Le Mans](https://www.youtube.com/watch?v=abc)")
+        self.assertIn("Last lap at Spa", fields[2]["value"])
+
+    def test_text_columns_without_videos(self):
+        fields = socials_board.fields_for(self.gather(fake_stats(
+            http=FakeHttp(vod=False, yt_video=False), tiktok_token=None)))
+        self.assertEqual([f["name"] for f in fields], ["Twitch", "YouTube", "TikTok"])
+        self.assertIn("Follow on TikTok", fields[2]["value"])
+
+    def test_titles_are_cleaned_for_links(self):
+        self.assertEqual(socials_board.link("\U0001F680 [NEW] race !join", "https://x"),
+                         "[(NEW) race](https://x)")
 
     def test_fingerprint_ignores_changing_picture_addresses(self):
         a = self.gather(fake_stats())
@@ -165,12 +186,17 @@ class BoardTest(unittest.TestCase):
                             socials_board.fingerprint(self.gather(fake_stats(tiktok=3905))))
 
     def test_build(self):
-        (msg, picture, name), _ = self.quiet(socials_board.build, fake_stats())
-        self.assertTrue(picture.startswith(b"\x89PNG"))
-        self.assertTrue(name.startswith("socials-board-") and name.endswith(".png"))
+        (msg, files), _ = self.quiet(socials_board.build, fake_stats())
+        names = [n for n, _ in files]
+        self.assertEqual(len(names), 2)
+        self.assertTrue(all(d.startswith(b"\x89PNG") for _, d in files))
         self.assertEqual(msg["content"], socials_board.HEADER)
-        self.assertEqual(msg["embeds"], [])
-        self.assertEqual(msg["attachments"], [{"id": 0, "filename": name}])
+        top, bottom = msg["embeds"]
+        self.assertEqual(top["image"]["url"], f"attachment://{names[0]}")
+        self.assertEqual(bottom["image"]["url"], f"attachment://{names[1]}")
+        self.assertEqual(len(bottom["fields"]), 3)
+        self.assertEqual(msg["attachments"], [{"id": 0, "filename": names[0]},
+                                              {"id": 1, "filename": names[1]}])
         self.assertEqual(msg["allowed_mentions"], {"parse": []})
 
     def run_update(self, stats):
@@ -185,28 +211,30 @@ class BoardTest(unittest.TestCase):
         self.assertIn("not posted yet", out)
         self.assertEqual(sent, [])
 
+    def posted(self, stats):
+        (msg, files), _ = self.quiet(socials_board.build, stats)
+        return {"id": "99", "author": {"id": "bot"}, "content": msg["content"],
+                "embeds": msg["embeds"], "components": msg["components"],
+                "attachments": [{"filename": n} for n, _ in files]}
+
     def test_unchanged_board_is_not_edited(self):
-        (msg, _, name), _ = self.quiet(socials_board.build, fake_stats())
-        board = {"id": "99", "author": {"id": "bot"}, "content": msg["content"], "embeds": [],
-                 "attachments": [{"filename": name}], "components": msg["components"]}
+        board = self.posted(fake_stats())
         sent, out = self.run_update(fake_stats(board=board))
         self.assertIn("unchanged: socials board", out)
         self.assertEqual(sent, [])
 
     def test_changed_numbers_redraw_the_picture(self):
-        (msg, _, name), _ = self.quiet(socials_board.build, fake_stats(twitch=1600))
-        board = {"id": "99", "author": {"id": "bot"}, "content": msg["content"], "embeds": [],
-                 "attachments": [{"filename": name}], "components": msg["components"]}
+        board = self.posted(fake_stats(twitch=1600))
         sent, out = self.run_update(fake_stats(board=board))
         self.assertIn("updated:   socials board", out)
         method, path = sent[0][1], sent[0][2]
         self.assertEqual((method, path), ("PATCH", "/channels/555/messages/99"))
 
-    def test_old_card_board_is_replaced(self):
+    def test_old_picture_board_is_replaced(self):
         old = {"id": "99", "author": {"id": "bot"}, "content": socials_board.HEADER,
-               "embeds": [{"title": "Twitch"}], "attachments": []}
+               "embeds": [], "attachments": [{"filename": "socials-board-abc.png"}]}
         sent, _ = self.run_update(fake_stats(board=old))
-        self.assertEqual(sent[0][3]["embeds"], [])
+        self.assertEqual(len(sent[0][3]["embeds"]), 2)
 
     def test_switched_off_without_channel(self):
         stats = fake_stats()
@@ -229,14 +257,16 @@ class ImageTest(unittest.TestCase):
         self.assertEqual(len(lines), 2)
         self.assertTrue(lines[-1].endswith("…"))
 
-    def test_render_size(self):
+    def test_render_sizes(self):
         from PIL import Image
         cols = [{"name": n, "color": 0x9146FF, "count": 5, "word": "followers",
                  "preview": {"label": "Latest", "title": "x", "image": b"broken"}}
                 for n in ("Twitch", "YouTube", "TikTok")]
-        img = Image.open(io.BytesIO(board_image.render(cols)))
-        self.assertEqual(img.size, (board_image.W, board_image.H))
-
+        cols[2]["preview"] = None
+        top = Image.open(io.BytesIO(board_image.render_header(cols)))
+        bottom = Image.open(io.BytesIO(board_image.render_previews(cols)))
+        self.assertEqual(top.size, (board_image.W, board_image.HEAD_H))
+        self.assertEqual(bottom.size, (board_image.W, board_image.PREVIEW_H))
 
 if __name__ == "__main__":
     unittest.main()

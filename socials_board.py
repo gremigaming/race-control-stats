@@ -1,14 +1,14 @@
 """The socials board in the Socials channel.
 
-One Race Control message: a header line, a picture with Twitch, YouTube and
-TikTok side by side (each in its own colour, with its follower number and a
-small preview of the latest stream or video) and link buttons. The picture is
-drawn by board_image.py. The stats workflow edits that same message every run,
+One Race Control message in three columns (Twitch, YouTube, TikTok): a picture
+with each platform's header and follower number on top, a text column per
+platform with the latest stream or video linked, and a picture with the three
+previews below, plus link buttons. The pictures are drawn by board_image.py. The stats workflow edits that same message every run,
 and only when something on it changed.
 
 The workflow never posts a new board by itself. The first post is done once by
 hand (after the owner approved it):
-    python3 socials_board.py --preview board.png   draws the picture, sends nothing
+    python3 socials_board.py --preview             draws the pictures, sends nothing
     python3 socials_board.py --post                posts the board in the Socials channel
 """
 import hashlib
@@ -25,6 +25,7 @@ TITLE = "Official channels"
 HEADER = f"## \U0001F3C1 GreMi_Gaming · {TITLE}"
 FILE_PREFIX = "socials-board-"
 
+EMBED_GREY = 0x2B2D31  # same as Discord's embed background, so no side line shows
 TWITCH_PURPLE = 0x9146FF
 YOUTUBE_RED = 0xFF0033
 TIKTOK_CYAN = 0x25F4EE
@@ -169,7 +170,7 @@ def gather(stats):
     return [
         {"key": "twitch", "name": "Twitch", "color": TWITCH_PURPLE,
          "count": safe(stats.twitch_followers), "word": "followers",
-         "badge": live_badge(stream), "live": bool(stream),
+         "badge": live_badge(stream), "live": bool(stream), "stream": stream,
          "preview": twitch_preview},
         {"key": "youtube", "name": "YouTube", "color": YOUTUBE_RED,
          "count": safe(stats.youtube_subscribers), "word": "subscribers",
@@ -183,7 +184,7 @@ def gather(stats):
 def fingerprint(columns):
     """Changes when anything visible on the picture changes. Uses video ids, not
     picture addresses, because TikTok's picture addresses change every day."""
-    keep = [(c["count"], c.get("badge"),
+    keep = [(c["count"], c.get("badge"), (c.get("stream") or {}).get("game_name"),
              c["preview"] and (c["preview"]["label"], c["preview"]["title"], c["preview"]["id"]))
             for c in columns]
     import board_image
@@ -191,33 +192,84 @@ def fingerprint(columns):
 
 
 def components_for(columns):
-    """Link buttons: the platforms, then the latest stream and videos."""
+    """Link buttons to the three platforms (the latest videos are linked in the text)."""
     live = columns[0]["live"]
     links = [("Watch live" if live else "Twitch", TWITCH_URL, "twitch"),
              ("YouTube", youtube_url(), "youtube"),
              ("TikTok", TIKTOK_URL, "tiktok")]
-    previews = [(c["preview"]["label"], c["preview"].get("url"), c["key"])
-                for c in columns if c["preview"] and not (c["key"] == "twitch" and live)]
-    rows = [{"type": 1, "components": [
+    return [{"type": 1, "components": [
         {"type": 2, "style": 5, "label": label, "url": url, "emoji": EMOJI[key]}
-        for label, url, key in row if url]} for row in (links, previews)]
-    return [r for r in rows if r["components"]]
+        for label, url, key in links if url]}]
+
+
+def link(title, url):
+    import board_image
+    text = short(board_image.clean(title), 60) or "Watch"
+    text = text.replace("[", "(").replace("]", ")")
+    return f"[{text}]({url})" if url else text
+
+
+def short(text, limit):
+    return text if len(text) <= limit else text[:limit - 1].rstrip() + "\u2026"
+
+
+def fields_for(columns):
+    """The middle part: one text column per platform."""
+    twitch, youtube, tiktok = columns
+    stream = twitch.get("stream")
+    if stream:
+        viewers = stream.get("viewer_count")
+        meta = stream.get("game_name") or "Sim racing"
+        if viewers is not None:
+            meta += f" \u00b7 {viewers:,} watching"
+        tw = ("\U0001F534 Live now", f"{link(stream.get('title', ''), TWITCH_URL)}\n{meta}")
+    elif twitch["preview"]:
+        p = twitch["preview"]
+        tw = ("Last stream", f"{link(p['title'], p['url'])}\n\u26AB Offline right now")
+    else:
+        tw = ("Twitch", f"[Follow on Twitch]({TWITCH_URL})\n\u26AB Offline right now")
+    if youtube["preview"]:
+        p = youtube["preview"]
+        yt = ("Latest video", link(p["title"], p["url"]))
+    else:
+        yt = ("YouTube", f"[Visit the channel]({youtube_url() or TWITCH_URL})")
+    if tiktok["preview"]:
+        p = tiktok["preview"]
+        tt = ("Latest TikTok", link(p["title"], p["url"]))
+    else:
+        tt = ("TikTok", f"[Follow on TikTok]({TIKTOK_URL})\nClips and highlights")
+    return [{"name": n, "value": v, "inline": True} for n, v in (tw, yt, tt)]
+
+
+def file_names(columns):
+    fp = fingerprint(columns)
+    return [f"{FILE_PREFIX}top-{fp}.png", f"{FILE_PREFIX}previews-{fp}.png"]
 
 
 def build(stats, columns=None):
-    """(message, picture bytes, file name) for the board."""
+    """(message, [(file name, picture bytes), ...]) for the board.
+
+    Two embeds that read as one: a picture with the three platform headers on
+    top, then three text columns, then a picture with the three previews."""
     import board_image
     columns = columns or gather(stats)
-    name = f"{FILE_PREFIX}{fingerprint(columns)}.png"
+    top, previews = file_names(columns)
     for c in columns:
         e = EMOJI[c["key"]]
         c["logo"] = fetch_bytes(f"https://cdn.discordapp.com/emojis/{e['id']}.png?size=96")
         if c["preview"]:
             c["preview"]["image"] = fetch_bytes(c["preview"].get("thumb"))
-    message = {"content": HEADER, "embeds": [], "components": components_for(columns),
-               "attachments": [{"id": 0, "filename": name}],
+    embeds = [
+        {"color": EMBED_GREY, "image": {"url": f"attachment://{top}"}},
+        {"color": EMBED_GREY, "fields": fields_for(columns),
+         "image": {"url": f"attachment://{previews}"}},
+    ]
+    message = {"content": HEADER, "embeds": embeds, "components": components_for(columns),
+               "attachments": [{"id": 0, "filename": top}, {"id": 1, "filename": previews}],
                "allowed_mentions": {"parse": []}}
-    return message, board_image.render(columns), name
+    files = [(top, board_image.render_header(columns)),
+             (previews, board_image.render_previews(columns))]
+    return message, files
 
 
 def buttons(message):
@@ -225,14 +277,16 @@ def buttons(message):
             for b in row.get("components", [])]
 
 
-def send(stats, method, path, message, picture, name):
-    """Sends a message with the picture attached (Discord needs multipart for files)."""
-    boundary = "----raceControl" + hashlib.sha1(picture).hexdigest()[:16]
+def send(stats, method, path, message, files):
+    """Sends a message with pictures attached (Discord needs multipart for files)."""
+    boundary = "----raceControl" + hashlib.sha1(b"".join(f[1] for f in files)).hexdigest()[:16]
     body = (f"--{boundary}\r\nContent-Disposition: form-data; name=\"payload_json\"\r\n"
-            f"Content-Type: application/json\r\n\r\n{json.dumps(message)}\r\n"
-            f"--{boundary}\r\nContent-Disposition: form-data; name=\"files[0]\"; "
-            f"filename=\"{name}\"\r\nContent-Type: image/png\r\n\r\n").encode() \
-        + picture + f"\r\n--{boundary}--\r\n".encode()
+            f"Content-Type: application/json\r\n\r\n{json.dumps(message)}\r\n").encode()
+    for i, (name, data) in enumerate(files):
+        body += (f"--{boundary}\r\nContent-Disposition: form-data; name=\"files[{i}]\"; "
+                 f"filename=\"{name}\"\r\nContent-Type: image/png\r\n\r\n").encode() \
+            + data + b"\r\n"
+    body += f"--{boundary}--\r\n".encode()
     headers = {"Authorization": f"Bot {stats.DISCORD_TOKEN}", "User-Agent": stats.UA,
                "Content-Type": f"multipart/form-data; boundary={boundary}"}
     for _ in range(4):
@@ -269,34 +323,33 @@ def update(stats):
         return
     columns = gather(stats)
     current = [a.get("filename") for a in board.get("attachments", [])]
-    name = f"{FILE_PREFIX}{fingerprint(columns)}.png"
-    if (current == [name] and not board.get("embeds")
+    if (current == file_names(columns)
             and buttons(board) == buttons({"components": components_for(columns)})):
         print("unchanged: socials board")
         return
-    message, picture, name = build(stats, columns)
+    message, files = build(stats, columns)
     send(stats, "PATCH", f"/channels/{SOCIALS_CHANNEL_ID}/messages/{board['id']}",
-         message, picture, name)
+         message, files)
     print("updated:   socials board")
 
 
 def main(argv):
     import update_stats
-    message, picture, name = build(update_stats)
+    message, files = build(update_stats)
     if "--post" in argv:
         if not SOCIALS_CHANNEL_ID:
             raise SystemExit("Set SOCIALS_CHANNEL_ID first")
         if find_board(update_stats):
             raise SystemExit("The board is already posted")
         msg = send(update_stats, "POST", f"/channels/{SOCIALS_CHANNEL_ID}/messages",
-                   message, picture, name)
+                   message, files)
         print(f"posted socials board {msg['id']}")
     else:
-        out = argv[argv.index("--preview") + 1] if "--preview" in argv[:-1] else name
-        with open(out, "wb") as f:
-            f.write(picture)
+        for name, data in files:
+            with open(name, "wb") as f:
+                f.write(data)
+            print(f"picture written to {name}")
         print(json.dumps(message, indent=2, ensure_ascii=False))
-        print(f"picture written to {out}")
 
 
 if __name__ == "__main__":
