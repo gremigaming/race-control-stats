@@ -213,9 +213,12 @@ class BoardTest(unittest.TestCase):
 
     def posted(self, stats):
         (msg, files), _ = self.quiet(socials_board.build, stats)
+        # Discord hides pictures used by embeds from the attachment list
+        embeds = [dict(e, image={"url": "https://cdn.discordapp.com/attachments/1/2/"
+                                 + e["image"]["url"].split("://")[1] + "?ex=abc"})
+                  for e in msg["embeds"]]
         return {"id": "99", "author": {"id": "bot"}, "content": msg["content"],
-                "embeds": msg["embeds"], "components": msg["components"],
-                "attachments": [{"filename": n} for n, _ in files]}
+                "embeds": embeds, "components": msg["components"], "attachments": []}
 
     def test_unchanged_board_is_not_edited(self):
         board = self.posted(fake_stats())

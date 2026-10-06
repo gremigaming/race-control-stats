@@ -303,6 +303,17 @@ def send(stats, method, path, message, files):
     raise RuntimeError(f"{method} {path} failed after retries")
 
 
+def current_files(board):
+    """Picture names on the posted board. Discord leaves pictures that embeds use
+    out of the attachment list, so they are read from the embed addresses."""
+    names = [a.get("filename") for a in board.get("attachments", [])]
+    for e in board.get("embeds", []):
+        url = (e.get("image") or {}).get("url", "")
+        if url:
+            names.append(url.split("?")[0].rsplit("/", 1)[-1])
+    return names
+
+
 def find_board(stats):
     """The board message in the Socials channel, or None if it isn't posted yet."""
     me = stats.discord("GET", "/users/@me")["id"]
@@ -322,7 +333,7 @@ def update(stats):
         print("socials board: not posted yet, skipping")
         return
     columns = gather(stats)
-    current = [a.get("filename") for a in board.get("attachments", [])]
+    current = current_files(board)
     if (current == file_names(columns)
             and buttons(board) == buttons({"components": components_for(columns)})):
         print("unchanged: socials board")
