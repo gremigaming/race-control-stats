@@ -46,3 +46,5 @@ Never put the bot token in an environment variable, file, commit or chat (enviro
 ## Discord requests
 
 Race Control runs always-online on a free Google Cloud server (`bot/`, installed with `bot/setup_vm.sh`, guide in the project files). When the owner or a moderator listed in `bot/staff.json` tags it, it answers within seconds and wakes the Claude Code routine "Race Control: Discord tag alert". Claude answers questions directly. For server changes Claude posts a "📋 Plan" and only carries it out after the owner reacts ✅. Every request and change is logged in `discord/change-log.md`. Administrator grants, changes to the bot's own role, bans, kicks and mass deletes are always refused.
+
+Quick answers: with `ANTHROPIC_API_KEY` on the server, the bot answers questions itself through the Claude API (`bot/brain.py`) with read-only lookups and the background in `bot/briefing.md`. **Update `bot/briefing.md` after every server change** (it's public, so nothing private). Change requests still go to Claude Code.
