@@ -1,5 +1,5 @@
-# Phase 5 of the real server rollout: replace the role-based Onboarding with the 5 racing-themed,
-# channel-based questions Milan approved on 2026-10-06 (see the rollout plan doc).
+# Phase 5 of the real server rollout: replace the old Onboarding with the racing-themed,
+# mostly channel-based questions Milan approved on 2026-10-06 (see the rollout plan doc).
 # Answers that should give nothing extra give the Member role, as the old "Highest role color" answer did,
 # because Discord wants every option to add a channel or a role.
 # Usage: --dry prints the payload and checks every channel is visible to @everyone; no flag applies it.
@@ -17,6 +17,7 @@ def req(method,path,body=None):
 
 MEMBER='1097214965640855764'
 NOTIFY='1117766461147070554'  # opt-in Twitch role; becomes Notify Me in Phase 3
+F1='1508728733111161023'; LMU='1508728759182692422'  # F1 chat and LMU chat are locked to these roles
 COLOURS=[('Red','1080505166513590355','🔴'),('Orange','1080523600110571611','🟠'),('Yellow','1080523771712118824','🟡'),
  ('Green','1080523900267540510','🟢'),('Blue','1080524010137342002','🔵'),('Purple','1080524094128279603','🟣'),('Pink','1080524165565652992','🩷')]
 CH=dict(RULES='1079917581386924052',START='1080049074054635530',SOCIALS='1083312808759926844',INTRO='1556941692139995157',
@@ -36,8 +37,8 @@ def prompt(title,options,single,required):
 
 PROMPTS=[
  prompt('What makes your heart race?',[
-   opt('Formula 1','🏎️','F1 chat and the latest F1 news',('F1CHAT','F1NEWS')),
-   opt('Le Mans Ultimate and endurance','⏱️','LMU and endurance chat',('LMUCHAT',))],False,False),
+   opt('Formula 1','🏎️','F1 chat and the latest F1 news',('F1NEWS',),roles=(F1,)),
+   opt('Le Mans Ultimate and endurance','⏱️','LMU and endurance chat',roles=(LMU,))],False,False),
  prompt('What brings you to the paddock?',[
    opt('Pit wall viewer','📺','Streams, the schedule and new content',('SCHEDULE','NEWCONTENT','PROMO')),
    opt('Setup tinkerer','🛠️','Setups and tips',('SETUPS',)),
