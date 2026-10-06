@@ -221,8 +221,6 @@ HEADER = f"## {sans_bold('GreMi_Gaming')}\n-# {sans_bold(TITLE)}"
 
 # Titles are cut to one line so every card has the same height
 TITLE_LIMIT = 36
-# An invisible line (braille blanks) that pushes every card to the same width
-WIDTH_LINE = "-# " + "\u2800" * 58
 
 
 def link(title, url, limit=TITLE_LIMIT):
@@ -249,9 +247,10 @@ def platform_url(key):
 
 
 def card_text(col):
-    """A platform card, always four lines so the cards match: the number as a
-    heading, the latest stream or video as one link, a small grey line, and an
-    invisible line that sets the width."""
+    """A platform card, always three lines so the cards match: the number as a
+    heading, the latest stream or video as one link, and a small grey line. (An
+    invisible width line wrapped into a big gap on phones; the picture under the
+    text already makes every card full width.)"""
     count = f"{col['count']:,}" if col.get("count") is not None else "\u2014"
     lines = [f"## {count} {col['word']}"]
     preview, stream = col["preview"], col.get("stream")
@@ -270,7 +269,6 @@ def card_text(col):
         follow = sans_bold(f"Follow on {col['name']}")
         lines += [f"[{follow}]({url})" if url else follow,
                   f"-# {sans_bold(TAGLINE[col['key']])}"]
-    lines.append(WIDTH_LINE)
     return "\n".join(lines)
 
 

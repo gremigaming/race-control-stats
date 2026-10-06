@@ -165,21 +165,20 @@ class BoardTest(unittest.TestCase):
         self.assertEqual(twitch["description"],
                          "## 1,639 followers\n"
                          f"[{B('Monza league race')}](https://twitch.tv/videos/9)\n"
-                         f"-# {B('Last stream')} \u00b7 {B('offline right now')}\n"
-                         + socials_board.WIDTH_LINE)
+                         f"-# {B('Last stream')} \u00b7 {B('offline right now')}")
         self.assertIn(B("My first Le Mans"), youtube["description"])
         self.assertIn(B("Last lap at Spa"), tiktok["description"])
         self.assertEqual(youtube["image"]["url"], "attachment://youtube.png")
         self.assertNotIn("thumbnail", youtube)
         # same number of lines on every card, so they are the same height
-        self.assertEqual({e["description"].count("\n") for e in (twitch, youtube, tiktok)}, {3})
+        self.assertEqual({e["description"].count("\n") for e in (twitch, youtube, tiktok)}, {2})
     def test_cards_without_videos(self):
         B = socials_board.sans_bold
         cols = self.gather(fake_stats(http=FakeHttp(vod=False, yt_video=False), tiktok_token=None))
         tiktok = socials_board.embed_for(cols[2], None)
         self.assertIn(f"[{B('Follow on TikTok')}]", tiktok["description"])
         self.assertIn(B("Clips and highlights"), tiktok["description"])
-        self.assertEqual(tiktok["description"].count("\n"), 3)
+        self.assertEqual(tiktok["description"].count("\n"), 2)
         self.assertNotIn("image", tiktok)
     def test_titles_are_cleaned_and_cut_to_one_line(self):
         B = socials_board.sans_bold
@@ -260,12 +259,11 @@ class ImageTest(unittest.TestCase):
             "\U0001F680 F1 26 VIEWER LOBBIES \U0001F680 ∣ ⚔️ GREMI'S GRID "
             "⚔️∣ !join !discord"), "F1 26 VIEWER LOBBIES | GREMI'S GRID")
 
-    def test_thumbnail_sits_on_the_left_half(self):
+    def test_thumbnail_is_solid_16_by_9(self):
         from PIL import Image
         img = Image.open(io.BytesIO(board_image.thumbnail(png())))
-        self.assertEqual(img.size, board_image.CANVAS)
-        self.assertEqual(img.getpixel((board_image.CANVAS[0] - 1, 100))[3], 0)  # see-through
-        self.assertEqual(img.getpixel((100, 100))[3], 255)
+        self.assertEqual(img.size, board_image.THUMB)
+        self.assertEqual(img.mode, "RGB")  # nothing see-through
         self.assertIsNone(board_image.thumbnail(b"broken"))
 
 if __name__ == "__main__":

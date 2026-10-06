@@ -5,34 +5,30 @@ so they all look the same under the text. Needs Pillow (pip install pillow).
 """
 import io
 
-from PIL import Image, ImageDraw, ImageOps
+from PIL import Image, ImageOps
 
 # Bump when the pictures are made differently, so the live board is redrawn
-LAYOUT = 10
+LAYOUT = 11
 
-# The preview sits under the text. Discord stretches a card's picture to the
-# card's width, so the 16:9 preview is drawn on the left half of a wider
-# see-through canvas: it shows at about half the card width on every screen.
-THUMB = (480, 270)
-CANVAS = (960, 270)
+# The preview sits under the text as the card's picture. Discord fits it to the
+# card's width on PC and phone alike, which also gives all cards the same width.
+THUMB = (640, 360)
 
 
 def thumbnail(data):
-    """PNG bytes of the preview (rounded corners, left half of the canvas), or None
-    if the picture can't be read."""
+    """PNG bytes of the 16:9 preview, or None if the picture
+    can't be read."""
     if not data:
         return None
     try:
         img = Image.open(io.BytesIO(data)).convert("RGBA")
     except Exception:
         return None
-    img = ImageOps.fit(img, THUMB, Image.LANCZOS)
-    mask = Image.new("L", THUMB, 0)
-    ImageDraw.Draw(mask).rounded_rectangle((0, 0, THUMB[0] - 1, THUMB[1] - 1), 18, fill=255)
-    canvas = Image.new("RGBA", CANVAS, (0, 0, 0, 0))
-    canvas.paste(img, (0, 0), mask)
+    # fully solid: see-through parts show up as a grey box in Discord, and
+    # Discord rounds the corners itself
+    img = ImageOps.fit(img.convert("RGB"), THUMB, Image.LANCZOS)
     out = io.BytesIO()
-    canvas.save(out, "PNG", optimize=True)
+    img.save(out, "PNG", optimize=True)
     return out.getvalue()
 
 
