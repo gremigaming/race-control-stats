@@ -186,7 +186,8 @@ def fingerprint(columns):
     keep = [(c["count"], c.get("badge"),
              c["preview"] and (c["preview"]["label"], c["preview"]["title"], c["preview"]["id"]))
             for c in columns]
-    return hashlib.sha1(json.dumps(keep).encode()).hexdigest()[:12]
+    import board_image
+    return hashlib.sha1(json.dumps([board_image.LAYOUT, keep]).encode()).hexdigest()[:12]
 
 
 def components_for(columns):

@@ -8,6 +8,9 @@ import os
 
 from PIL import Image, ImageDraw, ImageFont, ImageOps
 
+# Bump when the drawing changes, so the live board is redrawn
+LAYOUT = 2
+
 FONTS = os.path.join(os.path.dirname(os.path.abspath(__file__)), "assets", "fonts")
 
 # Discord shows a single picture about 550 pixels wide, so everything is drawn
