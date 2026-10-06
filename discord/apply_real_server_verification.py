@@ -1,4 +1,4 @@
-# Verification plan plus the server review fixes Milan approved on 2026-10-06 ("all except 1, 5, 10, 13").
+# Verification plan plus the server review fixes GreMi approved on 2026-10-06 ("all except 1, 5, 10, 13").
 # Stages run in order and are idempotent: roles, members, channels, extras, onboarding.
 # Usage: python3 discord/apply_real_server_verification.py <stage> [--dry]
 # Backup taken first: /mnt/project-files/discord/real-server-backup-before-verification-0937.json
@@ -78,7 +78,7 @@ def stage_roles():
     if not DRY:
         rb=roles_by_name(); pos=rb['League Racer']['position']
         write('PATCH',f'/guilds/{G}/roles',[{'id':rb[n]['id'],'position':pos} for n in NEW_ROLES])
-    for rid,body,label in ((F1,{'hoist':False,'color':0},'F1 plain'),(LMU,{'hoist':False,'color':0},'LMU plain')):  # LIVE RIGHT NOW sits above the bot, so Milan hoists it himself
+    for rid,body,label in ((F1,{'hoist':False,'color':0},'F1 plain'),(LMU,{'hoist':False,'color':0},'LMU plain')):  # LIVE RIGHT NOW sits above the bot, so GreMi hoists it himself
         write('PATCH',f'/guilds/{G}/roles/{rid}',body); print('  ',label)
     if not DRY:
         for r in req('GET',f'/guilds/{G}/roles'):

@@ -1,4 +1,4 @@
-# Phases 1-2 of the real server rollout (approved by Milan 2026-10-06): rename/move channels in place,
+# Phases 1-2 of the real server rollout (approved by GreMi 2026-10-06): rename/move channels in place,
 # archive 7 channels, create 6 new ones. Idempotent; no deletes; no role changes. Use --dry first.
 # Auth: relies on the cloud environment proxy adding the bot token for discord.com.
 import json,subprocess,time,sys

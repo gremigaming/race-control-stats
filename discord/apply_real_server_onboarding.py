@@ -1,5 +1,5 @@
 # Phase 5 of the real server rollout: replace the old Onboarding with the racing-themed,
-# mostly channel-based questions Milan approved on 2026-10-06 (see the rollout plan doc).
+# mostly channel-based questions GreMi approved on 2026-10-06 (see the rollout plan doc).
 # Every name-colour answer (the required question) gives Member, so finishing Onboarding = verified.
 # Answers that should give nothing extra give the Member role, as the old "Highest role color" answer did,
 # because Discord wants every option to add a channel or a role.
