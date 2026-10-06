@@ -29,6 +29,8 @@ def fake_stats(stream=None, twitch=1639, youtube=2690, tiktok=3904, board=None,
         calls.append((method, path, data))
         if path == "/users/@me":
             return {"id": "bot"}
+        if path == "/guilds/111":
+            return {"id": "111", "icon": "abc"}
         if path.endswith("/messages?limit=50"):
             old = {"id": "1", "author": {"id": "someone"}, "content": "links", "embeds": []}
             return [board, old] if board else [old]
@@ -39,7 +41,7 @@ def fake_stats(stream=None, twitch=1639, youtube=2690, tiktok=3904, board=None,
     return types.SimpleNamespace(
         twitch_followers=lambda: twitch, youtube_subscribers=lambda: youtube,
         tiktok_followers=tiktok_followers, twitch_stream=lambda: stream,
-        discord=discord, calls=calls)
+        discord=discord, calls=calls, GUILD_ID="111")
 
 
 def posted(message):
@@ -60,22 +62,26 @@ class BoardTest(unittest.TestCase):
         return out.getvalue()
 
     def test_offline_board(self):
-        msg = socials_board.build(fake_stats())
+        with mock.patch.dict(os.environ, {"YOUTUBE_CHANNEL_ID": "UCgremi"}):
+            msg = socials_board.build(fake_stats())
         embed = msg["embeds"][0]
-        self.assertIn("In the garage", embed["description"])
+        self.assertIn("Offline", embed["description"])
         self.assertEqual(embed["color"], socials_board.RED)
         values = [f["value"] for f in embed["fields"]]
-        self.assertIn("**1,639** followers", values)
-        self.assertIn("**2,690** subscribers", values)
-        self.assertIn("**8,233** fans", values)
+        self.assertEqual(values, ["**1,639**\nfollowers", "**2,690**\nsubscribers",
+                                  "**3,904**\nfollowers"])
+        self.assertTrue(embed["footer"]["text"].endswith("8,233 total"))
+        self.assertEqual(embed["author"]["icon_url"],
+                         "https://cdn.discordapp.com/icons/111/abc.png?size=128")
         self.assertNotIn("image", embed)
-        self.assertEqual(msg["components"][0]["components"][0]["label"], "Twitch")
+        labels = [b["label"] for b in msg["components"][0]["components"]]
+        self.assertEqual(labels, ["Twitch", "YouTube", "TikTok"])
         self.assertEqual(msg["allowed_mentions"], {"parse": []})
 
     def test_live_board(self):
         embed = socials_board.build(fake_stats(stream=STREAM))["embeds"][0]
-        self.assertIn("ON TRACK NOW", embed["description"])
-        self.assertIn("**Spa 6h, stint 2**", embed["description"])
+        self.assertIn("Live now", embed["description"])
+        self.assertIn("> Spa 6h, stint 2", embed["description"])
         self.assertIn("Le Mans Ultimate", embed["description"])
         self.assertIn("1,234 watching", embed["description"])
         self.assertEqual(embed["color"], socials_board.PURPLE)
@@ -87,14 +93,14 @@ class BoardTest(unittest.TestCase):
         with contextlib.redirect_stdout(out):
             embed = socials_board.build(fake_stats(tiktok_error="down"))["embeds"][0]
         tiktok = next(f for f in embed["fields"] if "TikTok" in f["name"])
-        self.assertEqual(tiktok["value"], "*warming up*")
-        self.assertIn("**4,329** fans", [f["value"] for f in embed["fields"]])
+        self.assertEqual(tiktok["value"], "**\u2014**\nfollowers")
+        self.assertTrue(embed["footer"]["text"].endswith("4,329 total"))
 
     def test_no_youtube_button_without_channel(self):
         with mock.patch.dict(os.environ, {"YOUTUBE_CHANNEL_ID": "", "YOUTUBE_URL": ""}):
             msg = socials_board.build(fake_stats())
         labels = [b["label"] for b in msg["components"][0]["components"]]
-        self.assertEqual(labels, ["Twitch", "TikTok", "Instagram"])
+        self.assertEqual(labels, ["Twitch", "TikTok"])
 
     def test_not_posted_yet_is_skipped(self):
         stats = fake_stats()
@@ -119,6 +125,11 @@ class BoardTest(unittest.TestCase):
     def test_going_live_edits_the_board(self):
         board = posted(socials_board.build(fake_stats()))
         stats = fake_stats(stream=STREAM, board=board)
+        self.assertIn("updated:", self.update(stats))
+
+    def test_new_total_edits_the_board(self):
+        board = posted(socials_board.build(fake_stats()))
+        stats = fake_stats(youtube=2700, board=board)
         self.assertIn("updated:", self.update(stats))
 
     def test_switched_off_without_channel(self):

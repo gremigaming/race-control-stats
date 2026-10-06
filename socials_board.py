@@ -14,13 +14,12 @@ import sys
 from datetime import datetime, timezone
 
 SOCIALS_CHANNEL_ID = os.environ.get("SOCIALS_CHANNEL_ID", "")
-FOOTER = "Race Control · Team Radio · live numbers"
+FOOTER = "Race Control \u00b7 updated automatically"
 
-RED = 0xE10600      # racing red while offline
+RED = 0xC8102E      # racing red while offline
 PURPLE = 0x9146FF   # Twitch purple while live
 
 TWITCH_URL = "https://twitch.tv/GreMi_Gaming"
-INSTAGRAM_URL = "https://instagram.com/GreMi_Gaming"
 TIKTOK_URL = "https://www.tiktok.com/@ttv.gremi_gaming"
 
 # Custom emojis on the GreMi_Gaming server
@@ -28,7 +27,6 @@ EMOJI = {
     "twitch": {"id": "1085833562474938438", "name": "twitch"},
     "youtube": {"id": "1508733155883094066", "name": "Youtube_logo"},
     "tiktok": {"id": "1097447464010788864", "name": "TikTok"},
-    "instagram": {"id": "1085833561023729756", "name": "instagram"},
 }
 
 
@@ -56,7 +54,15 @@ def safe(fn):
 
 
 def count(value, word):
-    return f"**{value:,}** {word}" if value is not None else "*warming up*"
+    return f"**{value:,}**\n{word}" if value is not None else f"**\u2014**\n{word}"
+
+
+def server_icon(stats):
+    """The server icon's address, shown next to the name at the top."""
+    guild = safe(lambda: stats.discord("GET", f"/guilds/{stats.GUILD_ID}"))
+    if guild and guild.get("icon"):
+        return f"https://cdn.discordapp.com/icons/{guild['id']}/{guild['icon']}.png?size=128"
+    return None
 
 
 def build(stats):
@@ -67,16 +73,15 @@ def build(stats):
     stream = safe(stats.twitch_stream)
 
     if stream:
-        game = stream.get("game_name") or "Racing"
+        game = stream.get("game_name") or "Sim racing"
         viewers = stream.get("viewer_count")
-        watching = f" · \U0001F440 {viewers:,} watching" if viewers is not None else ""
-        status = (f"## \U0001F534 ON TRACK NOW\n**{stream.get('title', '').strip()}**\n"
-                  f"\U0001F3AE {game}{watching}\n\nLights are out, jump in! \U0001F3CE️\U0001F4A8")
+        watching = f" \u00b7 {viewers:,} watching" if viewers is not None else ""
+        status = (f"\U0001F534 **Live now** \u00b7 {game}{watching}\n"
+                  f"> {stream.get('title', '').strip()}")
     else:
-        status = ("## ⚪ In the garage\nGreMi isn't streaming right now. "
-                  "Follow on Twitch so you know when the lights go out.")
+        status = ("\u26AB **Offline**\n"
+                  "Follow on Twitch to get notified when the next stream starts.")
 
-    grid = [v for v in (twitch, youtube, tiktok) if v is not None]
     fields = [
         {"name": f"{emoji_text('twitch')} Twitch", "value": count(twitch, "followers"),
          "inline": True},
@@ -84,21 +89,22 @@ def build(stats):
          "inline": True},
         {"name": f"{emoji_text('tiktok')} TikTok", "value": count(tiktok, "followers"),
          "inline": True},
-        {"name": f"{emoji_text('instagram')} Instagram", "value": "Photos & clips",
-         "inline": True},
     ]
-    if grid:
-        fields.append({"name": "\U0001F3C1 Whole grid", "value": f"**{sum(grid):,}** fans",
-                       "inline": True})
+    grid = [v for v in (twitch, youtube, tiktok) if v is not None]
+    footer = FOOTER + (f" \u00b7 {sum(grid):,} total" if grid else "")
 
     embed = {
-        "title": "\U0001F4FB Team Radio: GreMi's socials",
+        "author": {"name": "GreMi_Gaming"},
+        "title": "Official channels",
         "description": status,
         "color": PURPLE if stream else RED,
         "fields": fields,
-        "footer": {"text": FOOTER},
+        "footer": {"text": footer},
         "timestamp": datetime.now(timezone.utc).isoformat(),
     }
+    icon = server_icon(stats)
+    if icon:
+        embed["author"]["icon_url"] = icon
     if stream and stream.get("thumbnail_url"):
         # started_at keeps one picture per stream instead of Discord's cached first one
         embed["image"] = {"url": stream["thumbnail_url"]
@@ -108,8 +114,7 @@ def build(stats):
 
     buttons = [("Watch live" if stream else "Twitch", TWITCH_URL, "twitch"),
                ("YouTube", youtube_url(), "youtube"),
-               ("TikTok", TIKTOK_URL, "tiktok"),
-               ("Instagram", INSTAGRAM_URL, "instagram")]
+               ("TikTok", TIKTOK_URL, "tiktok")]
     components = [{"type": 1, "components": [
         {"type": 2, "style": 5, "label": label, "url": url, "emoji": EMOJI[key]}
         for label, url, key in buttons if url]}]
@@ -125,7 +130,8 @@ def signature(message):
                     for row in message.get("components", [])
                     for b in row.get("components", []))
     return (embed.get("title"), embed.get("description"), embed.get("color"), fields,
-            (embed.get("image") or {}).get("url"), buttons)
+            (embed.get("image") or {}).get("url"), (embed.get("footer") or {}).get("text"),
+            (embed.get("author") or {}).get("icon_url"), buttons)
 
 
 def find_board(stats):
@@ -133,7 +139,7 @@ def find_board(stats):
     me = stats.discord("GET", "/users/@me")["id"]
     for msg in stats.discord("GET", f"/channels/{SOCIALS_CHANNEL_ID}/messages?limit=50"):
         footer = ((msg.get("embeds") or [{}])[0].get("footer") or {}).get("text", "")
-        if msg["author"]["id"] == me and footer == FOOTER:
+        if msg["author"]["id"] == me and footer.startswith(FOOTER):
             return msg
     return None
 
