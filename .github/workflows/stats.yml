@@ -27,8 +27,8 @@ jobs:
           # Real GreMi_Gaming server (switched from the test server 2026-10-06)
           GUILD_ID: "1079917337165172876"
           # Socials channel, where the Team Radio board lives (socials_board.py)
-          # Empty until the owner approves the side-by-side board (then 1083312808759926844)
-          SOCIALS_CHANNEL_ID: ""
+          # Socials channel, where the socials board lives (socials_board.py)
+          SOCIALS_CHANNEL_ID: "1083312808759926844"
           TWITCH_CLIENT_ID: ${{ secrets.TWITCH_CLIENT_ID }}
           TWITCH_CLIENT_SECRET: ${{ secrets.TWITCH_CLIENT_SECRET }}
           TWITCH_LOGIN: ${{ secrets.TWITCH_LOGIN }}
