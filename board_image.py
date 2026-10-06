@@ -12,12 +12,11 @@ FONTS = os.path.join(os.path.dirname(os.path.abspath(__file__)), "assets", "font
 
 # Discord shows a single picture about 550 pixels wide, so everything is drawn
 # large enough to stay readable at a little over half size.
-W, H = 1000, 372
+W, H = 1000, 500
 PAD = 16             # outside edge
 GAP = 16             # between columns
 INNER = 22           # inside a column
 COL_W = (W - 2 * PAD - 2 * GAP) // 3
-THUMB = (104, 58)    # small 16:9 preview
 
 PANEL = (30, 31, 34, 255)
 EDGE = (255, 255, 255, 18)
@@ -135,23 +134,29 @@ def draw_column(img, x, col):
     d.text((cx, y), number, font=font("ExtraBold", 64), fill=TEXT, anchor="lt")
     d.text((cx, y + 74), col["word"], font=font("SemiBold", 25), fill=MUTED, anchor="lt")
 
+    # preview: label, then the picture across the column, then the title
     preview = col.get("preview")
-    py = bottom - INNER - 94
+    py = y + 122
+    tw = COL_W - 2 * INNER
+    th = tw * 9 // 16
+    label_font, title_font = font("Bold", 17), font("SemiBold", 20)
     if not preview:
+        # keep the columns the same height: a quiet box with the logo
+        d.rounded_rectangle((cx, py + 26, cx + tw, py + 26 + th), 12, fill=(43, 45, 49, 255))
+        img.alpha_composite(logo(col, 56), (cx + tw // 2 - 28, py + 26 + th // 2 - 44))
+        d.text((cx + tw / 2, py + 26 + th // 2 + 30), f"Follow on {col['name']}",
+               font=font("SemiBold", 19), fill=MUTED, anchor="mm")
         return
-    thumb = picture(preview.get("image"), THUMB)
-    tx = cx
-    if thumb is not None:
-        img.alpha_composite(rounded(thumb, 10), (cx, py))
-        tx = cx + THUMB[0] + 12
-    text_w = x + COL_W - INNER - tx
-    label_font = font("Bold", 17)
-    label = (wrap(d, preview["label"].upper(), label_font, text_w, 1) or [""])[0]
-    d.text((tx, py), label, font=label_font,
+    label = (wrap(d, preview["label"].upper(), label_font, tw, 1) or [""])[0]
+    d.text((cx, py), label, font=label_font,
            fill=LIVE_RED if col.get("live") else accent, anchor="lt")
-    title_font = font("SemiBold", 19)
-    for i, line in enumerate(wrap(d, clean(preview.get("title", "")), title_font, text_w, 3)):
-        d.text((tx, py + 42 + i * 23), line, font=title_font, fill=TEXT, anchor="ls")
+    thumb = picture(preview.get("image"), (tw, th))
+    if thumb is not None:
+        img.alpha_composite(rounded(thumb, 12), (cx, py + 26))
+    else:
+        d.rounded_rectangle((cx, py + 26, cx + tw, py + 26 + th), 12, fill=(43, 45, 49, 255))
+    for i, line in enumerate(wrap(d, clean(preview.get("title", "")), title_font, tw, 2)):
+        d.text((cx, py + 26 + th + 30 + i * 25), line, font=title_font, fill=TEXT, anchor="ls")
 
 
 def render(columns):
