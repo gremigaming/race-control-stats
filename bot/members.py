@@ -14,6 +14,7 @@ import pathlib
 import time
 
 PATH = pathlib.Path(os.environ.get("RACE_CONTROL_MEMBERS", "/var/lib/race-control/members.json"))
+GUILD_ID = 1079917337165172876  # the real GreMi_Gaming server, not the test one
 DAYS_KEPT = 60
 ARCHIVE = pathlib.Path(os.environ.get("RACE_CONTROL_ARCHIVE", "/var/lib/race-control/messages"))
 ARCHIVE_DAYS = 90
@@ -40,6 +41,15 @@ class Members:
         return self.data.setdefault(str(user_id), {
             "messages": 0, "days": {}, "channels": {}, "hours": [0] * 24,
             "voice_minutes": 0, "first_seen": int(time.time()), "last_seen": 0})
+
+    def backfilled(self):
+        return (self.path.parent / "backfilled").exists()
+
+    def mark_backfilled(self):
+        try:
+            (self.path.parent / "backfilled").touch()
+        except OSError:
+            pass
 
     def archive(self, message_id, user_id, channel, text, at=None):
         at = at or time.time()
@@ -79,7 +89,8 @@ class Members:
         m["days"][d] = m["days"].get(d, 0) + 1
         m["channels"][channel] = m["channels"].get(channel, 0) + 1
         m["hours"][time.gmtime(at).tm_hour] += 1
-        m["last_seen"] = int(at)
+        m["last_seen"] = max(m["last_seen"], int(at))
+        m["first_seen"] = min(m["first_seen"], int(at))
         self._trim(m, at)
         self.maybe_save()
 

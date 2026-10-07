@@ -13,6 +13,7 @@ Install with: pip install -r bot/requirements.txt
 Run with: python3 -m bot.race_control_bot
 """
 import asyncio
+import datetime
 import logging
 import os
 
@@ -23,7 +24,7 @@ import anthropic
 import discord
 
 from bot.brain import Brain, HandOff
-from bot.members import Members
+from bot.members import GUILD_ID, Members
 
 from bot.replies import (FIRE_HEADERS, FIRE_URL, approval_body, is_approval,
                          load_staff, plain, should_handle_tag, tag_body)
@@ -60,6 +61,36 @@ async def wake_claude(body):
 @bot.event
 async def on_ready():
     log.info("Race Control is online as %s", bot.user)
+    if not members.backfilled():
+        asyncio.create_task(backfill())
+
+
+async def backfill(days=90):
+    """Once, on the first start with member memory: counts and archives the last 90 days."""
+    after = discord.utils.utcnow() - datetime.timedelta(days=days)
+    # Stop where live counting started, so nothing is counted twice
+    started = min([m["first_seen"] for m in members.data.values()] + [time.time()])
+    before = datetime.datetime.fromtimestamp(started, datetime.timezone.utc)
+    seen = 0
+    for guild in [g for g in bot.guilds if g.id == GUILD_ID]:
+        channels = list(guild.text_channels) + list(guild.threads)
+        for ch in channels:
+            if not ch.permissions_for(guild.me).read_message_history:
+                continue
+            try:
+                async for m in ch.history(limit=None, after=after, before=before,
+                                            oldest_first=True):
+                    if m.author.bot:
+                        continue
+                    at = m.created_at.timestamp()
+                    members.message(m.author.id, plain(ch.name), at)
+                    members.archive(m.id, m.author.id, plain(ch.name), m.clean_content, at)
+                    seen += 1
+            except discord.DiscordException as e:
+                log.warning("backfill skipped %s: %s", ch.id, e)
+    members.mark_backfilled()
+    members.maybe_save(force=True)
+    log.info("backfill done: %s messages", seen)
 
 
 # Tags and plans Claude is working on: message id -> set when Claude's reply lands
@@ -94,7 +125,7 @@ async def hand_over(channel, message_id, body, failed_text, reply_to):
 async def on_message(message):
     if not message.guild:
         return
-    if not message.author.bot:
+    if not message.author.bot and message.guild.id == GUILD_ID:
         at = message.created_at.timestamp()
         members.message(message.author.id, plain(message.channel.name), at)
         members.archive(message.id, message.author.id, plain(message.channel.name),
@@ -126,7 +157,8 @@ async def on_message(message):
 
 @bot.event
 async def on_voice_state_update(member, before, after):
-    if member.bot or (before.channel is None) == (after.channel is None):
+    if (member.bot or member.guild.id != GUILD_ID
+            or (before.channel is None) == (after.channel is None)):
         return
     members.voice(member.id, joined=after.channel is not None)
 
