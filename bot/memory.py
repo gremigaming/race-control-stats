@@ -10,7 +10,7 @@ import time
 PATH = pathlib.Path(os.environ.get("RACE_CONTROL_MEMORY", "/var/lib/race-control/said.jsonl"))
 KEEP = 300   # exchanges kept on disk
 RECALL = 8   # exchanges shown with each new question
-CLIP = 300   # characters kept per question or reply
+CLIP = 200   # characters kept per question or reply
 
 
 def said(text):

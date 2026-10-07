@@ -1,7 +1,7 @@
 """Race Control's always-online Discord bot.
 
 When the owner or an allow-listed moderator tags it, it shows "typing..." and
-answers within seconds through the Claude API with read-only lookups (bot/brain.py).
+answers within seconds through one small Claude API call (bot/brain.py).
 Change requests, and anything it can't answer, wake Claude Code (a routine)
 instead, which posts a plan for a server change. When the owner reacts ✅ to such
 a plan, it wakes Claude again to carry it out. Claude logs every change in the repo.
@@ -62,6 +62,8 @@ async def on_ready():
 
 # Tags and plans Claude is working on: message id -> set when Claude's reply lands
 waiting = {}
+# Posted when a quick answer isn't enough; Claude Code's answer follows in a minute
+RESEARCH_NOTE = "\U0001F50E Let me do some research, I'll be back shortly."
 TYPING_FOR = 300  # seconds to keep showing "Race Control is typing..."
 
 
@@ -106,6 +108,7 @@ async def on_message(message):
             return
         except HandOff as e:
             log.info("handing to Claude Code: %s", e)
+            await message.reply(RESEARCH_NOTE, mention_author=False)
         except anthropic.APIError as e:
             log.warning("Claude API failed, handing to Claude Code: %s", e)
     await hand_over(message.channel, message.id,
