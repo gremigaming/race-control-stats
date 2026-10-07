@@ -196,14 +196,13 @@ def fingerprint(columns):
     return hashlib.sha1(json.dumps([board_image.LAYOUT, keep]).encode()).hexdigest()[:12]
 
 
-BUTTON_LABEL = {"twitch": "Follow on Twitch", "youtube": "Subscribe on YouTube",
-                "tiktok": "Follow on TikTok"}
+BUTTON_LABEL = {"twitch": "Twitch", "youtube": "YouTube", "tiktok": "TikTok"}
 
 
 def link_button(col):
     """The link button at the bottom of a platform's card."""
     key = col["key"]
-    label = "Watch live" if col.get("live") else BUTTON_LABEL[key]
+    label = BUTTON_LABEL[key]  # just the platform; a live stream shows in its card
     return {"type": 2, "style": 5, "label": label, "url": platform_url(key),
             "emoji": EMOJI[key]}
 

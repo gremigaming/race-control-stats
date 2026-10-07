@@ -154,7 +154,7 @@ class BoardTest(unittest.TestCase):
     def test_each_card_has_its_own_button(self):
         cols = self.gather(fake_stats())
         self.assertEqual([socials_board.link_button(c)["label"] for c in cols],
-                         ["Follow on Twitch", "Subscribe on YouTube", "Follow on TikTok"])
+                         ["Twitch", "YouTube", "TikTok"])
 
     def test_platform_cards(self):
         B = socials_board.sans_bold
@@ -219,7 +219,7 @@ class BoardTest(unittest.TestCase):
                              f"attachment://{socials_board.spacer_name(key)}")
         # all buttons together under the cards
         self.assertEqual([b["label"] for b in row["components"]],
-                         ["Follow on Twitch", "Subscribe on YouTube", "Follow on TikTok"])
+                         ["Twitch", "YouTube", "TikTok"])
         self.assertEqual(cards[0]["accent_color"], socials_board.TWITCH_PURPLE)
         self.assertEqual(cards[0]["components"][0]["components"][0]["content"],
                          "### Twitch\n## 1,639 followers\n"
