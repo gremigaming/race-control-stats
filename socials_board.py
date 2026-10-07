@@ -1,8 +1,8 @@
 """The socials board in the Socials channel.
 
-One Race Control message: a clean card per platform (Twitch, YouTube, TikTok)
-in its colour with the follower number, the latest stream or video linked and
-its own small preview picture, plus link buttons. The stats workflow edits that same message every run,
+One Race Control message: one card with Twitch, YouTube and TikTok side by side
+(follower number and the latest stream or video linked), a strip in the platform
+colours below, plus link buttons. The stats workflow edits that same message every run,
 and only when something on it changed.
 
 The workflow never posts a new board by itself. The first post is done once by
@@ -30,6 +30,7 @@ FILE_PREFIX = "socials-board-"
 TWITCH_PURPLE = 0x9146FF
 YOUTUBE_RED = 0xFF0033
 TIKTOK_CYAN = 0x25F4EE
+BOARD_GREY = 0x4E5058  # the side line; the platform colours are in the strip
 
 TWITCH_URL = "https://twitch.tv/GreMi_Gaming"
 TIKTOK_URL = "https://www.tiktok.com/@ttv.gremi_gaming"
@@ -274,6 +275,34 @@ def card_text(col):
     return "\n".join(lines)
 
 
+# Cut shorter in the side-by-side columns, which are a third of the card wide
+FIELD_TITLE_LIMIT = 18
+
+
+def field_for(col):
+    """One platform column: logo and name on top, the number, the latest stream or
+    video as a link, and a small grey line."""
+    e = EMOJI[col["key"]]
+    count = f"{col['count']:,}" if col.get("count") is not None else "\u2014"
+    lines = [f"### {count}"]
+    preview, stream = col["preview"], col.get("stream")
+    if stream:
+        viewers = stream.get("viewer_count")
+        lines.append(f"\U0001F534 {link(stream.get('title', ''), TWITCH_URL, FIELD_TITLE_LIMIT - 3)}")
+        meta = "Live now" + (f" \u00b7 {viewers:,} watching" if viewers is not None else "")
+    elif preview:
+        lines.append(link(preview["title"], preview["url"], FIELD_TITLE_LIMIT))
+        meta = preview["label"]
+    else:
+        url = platform_url(col["key"])
+        follow = sans_bold(f"Follow on {col['name']}")
+        lines.append(f"[{follow}]({url})" if url else follow)
+        meta = TAGLINE[col["key"]]
+    lines.append(f"-# {col['word']} \u00b7 {sans_bold(meta)}")
+    return {"name": f"<:{e['name']}:{e['id']}> {col['name']}", "value": "\n".join(lines),
+            "inline": True}
+
+
 def logo_url(key):
     return f"https://cdn.discordapp.com/emojis/{EMOJI[key]['id']}.png?size=128"
 
@@ -293,20 +322,16 @@ def embed_for(col, thumb_name):
 
 
 def build(stats, columns=None):
-    """(message, [(file name, picture bytes), ...]) for the board: a clean card per
-    platform in its colour, each with its own small preview picture."""
+    """(message, [(file name, picture bytes), ...]) for the board: one card with
+    Twitch, YouTube and TikTok side by side and a strip in their colours below."""
     import board_image
     columns = columns or gather(stats)
     fp = fingerprint(columns)
-    files, embeds = [], []
-    for c in columns:
-        thumb = None
-        if c["preview"]:
-            thumb = board_image.thumbnail(fetch_bytes(c["preview"].get("thumb")))
-        name = f"{FILE_PREFIX}{c['key']}-{fp}.png" if thumb else None
-        if thumb:
-            files.append((name, thumb))
-        embeds.append(embed_for(c, name))
+    # one card with the platforms side by side and a strip in their colours below
+    name = f"{FILE_PREFIX}strip-{fp}.png"
+    files = [(name, board_image.strip([c["color"] for c in columns]))]
+    embeds = [{"color": BOARD_GREY, "fields": [field_for(c) for c in columns],
+               "image": {"url": f"attachment://{name}"}}]
     message = {"content": "", "embeds": embeds, "components": components_for(columns),
                "attachments": [{"id": i, "filename": n} for i, (n, _) in enumerate(files)],
                "allowed_mentions": {"parse": []}}
@@ -364,7 +389,9 @@ def find_board(stats):
         title = embeds[0].get("title", "")
         names = tuple((e.get("author") or {}).get("name") for e in embeds)
         known = (msg.get("content") in (HEADER,) + OLD_HEADERS or title == TITLE
-                 or (names and all(n in PLATFORMS for n in names)))
+                 or (names and all(n in PLATFORMS for n in names))
+                 or [f.get("name", "").split()[-1] for f in embeds[0].get("fields", [])]
+                 == list(PLATFORMS))
         if msg["author"]["id"] == me and known:
             return msg
     return None

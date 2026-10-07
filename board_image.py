@@ -8,7 +8,7 @@ import io
 from PIL import Image, ImageOps
 
 # Bump when the pictures are made differently, so the live board is redrawn
-LAYOUT = 12
+LAYOUT = 13
 
 # The preview sits under the text as the card's picture. Discord fits it to the
 # card's width on PC and phone alike, which also gives all cards the same width.
@@ -28,6 +28,23 @@ def thumbnail(data):
     # fully solid: see-through parts show up as a grey box in Discord, and
     # Discord rounds the corners itself
     img = ImageOps.fit(img.convert("RGB"), THUMB, Image.LANCZOS, centering=(0.5, 0.4))
+    out = io.BytesIO()
+    img.save(out, "PNG", optimize=True)
+    return out.getvalue()
+
+
+# The colour strip under the board: one block per platform, in column order
+STRIP = (900, 14)
+
+
+def strip(colors):
+    """PNG bytes of a thin solid strip split into one block per colour, so each
+    platform column gets its own colour detail underneath."""
+    img = Image.new("RGB", STRIP)
+    width = STRIP[0] / len(colors)
+    for i, color in enumerate(colors):
+        rgb = ((color >> 16) & 255, (color >> 8) & 255, color & 255)
+        img.paste(rgb, (round(i * width), 0, round((i + 1) * width), STRIP[1]))
     out = io.BytesIO()
     img.save(out, "PNG", optimize=True)
     return out.getvalue()

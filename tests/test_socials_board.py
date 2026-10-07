@@ -198,16 +198,35 @@ class BoardTest(unittest.TestCase):
                             socials_board.fingerprint(self.gather(fake_stats(tiktok=3905))))
 
     def test_build(self):
+        B = socials_board.sans_bold
         (msg, files), _ = self.quiet(socials_board.build, fake_stats())
         names = [n for n, _ in files]
-        self.assertEqual(len(names), 3)
-        self.assertTrue(all(d.startswith(b"\x89PNG") for _, d in files))
-        self.assertEqual(msg["content"], "")  # no header, so all three fit on one screen
-        self.assertEqual([e["image"]["url"] for e in msg["embeds"]],
-                         [f"attachment://{n}" for n in names])
-        self.assertEqual(msg["attachments"], [{"id": i, "filename": n}
-                                              for i, n in enumerate(names)])
+        self.assertEqual(len(names), 1)  # only the colour strip, no previews
+        self.assertTrue(files[0][1].startswith(b"\x89PNG"))
+        self.assertEqual(msg["content"], "")  # no header, so it fits on one screen
+        (embed,) = msg["embeds"]
+        self.assertEqual(embed["image"]["url"], f"attachment://{names[0]}")
+        fields = embed["fields"]
+        self.assertEqual([f["name"] for f in fields],
+                         ["<:twitch:1085833562474938438> Twitch",
+                          "<:Youtube_logo:1508733155883094066> YouTube",
+                          "<:TikTok:1097447464010788864> TikTok"])
+        self.assertTrue(all(f["inline"] for f in fields))
+        self.assertEqual(fields[0]["value"],
+                         "### 1,639\n"
+                         f"[{B('Monza league race')}](https://twitch.tv/videos/9)\n"
+                         f"-# followers \u00b7 {B('Last stream')}")
+        self.assertEqual(msg["attachments"], [{"id": 0, "filename": names[0]}])
         self.assertEqual(msg["allowed_mentions"], {"parse": []})
+
+    def test_strip_has_a_block_per_platform(self):
+        from PIL import Image
+        img = Image.open(io.BytesIO(board_image.strip([0x9146FF, 0xFF0033, 0x25F4EE])))
+        self.assertEqual(img.size, board_image.STRIP)
+        self.assertEqual(img.getpixel((10, 5)), (0x91, 0x46, 0xFF))
+        self.assertEqual(img.getpixel((450, 5)), (0xFF, 0x00, 0x33))
+        self.assertEqual(img.getpixel((890, 5)), (0x25, 0xF4, 0xEE))
+
     def run_update(self, stats):
         sent = []
         with mock.patch.object(socials_board, "send",
@@ -251,7 +270,7 @@ class BoardTest(unittest.TestCase):
         old = {"id": "99", "author": {"id": "bot"}, "content": socials_board.HEADER,
                "embeds": [], "attachments": [{"filename": "socials-board-abc.png"}]}
         sent, _ = self.run_update(fake_stats(board=old))
-        self.assertEqual(len(sent[0][3]["embeds"]), 3)
+        self.assertEqual(len(sent[0][3]["embeds"][0]["fields"]), 3)
 
     def test_switched_off_without_channel(self):
         stats = fake_stats()
