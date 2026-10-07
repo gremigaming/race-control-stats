@@ -5,6 +5,7 @@ the ids it prints go in socials_board.GROWTH_EMOJI.
     python3 discord/make_growth_emojis.py      (needs DISCORD_BOT_TOKEN, Pillow, Inter)
     python3 discord/make_growth_emojis.py --labels   arrow+number emojis 1-99 (rc5_),
                                                      ids go in growth_emojis.json
+    python3 discord/make_growth_emojis.py --parts    head/tail emojis for 100-9999 (rc6_)
     python3 discord/make_growth_emojis.py --preview   writes the pictures only
 """
 import base64
@@ -79,7 +80,7 @@ def upload_as(name, png):
     raise RuntimeError(f"could not upload {name}")
 
 
-if __name__ == "__main__" and "--labels" not in sys.argv:
+if __name__ == "__main__" and "--labels" not in sys.argv and "--parts" not in sys.argv:
     if "--preview" in sys.argv:
         for n, img in pictures().items():
             img.save(f"{n}.png")
@@ -121,6 +122,49 @@ def label(font, up, number, color):
     return img
 
 
+# ---------- 100 to 9999: two emojis that line up flush ----------
+# A head (arrow and the first one or two digits, pushed to the right edge) and a
+# tail (the last two digits, pushed to the left edge), so the only space between
+# them is Discord's own small margin. Same scale as the labels above.
+PARTS_PREFIX = "rc6_"
+
+
+def _scale(font, up, color):
+    return min(1, H / _label_strip(font, up, str(LABEL_MAX), color).width)
+
+
+def _placed(strip, s, right):
+    small = strip.resize((round(strip.width * s), round(H * s)), Image.LANCZOS)
+    box = small.getbbox()
+    ink = small.crop((box[0], 0, box[2], small.height))
+    img = Image.new("RGBA", (H, H), (0, 0, 0, 0))
+    img.alpha_composite(ink, (H - ink.width if right else 0, round(BASE - BASE * s)))
+    return img
+
+
+def head(font, up, digits, color):
+    return _placed(_label_strip(font, up, digits, color), _scale(font, up, color), right=True)
+
+
+def tail(font, up, digits, color):
+    l, t, r, b = font.getbbox(digits)
+    bottom8 = font.getbbox("8")[3]
+    strip = Image.new("RGBA", (r - l + 4, H), (0, 0, 0, 0))
+    ImageDraw.Draw(strip).text((2 - l, BASE - bottom8), digits, font=font, fill=color)
+    return _placed(strip, _scale(font, up, color), right=False)
+
+
+def parts():
+    font = ImageFont.truetype(FONT, 72)
+    out = {}
+    for tone, up in (("g", True), ("r", False)):
+        for n in range(1, 100):
+            out[f"{tone}h{n}"] = head(font, up, str(n), COLORS[tone])
+        for n in range(100):
+            out[f"{tone}t{n:02d}"] = tail(font, up, f"{n:02d}", COLORS[tone])
+    return out
+
+
 def labels():
     font = ImageFont.truetype(FONT, 72)
     out = {}
@@ -128,6 +172,20 @@ def labels():
         out[f"g{n}"] = label(font, True, n, COLORS["g"])
         out[f"r{n}"] = label(font, False, n, COLORS["r"])
     return out
+
+
+if __name__ == "__main__" and "--parts" in sys.argv:
+    pics = parts()
+    if "--preview" in sys.argv:
+        for n in ("gh1", "gh12", "gt34", "gt05", "rh9", "rt99"):
+            pics[n].save(f"part-{n}.png")
+    else:
+        out = {}
+        for n, img in pics.items():
+            data = io.BytesIO()
+            img.save(data, "PNG")
+            out[n] = upload_as(PARTS_PREFIX + n, data.getvalue())
+        print(json.dumps(out, indent=1))
 
 
 if __name__ == "__main__" and "--labels" in sys.argv:
