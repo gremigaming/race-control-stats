@@ -256,15 +256,18 @@ class BoardTest(unittest.TestCase):
         # no change, no arrow
         self.assertTrue(socials_board.card_v2_text(cols[2]).startswith(
             "3,904 FOLLOWERS\n# TikTok\n"))
-        e = socials_board.GROWTH_EMOJI
+        e, labels = socials_board.GROWTH_EMOJI, socials_board.GROWTH_LABELS
         text = socials_board.card_v2_text(cols[0])
+        # arrow and number in one emoji up to 99, so there's no gap between them
         self.assertTrue(text.startswith(
-            "1,639 FOLLOWERS" + f" <:rc2_gup:{e['gup']}><:rc2_g3:{e['g3']}><:rc2_g9:{e['g9']}>"
-            "\n# Twitch\n"))
+            "1,639 FOLLOWERS" + f" <:rc3_g39:{labels['g39']}>\n# Twitch\n"))
         self.assertEqual(socials_board.brett("YouTube"), "\u024eOU\u0393UBE")
-        self.assertIn("2,690 SUBSCRIBERS" + f" <:rc2_rdown:{e['rdown']}><:rc2_r1:{e['r1']}>"
-                      f"<:rc2_r0:{e['r0']}>", socials_board.card_v2_text(cols[1]))
-        self.assertIn(f"<:rc2_gcomma:{e['gcomma']}>", socials_board.growth_text(1200))
+        self.assertIn("2,690 SUBSCRIBERS" + f" <:rc3_r10:{labels['r10']}>",
+                      socials_board.card_v2_text(cols[1]))
+        # bigger changes are spelled with separate arrow and digit emojis
+        self.assertEqual(socials_board.growth_text(1200),
+                         f"<:rc2_gup:{e['gup']}><:rc2_g1:{e['g1']}><:rc2_gcomma:{e['gcomma']}>"
+                         f"<:rc2_g2:{e['g2']}><:rc2_g0:{e['g0']}><:rc2_g0:{e['g0']}>")
 
     def test_counts_are_saved_once_a_day(self):
         cols = self.gather(fake_stats())
