@@ -1,0 +1,26 @@
+name: Fetch fonts (one-off)
+
+# Downloads the free (OFL) fonts the stream schedule picture uses into fonts/.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  fetch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: |
+          mkdir -p fonts
+          base=https://raw.githubusercontent.com/google/fonts/main/ofl
+          curl -fsSL -o fonts/Anton-Regular.ttf "$base/anton/Anton-Regular.ttf"
+          curl -fsSL -o fonts/Anton-OFL.txt "$base/anton/OFL.txt"
+          curl -fsSL -o fonts/Montserrat.ttf "$base/montserrat/Montserrat%5Bwght%5D.ttf"
+          curl -fsSL -o fonts/Montserrat-OFL.txt "$base/montserrat/OFL.txt"
+          git config user.name "github-actions"
+          git config user.email "github-actions@users.noreply.github.com"
+          git add fonts
+          git commit -m "Fonts for the stream schedule picture (SIL Open Font License)"
+          git pull --rebase origin main && git push
