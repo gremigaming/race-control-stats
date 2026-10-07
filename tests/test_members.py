@@ -12,7 +12,7 @@ class MembersTests(unittest.TestCase):
     def setUp(self):
         self.dir = tempfile.TemporaryDirectory()
         self.path = Path(self.dir.name) / "members.json"
-        self.m = members.Members(self.path)
+        self.m = members.Members(self.path, Path(self.dir.name) / "messages")
 
     def tearDown(self):
         self.dir.cleanup()
@@ -47,6 +47,22 @@ class MembersTests(unittest.TestCase):
         self.m.message(1, "general", NOW)
         self.m.maybe_save(force=True)
         self.assertIn("1 messages", members.Members(self.path).profile(1, now=NOW))
+
+    def test_archive_and_forget(self):
+        self.m.archive(10, 1, "general", "hello", NOW)
+        self.m.archive(11, 2, "general", "hi", NOW)
+        self.m.message(1, "general", NOW)
+        self.assertEqual(self.m.forget(1), 1)
+        rows = (Path(self.dir.name) / "messages" / "2026-10-03.jsonl").read_text()
+        self.assertNotIn("hello", rows)
+        self.assertIn("hi", rows)
+        self.assertEqual(self.m.profile(1, now=NOW), "no activity recorded yet")
+
+    def test_old_archive_files_are_dropped(self):
+        self.m.archive(1, 1, "general", "old", NOW - 100 * 86400)
+        self.m.archive(2, 1, "general", "new", NOW)
+        files = sorted(p.name for p in (Path(self.dir.name) / "messages").iterdir())
+        self.assertEqual(files, ["2026-10-03.jsonl"])
 
 
 if __name__ == "__main__":

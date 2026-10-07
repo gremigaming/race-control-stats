@@ -95,8 +95,10 @@ async def on_message(message):
     if not message.guild:
         return
     if not message.author.bot:
-        members.message(message.author.id, plain(message.channel.name),
-                        message.created_at.timestamp())
+        at = message.created_at.timestamp()
+        members.message(message.author.id, plain(message.channel.name), at)
+        members.archive(message.id, message.author.id, plain(message.channel.name),
+                        message.clean_content, at)
     ref = message.reference.message_id if message.reference else None
     if message.author == bot.user and ref in waiting:
         waiting[ref].set()  # Claude answered, stop typing
