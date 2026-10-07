@@ -23,15 +23,17 @@ import anthropic
 import discord
 
 from bot.brain import Brain, HandOff
+from bot.members import Members
 
 from bot.replies import (FIRE_HEADERS, FIRE_URL, approval_body, is_approval,
-                         load_staff, should_handle_tag, tag_body)
+                         load_staff, plain, should_handle_tag, tag_body)
 
 ROUTINE_ID = os.environ["ROUTINE_ID"]
 ROUTINE_TOKEN = os.environ["ROUTINE_FIRE_TOKEN"]
 OWNER_ID, MOD_IDS = load_staff()
 API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
-brain = Brain(API_KEY) if API_KEY else None
+members = Members()
+brain = Brain(API_KEY, members) if API_KEY else None
 
 log = logging.getLogger("race_control")
 intents = discord.Intents.default()
@@ -92,6 +94,9 @@ async def hand_over(channel, message_id, body, failed_text, reply_to):
 async def on_message(message):
     if not message.guild:
         return
+    if not message.author.bot:
+        members.message(message.author.id, plain(message.channel.name),
+                        message.created_at.timestamp())
     ref = message.reference.message_id if message.reference else None
     if message.author == bot.user and ref in waiting:
         waiting[ref].set()  # Claude answered, stop typing
@@ -115,6 +120,13 @@ async def on_message(message):
                     tag_body(message.channel.id, message.id, message.author.id),
                     "\U0001F4FB Radio trouble, I couldn't reach Claude. Try again in a minute.",
                     message)
+
+
+@bot.event
+async def on_voice_state_update(member, before, after):
+    if member.bot or (before.channel is None) == (after.channel is None):
+        return
+    members.voice(member.id, joined=after.channel is not None)
 
 
 @bot.event
