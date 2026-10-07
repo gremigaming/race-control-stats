@@ -92,9 +92,17 @@ class BoardTest(unittest.TestCase):
                         mock.patch.dict(os.environ, {"YOUTUBE_CHANNEL_ID": "UCgremi",
                                                      "YOUTUBE_URL": ""}),
                         mock.patch.object(socials_board, "fetch_bytes",
-                                          lambda url: png() if url else None)):
+                                          lambda url: png() if url else None),
+                        mock.patch.object(socials_board, "HISTORY_FILE",
+                                          os.path.join(self.tmp(), "history.json"))):
             patcher.start()
             self.addCleanup(patcher.stop)
+
+    def tmp(self):
+        import tempfile
+        d = tempfile.TemporaryDirectory()
+        self.addCleanup(d.cleanup)
+        return d.name
 
     def quiet(self, fn, *args):
         out = io.StringIO()
@@ -216,13 +224,13 @@ class BoardTest(unittest.TestCase):
                              f"attachment://{socials_board.logo_name(key)}")
             # the invisible full-width picture that keeps the cards the same width
             self.assertEqual(gallery["items"][0]["media"]["url"],
-                             f"attachment://{socials_board.spacer_name(key)}")
+                             f"attachment://{socials_board.line_name(key)}")
         # all buttons together under the cards
         self.assertEqual([b["label"] for b in row["components"]],
                          ["Twitch", "YouTube", "TikTok"])
         self.assertEqual(cards[0]["accent_color"], socials_board.TWITCH_PURPLE)
         self.assertEqual(cards[0]["components"][0]["components"][0]["content"],
-                         "### Twitch\n## 1,639 followers\n"
+                         "# Twitch\n### 1,639 followers\n"
                          f"[{B('Monza league race')}](https://twitch.tv/videos/9)\n"
                          f"-# {B('Last stream')} \u00b7 {B('offline right now')}")
         self.assertEqual(cards[2]["accent_color"], 0x161823)
@@ -236,11 +244,35 @@ class BoardTest(unittest.TestCase):
                       ["accessory"]["media"]["url"])
         self.assertEqual(len(files), 3)  # only the spacers
 
-    def test_spacer_is_solid_and_thin(self):
+    def test_growth_behind_the_follower_number(self):
+        history = {"2026-08-01": {"twitch": 1000},  # too old
+                   "2026-09-10": {"twitch": 1600, "youtube": 2700},
+                   "2026-10-07": {"twitch": 1639}}
+        cols = self.gather(fake_stats())
+        socials_board.add_growth(cols, history, "2026-10-07")
+        self.assertEqual([c.get("growth") for c in cols], [39, -10, None])
+        text = socials_board.card_v2_text(cols[0])
+        self.assertTrue(text.startswith("# Twitch\n### 1,639 followers  \u25b2 39\n"))
+        self.assertIn("2,690 subscribers  \u25bc 10", socials_board.card_v2_text(cols[1]))
+
+    def test_counts_are_saved_once_a_day(self):
+        cols = self.gather(fake_stats())
+        history = {}
+        self.assertTrue(socials_board.record(history, "2026-10-07", cols))
+        self.assertFalse(socials_board.record(history, "2026-10-07", cols))
+        self.assertEqual(socials_board.load_history(),
+                         {"2026-10-07": {"twitch": 1639, "youtube": 2690, "tiktok": 3904}})
+
+    def test_detail_line_is_solid(self):
         from PIL import Image
-        img = Image.open(io.BytesIO(board_image.spacer()))
+        img = Image.open(io.BytesIO(board_image.detail_line([0x25F4EE, 0x161823, 0xFE2C55])))
         self.assertEqual(img.mode, "RGB")  # nothing see-through
-        self.assertEqual(img.size, board_image.SPACER)
+        self.assertEqual(img.size, board_image.LINE)
+        mid = board_image.LINE[1] // 2
+        r, g, b = img.getpixel((5, mid))
+        self.assertTrue(g > r)  # starts cyan
+        r, g, b = img.getpixel((995, mid))
+        self.assertTrue(r > g)  # ends red
 
     def test_single_card_backup(self):
         B = socials_board.sans_bold
@@ -324,7 +356,7 @@ class BoardTest(unittest.TestCase):
         old = dict(old, id="99", author={"id": "bot"})
         sent, _ = self.run_update(fake_stats(board=old))
         self.assertEqual([a[2] for a in sent], ["/channels/555/messages/99"])
-        self.assertIn("### Twitch", sent[0][3]["components"][0]["components"][0]
+        self.assertIn("# Twitch", sent[0][3]["components"][0]["components"][0]
                       ["components"][0]["content"])
 
     def test_old_picture_board_is_replaced(self):

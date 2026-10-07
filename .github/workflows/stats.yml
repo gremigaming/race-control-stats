@@ -45,6 +45,17 @@ jobs:
           TIKTOK_REFRESH_TOKEN_OUT: ${{ runner.temp }}/tiktok_refresh_token
         run: python3 update_stats.py
 
+      # One saved count per platform per day, for the growth arrows on the socials board
+      - name: Save follower counts
+        if: always()
+        run: |
+          if [ -z "$(git status --porcelain follower_history.json)" ]; then exit 0; fi
+          git config user.name "github-actions"
+          git config user.email "github-actions@users.noreply.github.com"
+          git add follower_history.json
+          git commit -m "Follower counts for $(date -u +%F)"
+          git pull --rebase origin main && git push
+
       # TikTok can hand out a new login token on each run; store it or the next run fails
       - name: Save new TikTok login
         if: always()

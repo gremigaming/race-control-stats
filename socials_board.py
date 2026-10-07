@@ -342,11 +342,54 @@ ROW, CONTAINER, SECTION, TEXT, THUMBNAIL, GALLERY = 1, 17, 9, 10, 11, 12
 CARD_TITLE_LIMIT = 30
 
 
+UP, DOWN = "\u25b2", "\u25bc"
+# Saved follower counts, one per day, for the growth arrows (committed by the
+# stats workflow at most once a day)
+HISTORY_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "follower_history.json")
+GROWTH_DAYS = 30
+
+
+def load_history():
+    try:
+        with open(HISTORY_FILE) as f:
+            return json.load(f)
+    except (OSError, ValueError):
+        return {}
+
+
+def record(history, today, columns):
+    """Saves today's counts once (the first run of the day). True if added."""
+    counts = {c["key"]: c["count"] for c in columns if c.get("count") is not None}
+    if today in history or not counts:
+        return False
+    history[today] = counts
+    with open(HISTORY_FILE, "w") as f:
+        json.dump(history, f, indent=1, sort_keys=True)
+        f.write("\n")
+    return True
+
+
+def add_growth(columns, history, today):
+    """Growth since the oldest saved count of the last 30 days (none until there
+    is an earlier day to compare with)."""
+    import datetime
+    start = (datetime.date.fromisoformat(today)
+             - datetime.timedelta(days=GROWTH_DAYS)).isoformat()
+    for c in columns:
+        days = sorted(d for d in history if start <= d < today and c["key"] in history[d])
+        if days and c.get("count") is not None:
+            c["growth"] = c["count"] - history[days[0]][c["key"]]
+
+
 def card_v2_text(col):
-    """Logo and name, the number as a heading, the latest stream or video as one
-    link, and a small grey line."""
+    """The name as a big heading, the number with its growth behind it, the latest
+    stream or video as one link, and a small grey line."""
     count = f"{col['count']:,}" if col.get("count") is not None else "\u2014"
-    lines = [f"### {col['name']}", f"## {count} {col['word']}"]
+    stat = f"### {count} {col['word']}"
+    growth = col.get("growth")
+    if growth is not None:  # since the oldest saved count of the last 30 days
+        stat += f"  {DOWN if growth < 0 else UP} {abs(growth):,}"
+    lines = [f"# {col['name']}", stat]
     preview, stream = col["preview"], col.get("stream")
     if stream:
         viewers = stream.get("viewer_count")
@@ -364,9 +407,15 @@ def card_v2_text(col):
     return "\n".join(lines)
 
 
-def spacer_name(key):
+def line_name(key):
     import board_image
-    return f"{FILE_PREFIX}{key}-spacer-{board_image.LAYOUT}.png"
+    return f"{FILE_PREFIX}{key}-line-{board_image.LAYOUT}.png"
+
+
+# The thin line at the bottom of each card; TikTok's runs through its cyan, dark
+# blue-black and red
+LINE_COLORS = {"twitch": [TWITCH_PURPLE], "youtube": [YOUTUBE_RED],
+               "tiktok": [TIKTOK_CYAN, TIKTOK_DARK, 0xFE2C55]}
 
 
 def logo_name(key):
@@ -374,15 +423,15 @@ def logo_name(key):
     return f"{FILE_PREFIX}{key}-logo-{board_image.LAYOUT}.png"
 
 
-def card_for(col, spacer, logo):
+def card_for(col, line, logo):
     """A platform's card: in the platform colour, the text with the logo top
-    right, plus an invisible full-width picture that makes every card the same
-    width (the widest Discord allows) while adding almost no height."""
+    right, and a thin full-width line at the bottom, which also makes every card
+    the same width (the widest Discord allows)."""
     return {"type": CONTAINER, "accent_color": col["color"], "components": [
         {"type": SECTION,
          "components": [{"type": TEXT, "content": card_v2_text(col)}],
          "accessory": {"type": THUMBNAIL, "media": {"url": logo}}},
-        {"type": GALLERY, "items": [{"media": {"url": f"attachment://{spacer}"}}]}]}
+        {"type": GALLERY, "items": [{"media": {"url": f"attachment://{line}"}}]}]}
 
 
 def buttons_row(columns):
@@ -399,14 +448,14 @@ def build(stats, columns=None):
     files, cards = [], []
     for c in columns:
         key = c["key"]
-        spacer = spacer_name(key)
-        files.append((spacer, board_image.spacer()))
+        line = line_name(key)
+        files.append((line, board_image.detail_line(LINE_COLORS[key])))
         # the logo padded to a square, so Discord's square thumbnail doesn't cut
         # it off; the emoji itself if it can't be downloaded right now
         logo = board_image.square_logo(fetch_bytes(logo_url(key)))
         if logo:
             files.append((logo_name(key), logo))
-        cards.append(card_for(c, spacer, f"attachment://{logo_name(key)}" if logo
+        cards.append(card_for(c, line, f"attachment://{logo_name(key)}" if logo
                               else logo_url(key)))
     message = {"flags": COMPONENTS_V2, "content": "", "embeds": [],
                "attachments": [{"id": i, "filename": n} for i, (n, _) in enumerate(files)],
@@ -504,7 +553,7 @@ def platform_of(msg):
     texts = " ".join(p[1] or "" for p in _parts(msg.get("components")) if p[0] == TEXT)
     for name, key in KEYS.items():  # cards start with the platform name
         e = EMOJI[key]
-        if texts.startswith((f"### {name}", f"**{name}**", f"<:{e['name']}:{e['id']}>")):
+        if texts.startswith((f"# {name}", f"### {name}", f"**{name}**", f"<:{e['name']}:{e['id']}>")):
             return key
     # the older one-message boards count as the Twitch message: it came first
     if (msg.get("content") in (HEADER,) + OLD_HEADERS or embeds[0].get("title") == TITLE
@@ -534,7 +583,14 @@ def update(stats):
     if board is None and os.environ.get("SOCIALS_BOARD_POST") != "true":
         print("socials board: not posted yet, skipping")
         return
-    message, files = build(stats)
+    import datetime
+    columns = gather(stats)
+    today = datetime.datetime.now(datetime.timezone.utc).date().isoformat()
+    history = load_history()
+    if record(history, today, columns):
+        print("socials board: saved today's follower counts")
+    add_growth(columns, history, today)
+    message, files = build(stats, columns)
     if board is None:
         msg = send(stats, "POST", f"/channels/{SOCIALS_CHANNEL_ID}/messages", message, files)
         print(f"posted:    socials board {msg.get('id')}")

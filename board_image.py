@@ -8,7 +8,7 @@ import io
 from PIL import Image, ImageOps
 
 # Bump when the pictures are made differently, so the live board is redrawn
-LAYOUT = 17
+LAYOUT = 18
 
 # The preview sits under the text as the card's picture. Discord fits it to the
 # card's width on PC and phone alike, which also gives all cards the same width.
@@ -101,6 +101,37 @@ SPACER = (1000, 2)
 def spacer():
     out = io.BytesIO()
     Image.new("RGB", SPACER, EMBED_BG).save(out, "PNG", optimize=True)
+    return out.getvalue()
+
+
+# The thin detail line at the bottom of each socials card. Its full width also
+# makes Discord draw every card the same width.
+LINE = (1000, 12)
+
+
+def detail_line(colors):
+    """PNG bytes of a flat, rounded line on the card's background: one colour, or
+    a smooth gradient through several (TikTok)."""
+    from PIL import ImageDraw
+    scale = 3  # drawn larger and shrunk for smooth ends
+    w, h = LINE[0] * scale, LINE[1] * scale
+    stops = [_rgb(c) for c in colors]
+    fill = Image.new("RGB", (w, h))
+    draw = ImageDraw.Draw(fill)
+    for x in range(w):
+        t = x / (w - 1) * (len(stops) - 1)
+        i = min(int(t), len(stops) - 2) if len(stops) > 1 else 0
+        a, b = stops[i], stops[min(i + 1, len(stops) - 1)]
+        f = t - i if len(stops) > 1 else 0
+        draw.line([(x, 0), (x, h)], fill=tuple(round(p + (q - p) * f) for p, q in zip(a, b)))
+    bar = 4 * scale
+    mask = Image.new("L", (w, h), 0)
+    ImageDraw.Draw(mask).rounded_rectangle([0, (h - bar) // 2, w - 1, (h + bar) // 2],
+                                           radius=bar // 2, fill=255)
+    img = Image.new("RGB", (w, h), EMBED_BG)
+    img.paste(fill, (0, 0), mask)
+    out = io.BytesIO()
+    img.resize(LINE, Image.LANCZOS).save(out, "PNG", optimize=True)
     return out.getvalue()
 
 
