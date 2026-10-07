@@ -33,6 +33,10 @@ ASKS_ACTIVITY = re.compile(
     r"activ|actief|stats|statistie|how (much|often|many)|hoe (vaak|veel)|messages|berichten"
     r"|chatt|voice|role|rol(len)?\b|joined|lid sinds|profile|profiel|about me|over mij"
     r"|know me|ken je mij|who am i|wie ben ik|most active|meest", re.I)
+# Questions about someone: only answered from memory when a member is tagged or named
+ASKS_ABOUT = re.compile(
+    r"about (him|her|them)|tell me (something )?about|who is|wie is|what do you think (of|about)"
+    r"|wat vind je van|what does .* like|vertel .*over", re.I)
 ASKS_TOP = re.compile(r"most active|top \d|top (five|ten)|leaderboard|meest actie", re.I)
 STATS_CATEGORY_ID = 1556945370959843380
 
@@ -87,19 +91,22 @@ class Brain:
         Covers members tagged or named in the question or the last chat lines,
         otherwise the asker, plus the most active list when asked for."""
         text = message.clean_content
-        if not self.members or not ASKS_ACTIVITY.search(text):
+        about = ASKS_ABOUT.search(text)
+        if not self.members or not (about or ASKS_ACTIVITY.search(text)):
             return ""
         guild, bot_id = message.guild, message.guild.me.id
         people = [m for m in message.mentions if m.id != bot_id]
         if not people:
             context = " ".join([text] + [m.clean_content for m in history[:2]])
             people = named_members(context, [m for m in guild.members if not m.bot])
+        if not people and not ASKS_ACTIVITY.search(text):
+            return ""  # an opinion question about a thing, not a member
         lines = []
         for p in (people or [message.author])[:2]:
             who = p.display_name + (" (the asker)" if p.id == message.author.id else "")
             roles = [r.name for r in getattr(p, "roles", [])[1:]][-6:]
             joined = p.joined_at.strftime("%Y-%m-%d") if getattr(p, "joined_at", None) else None
-            lines.append(f"{who}: {self.members.profile(p.id, roles, joined)[:300]}")
+            lines.append(f"{who}: {self.members.profile(p.id, roles, joined)[:600]}")
         if ASKS_TOP.search(text):
             top = []
             for uid, n in self.members.top(5):

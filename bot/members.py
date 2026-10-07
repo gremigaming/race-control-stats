@@ -22,6 +22,8 @@ DAYS_KEPT = 60
 ARCHIVE = pathlib.Path(os.environ.get("RACE_CONTROL_ARCHIVE", "/var/lib/race-control/messages"))
 ARCHIVE_DAYS = 90
 SAVE_EVERY = 60  # seconds
+SUMMARY_CHARS = 4000  # newest message text sent when writing a profile (~1000 tokens)
+SUMMARY_MAX = 300     # characters kept per profile
 
 
 LEET = str.maketrans("013457", "oieast")
@@ -180,7 +182,36 @@ class Members:
             parts.append("roles " + ", ".join(roles))
         if joined:
             parts.append(f"joined {joined}")
+        if m and m.get("summary"):
+            parts.append(f"profile: {m['summary']}")
         return "; ".join(parts) or "no activity recorded yet"
+
+    def said_since(self, user_id, since, limit=SUMMARY_CHARS):
+        """A member's archived messages after `since`, newest kept when over limit."""
+        rows = []
+        for f in sorted(self.archive_dir.glob("*.jsonl")):
+            if f.stem < day(since):
+                continue
+            for line in f.read_text().splitlines():
+                r = json.loads(line)
+                if r.get("user") == str(user_id) and r["at"] > since and r["text"].strip():
+                    rows.append(f"[{r['channel']}] {r['text'][:200]}")
+        out, size = [], 0
+        for r in reversed(rows):
+            size += len(r) + 1
+            if size > limit:
+                break
+            out.append(r)
+        return "\n".join(reversed(out))
+
+    def due_for_summary(self):
+        """Members who wrote something since their profile was last written."""
+        return [u for u, m in self.data.items() if m["last_seen"] > m.get("summarized_at", 0)]
+
+    def set_summary(self, user_id, summary, at=None):
+        m = self._get(user_id)
+        m["summary"] = summary[:SUMMARY_MAX]
+        m["summarized_at"] = int(at or time.time())
 
 
 if __name__ == "__main__":

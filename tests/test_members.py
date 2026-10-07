@@ -71,6 +71,16 @@ class MembersTests(unittest.TestCase):
         self.m.message(3, "general", NOW - 30 * 86400)
         self.assertEqual(self.m.top(5, now=NOW), [("1", 3), ("2", 1)])
 
+    def test_profile_text_and_due_list(self):
+        self.m.archive(1, 1, "f1-chat", "Max is the GOAT", NOW)
+        self.m.archive(2, 2, "general", "hi", NOW)
+        self.m.message(1, "f1-chat", NOW)
+        self.assertEqual(self.m.said_since(1, 0), "[f1-chat] Max is the GOAT")
+        self.assertEqual(self.m.due_for_summary(), ["1"])
+        self.m.set_summary(1, "Verstappen fan who lives in F1 chat.", at=NOW + 1)
+        self.assertEqual(self.m.due_for_summary(), [])
+        self.assertIn("profile: Verstappen fan", self.m.profile(1, now=NOW))
+
 
 class NamesTests(unittest.TestCase):
     def test_finds_members_by_loose_name(self):

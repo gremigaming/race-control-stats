@@ -25,6 +25,7 @@ import discord
 
 from bot.brain import Brain, HandOff
 from bot.members import GUILD_ID, Members
+from bot.profiles import write_profiles
 
 from bot.replies import (FIRE_HEADERS, FIRE_URL, approval_body, is_approval,
                          load_staff, plain, should_handle_tag, tag_body)
@@ -69,10 +70,20 @@ async def on_ready():
 
 
 async def save_members():
-    """Writes the member counts to disk every minute, even in quiet hours."""
+    """Writes the member counts to disk every minute, even in quiet hours, and the
+    member profiles once a night at PROFILES_AT UTC."""
+    last_profiles = ""
     while True:
         await asyncio.sleep(60)
         members.maybe_save(force=True)
+        now = datetime.datetime.now(datetime.timezone.utc)
+        # Right after a start, then every night
+        nightly = now.strftime("%H:%M") >= PROFILES_AT and last_profiles != now.date()
+        if brain and (last_profiles == "" or nightly):
+            last_profiles = now.date()
+            guild = bot.get_guild(GUILD_ID)
+            if guild:
+                await write_profiles(brain.claude, members, guild)
 
 
 async def backfill(days=90):
@@ -101,13 +112,17 @@ async def backfill(days=90):
     members.mark_backfilled()
     members.maybe_save(force=True)
     log.info("backfill done: %s messages", seen)
+    guild = bot.get_guild(GUILD_ID)
+    if brain and guild:
+        await write_profiles(brain.claude, members, guild)
 
 
 # Tags and plans Claude is working on: message id -> set when Claude's reply lands
 waiting = {}
 # Posted when a quick answer isn't enough; Claude Code's answer follows in a minute
 RESEARCH_NOTE = "\U0001F50E Let me do some research, I'll be back shortly."
-TYPING_FOR = 300  # seconds to keep showing "Race Control is typing..."
+TYPING_FOR = 300
+PROFILES_AT = "03:00"  # UTC, before the 04:00 nightly update  # seconds to keep showing "Race Control is typing..."
 
 
 async def type_until_answered(channel, message_id):
