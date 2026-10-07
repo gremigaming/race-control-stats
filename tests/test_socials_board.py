@@ -230,7 +230,7 @@ class BoardTest(unittest.TestCase):
                          ["Twitch", "YouTube", "TikTok"])
         self.assertEqual(cards[0]["accent_color"], socials_board.TWITCH_PURPLE)
         self.assertEqual(cards[0]["components"][0]["components"][0]["content"],
-                         "# Twitch\n### 1,639 followers\n"
+                         "-# 1,639 followers\n# Twitch\n"
                          f"[{B('Monza league race')}](https://twitch.tv/videos/9)\n"
                          f"-# {B('Last stream')} \u00b7 {B('offline right now')}")
         self.assertEqual(cards[2]["accent_color"], 0x161823)
@@ -251,9 +251,14 @@ class BoardTest(unittest.TestCase):
         cols = self.gather(fake_stats())
         socials_board.add_growth(cols, history, "2026-10-07")
         self.assertEqual([c.get("growth") for c in cols], [39, -10, None])
+        e = socials_board.GROWTH_EMOJI
         text = socials_board.card_v2_text(cols[0])
-        self.assertTrue(text.startswith("# Twitch\n### 1,639 followers  \u25b2 39\n"))
-        self.assertIn("2,690 subscribers  \u25bc 10", socials_board.card_v2_text(cols[1]))
+        self.assertTrue(text.startswith(
+            f"-# 1,639 followers  <:rc_gup:{e['gup']}><:rc_g3:{e['g3']}><:rc_g9:{e['g9']}>"
+            "\n# Twitch\n"))
+        self.assertIn(f"2,690 subscribers  <:rc_rdown:{e['rdown']}><:rc_r1:{e['r1']}>"
+                      f"<:rc_r0:{e['r0']}>", socials_board.card_v2_text(cols[1]))
+        self.assertIn(f"<:rc_gcomma:{e['gcomma']}>", socials_board.growth_text(1200))
 
     def test_counts_are_saved_once_a_day(self):
         cols = self.gather(fake_stats())

@@ -342,7 +342,6 @@ ROW, CONTAINER, SECTION, TEXT, THUMBNAIL, GALLERY = 1, 17, 9, 10, 11, 12
 CARD_TITLE_LIMIT = 30
 
 
-UP, DOWN = "\u25b2", "\u25bc"
 # Saved follower counts, one per day, for the growth arrows (committed by the
 # stats workflow at most once a day)
 HISTORY_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "follower_history.json")
@@ -381,15 +380,53 @@ def add_growth(columns, history, today):
             c["growth"] = c["count"] - history[days[0]][c["key"]]
 
 
+# Green and red arrow, digit and comma emojis (Race Control's own app emojis,
+# made by discord/make_growth_emojis.py): Discord text can't be coloured, so the
+# growth number is spelled with these
+GROWTH_EMOJI = {
+    "g0": "1557294800531881984",
+    "g1": "1557294801647571034",
+    "g2": "1557294802695888906",
+    "g3": "1557294803761373205",
+    "g4": "1557294804797493369",
+    "g5": "1557294805925634058",
+    "g6": "1557294806802104374",
+    "g7": "1557294808395943957",
+    "g8": "1557294809251582023",
+    "g9": "1557294810849746975",
+    "gcomma": "1557294812179333161",
+    "gup": "1557294813290692719",
+    "r0": "1557294814553444352",
+    "r1": "1557294816126304276",
+    "r2": "1557294817384468500",
+    "r3": "1557294818617729174",
+    "r4": "1557294819842195507",
+    "r5": "1557294820827865240",
+    "r6": "1557294822367301732",
+    "r7": "1557294823432781904",
+    "r8": "1557294824644939858",
+    "r9": "1557294826062483498",
+    "rcomma": "1557294827333484624",
+    "rdown": "1557294828176285728",
+}
+
+
+def growth_text(growth):
+    """The growth as green (up) or red (down) emojis, like a green arrow and 24."""
+    tone, arrow = ("r", "rdown") if growth < 0 else ("g", "gup")
+    parts = [arrow] + [tone + ("comma" if ch == "," else ch) for ch in f"{abs(growth):,}"]
+    return "".join(f"<:rc_{p}:{GROWTH_EMOJI[p]}>" for p in parts)
+
+
 def card_v2_text(col):
-    """The name as a big heading, the number with its growth behind it, the latest
-    stream or video as one link, and a small grey line."""
+    """The number small on top with its growth behind it, the name as a big
+    heading, the latest stream or video as one link, and a small grey line."""
     count = f"{col['count']:,}" if col.get("count") is not None else "\u2014"
-    stat = f"### {count} {col['word']}"
+    stat = f"-# {count} {col['word']}"
     growth = col.get("growth")
     if growth is not None:  # since the oldest saved count of the last 30 days
-        stat += f"  {DOWN if growth < 0 else UP} {abs(growth):,}"
-    lines = [f"# {col['name']}", stat]
+        stat += f"  {growth_text(growth)}"
+    lines = [stat, f"# {col['name']}"]
     preview, stream = col["preview"], col.get("stream")
     if stream:
         viewers = stream.get("viewer_count")
@@ -412,9 +449,10 @@ def line_name(key):
     return f"{FILE_PREFIX}{key}-line-{board_image.LAYOUT}.png"
 
 
-# The thin line at the bottom of each card; TikTok's runs through its cyan, dark
-# blue-black and red
-LINE_COLORS = {"twitch": [TWITCH_PURPLE], "youtube": [YOUTUBE_RED],
+# The thin line at the bottom of each card, fading to dark in the middle;
+# TikTok's runs through its cyan, dark blue-black and red
+LINE_COLORS = {"twitch": [TWITCH_PURPLE, TIKTOK_DARK, TWITCH_PURPLE],
+               "youtube": [YOUTUBE_RED, TIKTOK_DARK, YOUTUBE_RED],
                "tiktok": [TIKTOK_CYAN, TIKTOK_DARK, 0xFE2C55]}
 
 
@@ -551,9 +589,11 @@ def platform_of(msg):
     if msg.get("embeds") and len(embeds) == 1 and name in KEYS:
         return KEYS[name]
     texts = " ".join(p[1] or "" for p in _parts(msg.get("components")) if p[0] == TEXT)
-    for name, key in KEYS.items():  # cards start with the platform name
+    first = texts.split("\n")[:2]  # the first card names its platform near the top
+    for name, key in KEYS.items():
         e = EMOJI[key]
-        if texts.startswith((f"# {name}", f"### {name}", f"**{name}**", f"<:{e['name']}:{e['id']}>")):
+        if (f"# {name}" in first or texts.startswith(
+                (f"### {name}", f"**{name}**", f"<:{e['name']}:{e['id']}>"))):
             return key
     # the older one-message boards count as the Twitch message: it came first
     if (msg.get("content") in (HEADER,) + OLD_HEADERS or embeds[0].get("title") == TITLE
