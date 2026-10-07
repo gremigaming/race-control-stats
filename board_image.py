@@ -8,7 +8,7 @@ import io
 from PIL import Image, ImageOps
 
 # Bump when the pictures are made differently, so the live board is redrawn
-LAYOUT = 15
+LAYOUT = 16
 
 # The preview sits under the text as the card's picture. Discord fits it to the
 # card's width on PC and phone alike, which also gives all cards the same width.
@@ -89,6 +89,18 @@ def strip(colors):
     img = img.resize(STRIP, Image.LANCZOS)
     out = io.BytesIO()
     img.save(out, "PNG", optimize=True)
+    return out.getvalue()
+
+
+# An invisible full-width picture in each socials card: Discord stretches it to
+# the widest a card can be, so all cards come out the same width. Painted in the
+# card's own background colour (not see-through, which shows as a grey box).
+SPACER = (1000, 2)
+
+
+def spacer():
+    out = io.BytesIO()
+    Image.new("RGB", SPACER, EMBED_BG).save(out, "PNG", optimize=True)
     return out.getvalue()
 
 

@@ -206,24 +206,33 @@ class BoardTest(unittest.TestCase):
         for key, (msg, files) in msgs.items():
             self.assertEqual(msg["flags"], socials_board.COMPONENTS_V2)
             self.assertEqual((msg["content"], msg["embeds"]), ("", []))
-            (card,) = msg["components"]
+            card = msg["components"][0]
             self.assertEqual(card["type"], socials_board.CONTAINER)
-            section, gallery, row = card["components"]
-            # logo top right, full-width strip, button at the bottom
-            self.assertIn("/emojis/", section["accessory"]["media"]["url"])
+            section, gallery = card["components"]
+            self.assertIn("/emojis/", section["accessory"]["media"]["url"])  # logo top right
+            # the invisible full-width picture that keeps the cards the same width
             ((name, data),) = files
-            self.assertTrue(data.startswith(b"\x89PNG"))
             self.assertEqual(gallery["items"][0]["media"]["url"], f"attachment://{name}")
             self.assertEqual(msg["attachments"], [{"id": 0, "filename": name}])
-            self.assertEqual(row["components"][0]["type"], 2)
             self.assertEqual(msg["allowed_mentions"], {"parse": []})
+        # all buttons together under the last card only
+        self.assertEqual([len(m["components"]) for m, _ in msgs.values()], [1, 1, 2])
+        row = msgs["tiktok"][0]["components"][1]
+        self.assertEqual([b["label"] for b in row["components"]],
+                         ["Follow on Twitch", "Subscribe on YouTube", "Follow on TikTok"])
         card = msgs["twitch"][0]["components"][0]
         self.assertEqual(card["accent_color"], socials_board.TWITCH_PURPLE)
         self.assertEqual(card["components"][0]["components"][0]["content"],
-                         "**Twitch**\n## 1,639 followers\n"
+                         "### Twitch\n## 1,639 followers\n"
                          f"[{B('Monza league race')}](https://twitch.tv/videos/9)\n"
                          f"-# {B('Last stream')} \u00b7 {B('offline right now')}")
         self.assertEqual(msgs["tiktok"][0]["components"][0]["accent_color"], 0x161823)
+
+    def test_spacer_is_solid_and_thin(self):
+        from PIL import Image
+        img = Image.open(io.BytesIO(board_image.spacer()))
+        self.assertEqual(img.mode, "RGB")  # nothing see-through
+        self.assertEqual(img.size, board_image.SPACER)
 
     def test_single_card_backup(self):
         B = socials_board.sans_bold
@@ -304,7 +313,7 @@ class BoardTest(unittest.TestCase):
         old = dict(old, id="99", author={"id": "bot"})
         sent, _ = self.run_update(fake_stats(board=old))
         self.assertEqual([a[2] for a in sent], ["/channels/555/messages/99"])
-        self.assertIn("**Twitch**", sent[0][3]["components"][0]["components"][0]
+        self.assertIn("### Twitch", sent[0][3]["components"][0]["components"][0]
                       ["components"][0]["content"])
 
     def test_old_picture_board_is_replaced(self):
@@ -312,7 +321,7 @@ class BoardTest(unittest.TestCase):
                "embeds": [], "attachments": [{"filename": "socials-board-abc.png"}]}
         sent, _ = self.run_update(fake_stats(board=old))
         self.assertEqual([a["filename"] for a in sent[0][3]["attachments"]],
-                         ["socials-board-twitch-strip-%d.png" % board_image.LAYOUT])
+                         ["socials-board-twitch-spacer-%d.png" % board_image.LAYOUT])
 
     def test_switched_off_without_channel(self):
         stats = fake_stats()

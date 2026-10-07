@@ -2,8 +2,8 @@
 
 Three Race Control messages, one per platform (Twitch, YouTube, TikTok): a card
 in the platform colour with its logo, the follower number and the latest stream
-or video linked, the logo top right, a colour strip and its own link button at
-the bottom, all inside the card. The stats workflow edits those same
+or video linked, and the logo top right. All three link buttons sit together
+under the last card. The stats workflow edits those same
 messages every run, and only when something on them changed.
 
 The workflow never posts a new message by itself. Posting is done once by hand
@@ -335,13 +335,9 @@ def embed_for(col, thumb_name):
 
 
 # Discord's newer message layout: a card (container) holding the text with the
-# logo beside it, a colour strip and the button, all inside the card
+# logo beside it
 COMPONENTS_V2 = 1 << 15
 ROW, CONTAINER, SECTION, TEXT, THUMBNAIL, GALLERY = 1, 17, 9, 10, 11, 12
-# The strip colours per card. TikTok's card colour is almost black, so its strip
-# uses TikTok's cyan and pink instead.
-STRIP_COLORS = {"twitch": [TWITCH_PURPLE], "youtube": [YOUTUBE_RED],
-                "tiktok": [TIKTOK_CYAN, 0xFE2C55]}
 # a bit shorter than in the old cards, since the button takes room on the right
 CARD_TITLE_LIMIT = 30
 
@@ -350,7 +346,7 @@ def card_v2_text(col):
     """Logo and name, the number as a heading, the latest stream or video as one
     link, and a small grey line."""
     count = f"{col['count']:,}" if col.get("count") is not None else "\u2014"
-    lines = [f"**{col['name']}**", f"## {count} {col['word']}"]
+    lines = [f"### {col['name']}", f"## {count} {col['word']}"]
     preview, stream = col["preview"], col.get("stream")
     if stream:
         viewers = stream.get("viewer_count")
@@ -368,38 +364,44 @@ def card_v2_text(col):
     return "\n".join(lines)
 
 
-def strip_name(key):
+def spacer_name(key):
     import board_image
-    return f"{FILE_PREFIX}{key}-strip-{board_image.LAYOUT}.png"
+    return f"{FILE_PREFIX}{key}-spacer-{board_image.LAYOUT}.png"
 
 
-def message_for(col):
+def message_for(col, rows=()):
     """A platform's own message and its picture: a card in the platform colour
-    with the text and the logo top right, a full-width colour strip (which also
-    makes every card the same width, the widest Discord allows) and the button
-    at the bottom, all inside the card."""
+    with the text and the logo top right, plus an invisible full-width picture
+    that makes every card the same width (the widest Discord allows) while
+    adding almost no height. `rows` go under the card, outside it."""
     import board_image
     key = col["key"]
-    name = strip_name(key)
+    name = spacer_name(key)
     parts = [{"type": SECTION,
               "components": [{"type": TEXT, "content": card_v2_text(col)}],
               "accessory": {"type": THUMBNAIL, "media": {"url": logo_url(key)}}},
              {"type": GALLERY, "items": [{"media": {"url": f"attachment://{name}"}}]}]
-    if platform_url(key):
-        parts.append({"type": ROW, "components": [link_button(col)]})
     message = {"flags": COMPONENTS_V2, "content": "", "embeds": [],
                "attachments": [{"id": 0, "filename": name}],
                "components": [{"type": CONTAINER, "accent_color": col["color"],
-                               "components": parts}],
+                               "components": parts}] + list(rows),
                "allowed_mentions": {"parse": []}}
-    return message, [(name, board_image.strip(STRIP_COLORS[key]))]
+    return message, [(name, board_image.spacer())]
+
+
+def buttons_row(columns):
+    """All three link buttons together, under the last card."""
+    return {"type": ROW, "components": [link_button(c) for c in columns
+                                        if platform_url(c["key"])]}
 
 
 def build(stats, columns=None):
     """{platform key: (message, [(file name, picture bytes)])} for the three board
-    messages (Twitch, YouTube, TikTok)."""
+    messages (Twitch, YouTube, TikTok); the last one carries all the buttons."""
     columns = columns or gather(stats)
-    return {c["key"]: message_for(c) for c in columns}
+    last = columns[-1]["key"]
+    return {c["key"]: message_for(c, [buttons_row(columns)] if c["key"] == last else ())
+            for c in columns}
 
 
 def single_card(stats, columns=None):
@@ -491,7 +493,7 @@ def platform_of(msg):
     texts = " ".join(p[1] or "" for p in _parts(msg.get("components")) if p[0] == TEXT)
     for name, key in KEYS.items():  # cards start with the platform name
         e = EMOJI[key]
-        if texts.startswith((f"**{name}**", f"<:{e['name']}:{e['id']}>")):
+        if texts.startswith((f"### {name}", f"**{name}**", f"<:{e['name']}:{e['id']}>")):
             return key
     # the older one-message boards count as the Twitch message: it came first
     if (msg.get("content") in (HEADER,) + OLD_HEADERS or embeds[0].get("title") == TITLE
