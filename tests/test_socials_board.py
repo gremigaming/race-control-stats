@@ -229,7 +229,8 @@ class BoardTest(unittest.TestCase):
         self.assertEqual([b["label"] for b in row["components"]],
                          ["Twitch", "YouTube", "TikTok"])
         self.assertEqual(cards[0]["accent_color"], socials_board.TWITCH_PURPLE)
-        self.assertEqual(cards[0]["components"][0]["components"][0]["content"],
+        # the count in its own text block above the rest
+        self.assertEqual("\n".join(t["content"] for t in cards[0]["components"][0]["components"]),
                          f"{B('1,639 followers')}\n# Twitch\n"
                          f"[{B('Monza league race')}](https://twitch.tv/videos/9)\n"
                          f"-# {B('Last stream')} \u00b7 {B('offline right now')}")
@@ -366,7 +367,7 @@ class BoardTest(unittest.TestCase):
         sent, _ = self.run_update(fake_stats(board=old))
         self.assertEqual([a[2] for a in sent], ["/channels/555/messages/99"])
         self.assertIn("# Twitch", sent[0][3]["components"][0]["components"][0]
-                      ["components"][0]["content"])
+                      ["components"][1]["content"])
 
     def test_old_picture_board_is_replaced(self):
         old = {"id": "99", "author": {"id": "bot"}, "content": socials_board.HEADER,

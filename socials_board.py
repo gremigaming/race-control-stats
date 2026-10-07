@@ -467,7 +467,10 @@ def card_for(col, line, logo):
     the same width (the widest Discord allows)."""
     return {"type": CONTAINER, "accent_color": col["color"], "components": [
         {"type": SECTION,
-         "components": [{"type": TEXT, "content": card_v2_text(col)}],
+         # the count in its own text block, so the heading under it starts without
+         # the extra space Discord puts above a heading inside a block
+         "components": [{"type": TEXT, "content": part}
+                        for part in card_v2_text(col).split("\n", 1)],
          "accessory": {"type": THUMBNAIL, "media": {"url": logo}}},
         {"type": GALLERY, "items": [{"media": {"url": f"attachment://{line}"}}]}]}
 
@@ -588,7 +591,7 @@ def platform_of(msg):
     fields = [f.get("name", "").split()[-1] for f in embeds[0].get("fields", [])]
     if msg.get("embeds") and len(embeds) == 1 and name in KEYS:
         return KEYS[name]
-    texts = " ".join(p[1] or "" for p in _parts(msg.get("components")) if p[0] == TEXT)
+    texts = "\n".join(p[1] or "" for p in _parts(msg.get("components")) if p[0] == TEXT)
     first = texts.split("\n")[:2]  # the first card names its platform near the top
     for name, key in KEYS.items():
         e = EMOJI[key]
