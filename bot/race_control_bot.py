@@ -27,6 +27,7 @@ import discord
 
 from bot.brain import Brain, HandOff
 from bot.members import GUILD_ID, Members
+from bot.mod_report import due, last_done, mark_done, write_report
 from bot.profiles import write_profiles
 
 from bot.replies import (FIRE_HEADERS, FIRE_URL, Cooldown, approval_body, is_approval,
@@ -72,8 +73,8 @@ async def on_ready():
 
 
 async def save_members():
-    """Writes the member counts to disk every minute, even in quiet hours, and the
-    member profiles once a night at PROFILES_AT UTC."""
+    """Writes the member counts to disk every minute, even in quiet hours, the
+    member profiles once a night at PROFILES_AT UTC and the weekly mod report."""
     last_profiles = ""
     while True:
         await asyncio.sleep(60)
@@ -86,6 +87,11 @@ async def save_members():
             guild = bot.get_guild(GUILD_ID)
             if guild:
                 await write_profiles(brain.claude, members, guild)
+        if brain and members.backfilled() and due(now, last_done()):
+            mark_done(now)  # first, so a failing report doesn't retry every minute
+            guild = bot.get_guild(GUILD_ID)
+            if guild:
+                await write_report(brain.claude, members, guild)
 
 
 async def backfill(days=90):
