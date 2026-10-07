@@ -109,7 +109,7 @@ class BoardTest(unittest.TestCase):
         self.assertEqual([c["name"] for c in cols], ["Twitch", "YouTube", "TikTok"])
         self.assertEqual([c["color"] for c in cols],
                          [socials_board.TWITCH_PURPLE, socials_board.YOUTUBE_RED,
-                          socials_board.TIKTOK_CYAN])
+                          socials_board.TIKTOK_DARK])
         self.assertEqual([c["count"] for c in cols], [1639, 2690, 3904])
         self.assertEqual(cols[0]["badge"], "OFFLINE")
 
@@ -150,11 +150,10 @@ class BoardTest(unittest.TestCase):
         msgs, _ = self.quiet(socials_board.build, fake_stats(configured=False))
         self.assertEqual(len(msgs), 3)
 
-    def test_each_message_has_its_own_button(self):
+    def test_each_card_has_its_own_button(self):
         cols = self.gather(fake_stats())
-        self.assertEqual([[b["label"] for b in socials_board.button_for(c)[0]["components"]]
-                          for c in cols],
-                         [["Follow on Twitch"], ["Subscribe on YouTube"], ["Follow on TikTok"]])
+        self.assertEqual([socials_board.link_button(c)["label"] for c in cols],
+                         ["Follow", "Subscribe", "Follow"])
 
     def test_platform_cards(self):
         B = socials_board.sans_bold
@@ -162,7 +161,7 @@ class BoardTest(unittest.TestCase):
         twitch, youtube, tiktok = (socials_board.embed_for(c, f"{c['key']}.png") for c in cols)
         self.assertEqual([e["color"] for e in (twitch, youtube, tiktok)],
                          [socials_board.TWITCH_PURPLE, socials_board.YOUTUBE_RED,
-                          socials_board.TIKTOK_CYAN])
+                          socials_board.TIKTOK_DARK])
         self.assertEqual(twitch["author"]["name"], "Twitch")
         self.assertEqual(twitch["description"],
                          "## 1,639 followers\n"
@@ -200,16 +199,25 @@ class BoardTest(unittest.TestCase):
                             socials_board.fingerprint(self.gather(fake_stats(tiktok=3905))))
 
     def test_build_three_messages(self):
+        B = socials_board.sans_bold
         msgs, _ = self.quiet(socials_board.build, fake_stats())
         self.assertEqual(list(msgs), ["twitch", "youtube", "tiktok"])
         for key, msg in msgs.items():
-            self.assertEqual(msg["content"], "")
-            (embed,) = msg["embeds"]
-            self.assertNotIn("image", embed)  # no previews
-            self.assertIn("/emojis/", embed["thumbnail"]["url"])  # logo top right
-            self.assertEqual(len(msg["components"][0]["components"]), 1)
-            self.assertEqual(msg["attachments"], [])  # clears old pictures
+            self.assertEqual(msg["flags"], socials_board.COMPONENTS_V2)
+            self.assertEqual((msg["content"], msg["embeds"], msg["attachments"]), ("", [], []))
+            (card,) = msg["components"]
+            self.assertEqual(card["type"], socials_board.CONTAINER)
+            (section,) = card["components"]
+            # the button sits on the right inside the card
+            self.assertEqual(section["accessory"]["type"], 2)
             self.assertEqual(msg["allowed_mentions"], {"parse": []})
+        card = msgs["twitch"]["components"][0]
+        self.assertEqual(card["accent_color"], socials_board.TWITCH_PURPLE)
+        self.assertEqual(card["components"][0]["components"][0]["content"],
+                         "<:twitch:1085833562474938438> **Twitch**\n## 1,639 followers\n"
+                         f"[{B('Monza league race')}](https://twitch.tv/videos/9)\n"
+                         f"-# {B('Last stream')} \u00b7 {B('offline right now')}")
+        self.assertEqual(msgs["tiktok"]["components"][0]["accent_color"], 0x161823)
 
     def test_single_card_backup(self):
         B = socials_board.sans_bold
@@ -282,7 +290,8 @@ class BoardTest(unittest.TestCase):
         old = dict(old, id="99", author={"id": "bot"})
         sent, _ = self.run_update(fake_stats(board=old))
         self.assertEqual([a[2] for a in sent], ["/channels/555/messages/99"])
-        self.assertEqual(sent[0][3]["embeds"][0]["author"]["name"], "Twitch")
+        self.assertIn("**Twitch**", sent[0][3]["components"][0]["components"][0]
+                      ["components"][0]["content"])
 
     def test_old_picture_board_is_replaced(self):
         old = {"id": "99", "author": {"id": "bot"}, "content": socials_board.HEADER,

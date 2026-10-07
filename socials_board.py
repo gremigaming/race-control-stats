@@ -2,7 +2,7 @@
 
 Three Race Control messages, one per platform (Twitch, YouTube, TikTok): a card
 in the platform colour with its logo, the follower number and the latest stream
-or video linked, and its own link button. The stats workflow edits those same
+or video linked, and its own link button on the right inside the card. The stats workflow edits those same
 messages every run, and only when something on them changed.
 
 The workflow never posts a new message by itself. Posting is done once by hand
@@ -29,7 +29,8 @@ FILE_PREFIX = "socials-board-"
 
 TWITCH_PURPLE = 0x9146FF
 YOUTUBE_RED = 0xFF0033
-TIKTOK_CYAN = 0x25F4EE
+TIKTOK_CYAN = 0x25F4EE  # the colour strip in the single-card backup
+TIKTOK_DARK = 0x161823  # TikTok's own dark blue-black, the card's accent
 BOARD_GREY = 0x3F4147  # the side line; the platform colours are in the strip
 
 TWITCH_URL = "https://twitch.tv/GreMi_Gaming"
@@ -177,7 +178,7 @@ def gather(stats):
         {"key": "youtube", "name": "YouTube", "color": YOUTUBE_RED,
          "count": safe(stats.youtube_subscribers), "word": "subscribers",
          "preview": dict(yt, label="Latest video") if yt else None},
-        {"key": "tiktok", "name": "TikTok", "color": TIKTOK_CYAN,
+        {"key": "tiktok", "name": "TikTok", "color": TIKTOK_DARK,
          "count": safe(stats.tiktok_followers), "word": "followers",
          "preview": dict(tt, label="Latest TikTok") if tt else None},
     ]
@@ -193,16 +194,24 @@ def fingerprint(columns):
     return hashlib.sha1(json.dumps([board_image.LAYOUT, keep]).encode()).hexdigest()[:12]
 
 
-def button_for(col):
-    """The link button in a platform's own message."""
+BUTTON_LABEL = {"twitch": "Follow", "youtube": "Subscribe", "tiktok": "Follow"}
+
+
+def link_button(col):
+    """The link button on the right inside a platform's card."""
     key = col["key"]
-    label = {"twitch": "Watch live" if col.get("live") else "Follow on Twitch",
-             "youtube": "Subscribe on YouTube", "tiktok": "Follow on TikTok"}[key]
-    url = platform_url(key)
-    if not url:
+    label = "Watch live" if col.get("live") else BUTTON_LABEL[key]
+    return {"type": 2, "style": 5, "label": label, "url": platform_url(key),
+            "emoji": EMOJI[key]}
+
+
+def button_for(col):
+    """A button row (used by the single-card backup, where buttons sit below)."""
+    if not platform_url(col["key"]):
         return []
-    return [{"type": 1, "components": [
-        {"type": 2, "style": 5, "label": label, "url": url, "emoji": EMOJI[key]}]}]
+    return [{"type": 1, "components": [dict(link_button(col), label={
+        "twitch": "Watch live" if col.get("live") else "Twitch",
+        "youtube": "YouTube", "tiktok": "TikTok"}[col["key"]])]}]
 
 
 def sans_bold(text):
@@ -323,11 +332,49 @@ def embed_for(col, thumb_name):
     return embed
 
 
+# Discord's newer message layout: a card (container) that can hold a button
+# on the right of its text
+COMPONENTS_V2 = 1 << 15
+CONTAINER, SECTION, TEXT = 17, 9, 10
+# a bit shorter than in the old cards, since the button takes room on the right
+CARD_TITLE_LIMIT = 30
+
+
+def card_v2_text(col):
+    """Logo and name, the number as a heading, the latest stream or video as one
+    link, and a small grey line."""
+    e = EMOJI[col["key"]]
+    count = f"{col['count']:,}" if col.get("count") is not None else "\u2014"
+    lines = [f"<:{e['name']}:{e['id']}> **{col['name']}**", f"## {count} {col['word']}"]
+    preview, stream = col["preview"], col.get("stream")
+    if stream:
+        viewers = stream.get("viewer_count")
+        meta = "Live now \u00b7 " + (stream.get("game_name") or "Sim racing")
+        if viewers is not None:
+            meta += f" \u00b7 {viewers:,} watching"
+        lines += [f"\U0001F534 {link(stream.get('title', ''), TWITCH_URL, CARD_TITLE_LIMIT - 3)}",
+                  f"-# {sans_bold(meta)}"]
+    elif preview:
+        meta = preview["label"] + (" \u00b7 offline right now" if col["key"] == "twitch" else "")
+        lines += [link(preview["title"], preview["url"], CARD_TITLE_LIMIT),
+                  f"-# {sans_bold(meta)}"]
+    else:
+        lines.append(f"-# {sans_bold(TAGLINE[col['key']])}")
+    return "\n".join(lines)
+
+
 def message_for(col):
-    """A platform's own message: its card with the logo top right and its own
-    link button right under it. No pictures, so nothing is uploaded."""
-    return {"content": "", "embeds": [embed_for(col, None)], "components": button_for(col),
-            "attachments": [], "allowed_mentions": {"parse": []}}
+    """A platform's own message: a card in the platform colour with the text on
+    the left and its link button on the right, inside the card."""
+    section = {"type": SECTION, "components": [{"type": TEXT, "content": card_v2_text(col)}]}
+    if platform_url(col["key"]):
+        section["accessory"] = link_button(col)
+    else:  # a section needs something on the right
+        section = section["components"][0]
+    return {"flags": COMPONENTS_V2, "content": "", "embeds": [], "attachments": [],
+            "components": [{"type": CONTAINER, "accent_color": col["color"],
+                            "components": [section]}],
+            "allowed_mentions": {"parse": []}}
 
 
 def build(stats, columns=None):
@@ -344,7 +391,8 @@ def single_card(stats, columns=None):
     columns = columns or gather(stats)
     fp = fingerprint(columns)
     name = f"{FILE_PREFIX}strip-{fp}.png"
-    files = [(name, board_image.strip([c["color"] for c in columns]))]
+    strip_colors = [TIKTOK_CYAN if c["key"] == "tiktok" else c["color"] for c in columns]
+    files = [(name, board_image.strip(strip_colors))]
     embeds = [{"color": BOARD_GREY, "fields": [field_for(c) for c in columns],
                "image": {"url": f"attachment://{name}"}}]
     rows = [{"type": 1, "components": [b for c in columns for row in button_for(c)
@@ -386,38 +434,57 @@ def send(stats, method, path, message, files):
     raise RuntimeError(f"{method} {path} failed after retries")
 
 
+def _parts(components):
+    """The texts, colours and buttons in a message's components, in order."""
+    out = []
+    for c in components or []:
+        out.append((c.get("type"), c.get("content"), c.get("accent_color"),
+                    c.get("label"), c.get("url")))
+        out += _parts(c.get("components"))
+        if c.get("accessory"):
+            out += _parts([c["accessory"]])
+    return out
+
+
 def visible(message):
     """What a reader sees of a board message, to tell if it needs an edit."""
     cards = [(e.get("color"), (e.get("author") or {}).get("name"), e.get("description"),
               (e.get("thumbnail") or {}).get("url"), bool(e.get("image")), bool(e.get("fields")))
              for e in message.get("embeds", [])]
-    return cards, message.get("content") or "", buttons(message)
+    return (cards, message.get("content") or "", _parts(message.get("components")),
+            bool((message.get("flags") or 0) & COMPONENTS_V2))
 
 
 KEYS = {"Twitch": "twitch", "YouTube": "youtube", "TikTok": "tiktok"}
 
 
+def platform_of(msg):
+    """Which platform a board message is for, or None if it isn't one."""
+    embeds = msg.get("embeds") or [{}]
+    name = (embeds[0].get("author") or {}).get("name")
+    fields = [f.get("name", "").split()[-1] for f in embeds[0].get("fields", [])]
+    if msg.get("embeds") and len(embeds) == 1 and name in KEYS:
+        return KEYS[name]
+    texts = " ".join(p[1] or "" for p in _parts(msg.get("components")) if p[0] == TEXT)
+    for key, e in EMOJI.items():  # cards start with the platform's logo
+        if texts.startswith(f"<:{e['name']}:{e['id']}>"):
+            return key
+    # the older one-message boards count as the Twitch message: it came first
+    if (msg.get("content") in (HEADER,) + OLD_HEADERS or embeds[0].get("title") == TITLE
+            or [(e.get("author") or {}).get("name") for e in embeds] == list(PLATFORMS)
+            or fields == list(PLATFORMS)):
+        return "twitch"
+    return None
+
+
 def find_boards(stats):
-    """{platform key: message} for the board messages already in the Socials channel.
-    The older one-message boards count as the Twitch message, since that one
-    came first and sits on top."""
+    """{platform key: message} for the board messages already in the Socials channel."""
     me = stats.discord("GET", "/users/@me")["id"]
     found = {}
     for msg in stats.discord("GET", f"/channels/{SOCIALS_CHANNEL_ID}/messages?limit=50"):
-        if msg["author"]["id"] != me:
-            continue
-        embeds = msg.get("embeds") or [{}]
-        name = (embeds[0].get("author") or {}).get("name")
-        fields = [f.get("name", "").split()[-1] for f in embeds[0].get("fields", [])]
-        if len(embeds) == 1 and name in KEYS:
-            key = KEYS[name]
-        elif (msg.get("content") in (HEADER,) + OLD_HEADERS or embeds[0].get("title") == TITLE
-              or [(e.get("author") or {}).get("name") for e in embeds] == list(PLATFORMS)
-              or fields == list(PLATFORMS)):
-            key = "twitch"
-        else:
-            continue
-        found.setdefault(key, msg)  # newest first, so the newest wins
+        key = platform_of(msg) if msg["author"]["id"] == me else None
+        if key:
+            found.setdefault(key, msg)  # newest first, so the newest wins
     return found
 
 
