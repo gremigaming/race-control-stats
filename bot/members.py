@@ -43,8 +43,9 @@ def named_members(text, members):
     words = {squash(w) for w in text.split()}
     found = []
     for m in members:
-        keys = {k for k in (squash(m.display_name), squash(m.name)) if len(k) >= 4}
-        if any(k in flat for k in keys) or any(
+        keys = {k for k in (squash(m.display_name), squash(m.name)) if len(k) >= 3}
+        # Short names like "nex" only as a whole word, longer ones anywhere
+        if any(k in words if len(k) < 5 else k in flat for k in keys) or any(
                 len(w) >= 5 and any(k.startswith(w) for k in keys) for w in words):
             found.append(m)
             if len(found) == 2:

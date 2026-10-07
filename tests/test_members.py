@@ -93,6 +93,9 @@ class NamesTests(unittest.TestCase):
         self.assertEqual(members.named_members("how active is shwiks", people), [shw])
         self.assertEqual(members.named_members("what about hidde?", people), [hidde])
         self.assertEqual(members.named_members("how active am I", people), [])
+        nex = M("NEX", "nex_lm")
+        self.assertEqual(members.named_members("tell me about nex", [nex]), [nex])
+        self.assertEqual(members.named_members("the next race", [nex]), [])
 
 
 if __name__ == "__main__":
