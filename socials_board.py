@@ -436,6 +436,10 @@ def growth_text(growth):
     whole = f"{tone}{abs(growth)}"
     if whole in GROWTH_LABELS:
         return f"<:rc5_{whole}:{GROWTH_LABELS[whole]}>"
+    top, plus = f"{tone}99", f"{tone}plus"
+    if abs(growth) > 99 and top in GROWTH_LABELS and plus in GROWTH_LABELS:
+        # 99+ for bigger changes (GreMi's pick): the 99 label and a + right after it
+        return f"<:rc5_{top}:{GROWTH_LABELS[top]}><:rc6_{plus}:{GROWTH_LABELS[plus]}>"
     parts = [arrow] + [tone + ("comma" if ch == "," else ch) for ch in f"{abs(growth):,}"]
     return "".join(f"<:rc2_{p}:{GROWTH_EMOJI[p]}>" for p in parts)
 

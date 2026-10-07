@@ -264,10 +264,9 @@ class BoardTest(unittest.TestCase):
         self.assertEqual(socials_board.brett("YouTube"), "\u024eOU\u0393UBE")
         self.assertIn("2,690 SUBSCRIBERS" + f" <:rc5_r10:{labels['r10']}>",
                       socials_board.card_v2_text(cols[1]))
-        # bigger changes are spelled with separate arrow and digit emojis
-        self.assertEqual(socials_board.growth_text(1200),
-                         f"<:rc2_gup:{e['gup']}><:rc2_g1:{e['g1']}><:rc2_gcomma:{e['gcomma']}>"
-                         f"<:rc2_g2:{e['g2']}><:rc2_g0:{e['g0']}><:rc2_g0:{e['g0']}>")
+        # bigger changes show as 99+
+        self.assertEqual(socials_board.growth_text(-1200),
+                         f"<:rc5_r99:{labels['r99']}><:rc6_rplus:{labels['rplus']}>")
 
     def test_counts_are_saved_once_a_day(self):
         cols = self.gather(fake_stats())

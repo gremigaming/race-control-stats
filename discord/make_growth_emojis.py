@@ -123,6 +123,8 @@ def label(font, up, number, color):
 
 
 # ---------- 100 to 9999: two emojis that line up flush ----------
+# (GreMi picked "99+" instead: only the + tails rc6_gplus / rc6_rplus, made with
+# tail(font, up, "+", color), are uploaded and used.)
 # A head (arrow and the first one or two digits, pushed to the right edge) and a
 # tail (the last two digits, pushed to the left edge), so the only space between
 # them is Discord's own small margin. Same scale as the labels above.
