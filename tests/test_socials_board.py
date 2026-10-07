@@ -260,9 +260,9 @@ class BoardTest(unittest.TestCase):
         text = socials_board.card_v2_text(cols[0])
         # arrow and number in one emoji up to 99, so there's no gap between them
         self.assertTrue(text.startswith(
-            "1,639 FOLLOWERS" + f" <:rc4_g39:{labels['g39']}>\n# Twitch\n"))
+            "1,639 FOLLOWERS" + f" <:rc5_g39:{labels['g39']}>\n# Twitch\n"))
         self.assertEqual(socials_board.brett("YouTube"), "\u024eOU\u0393UBE")
-        self.assertIn("2,690 SUBSCRIBERS" + f" <:rc4_r10:{labels['r10']}>",
+        self.assertIn("2,690 SUBSCRIBERS" + f" <:rc5_r10:{labels['r10']}>",
                       socials_board.card_v2_text(cols[1]))
         # bigger changes are spelled with separate arrow and digit emojis
         self.assertEqual(socials_board.growth_text(1200),

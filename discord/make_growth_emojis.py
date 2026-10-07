@@ -3,7 +3,7 @@ the socials board and uploads them as Race Control's own app emojis. Run once;
 the ids it prints go in socials_board.GROWTH_EMOJI.
 
     python3 discord/make_growth_emojis.py      (needs DISCORD_BOT_TOKEN, Pillow, Inter)
-    python3 discord/make_growth_emojis.py --labels   arrow+number emojis 1-99 (rc4_),
+    python3 discord/make_growth_emojis.py --labels   arrow+number emojis 1-99 (rc5_),
                                                      ids go in growth_emojis.json
     python3 discord/make_growth_emojis.py --preview   writes the pictures only
 """
@@ -92,29 +92,32 @@ if __name__ == "__main__" and "--labels" not in sys.argv:
 # emoji shows a gap. For weekly growth up to 99 the arrow and number are drawn
 # together in one picture, against the left edge, sitting on the text baseline.
 LABEL_MAX = 99
-LABEL_PREFIX = "rc4_"
+LABEL_PREFIX = "rc5_"
 LEFT, GAP = 12, 14  # room before the arrow, and between the arrow and the number
 
 
-def label(font, up, number, color):
-    text = str(number)
+def _label_strip(font, up, text, color):
     l, t, r, b = font.getbbox(text)
     bottom8 = font.getbbox("8")[3]
     aw = TALL - 6
-    w = LEFT + aw + GAP + (r - l)
-    big = Image.new("RGBA", (w + 2, H), (0, 0, 0, 0))
+    big = Image.new("RGBA", (LEFT + aw + GAP + (r - l) + 2, H), (0, 0, 0, 0))
     d = ImageDraw.Draw(big)
     top, bottom, x = BASE - TALL + 10, BASE, LEFT
     d.polygon([(x + aw / 2, top), (x + aw, bottom), (x, bottom)] if up else
               [(x, top), (x + aw, top), (x + aw / 2, bottom)], fill=color)
     d.text((x + aw + GAP - l, BASE - bottom8), text, font=font, fill=color)
-    if big.width > H:  # shrink wide labels, keeping them on the baseline
-        s = H / big.width
-        small = big.resize((H, round(H * s)), Image.LANCZOS)
-        big = Image.new("RGBA", (H, H), (0, 0, 0, 0))
-        big.alpha_composite(small, (0, round(BASE - BASE * s)))
+    return big
+
+
+def label(font, up, number, color):
+    """Every label is scaled the same, so that the widest one (99) just fits the
+    square: one and two digit numbers come out the same size."""
+    widest = _label_strip(font, up, str(LABEL_MAX), color).width
+    s = min(1, H / widest)
+    big = _label_strip(font, up, str(number), color)
+    small = big.resize((round(big.width * s), round(H * s)), Image.LANCZOS)
     img = Image.new("RGBA", (H, H), (0, 0, 0, 0))
-    img.alpha_composite(big, (0, 0))
+    img.alpha_composite(small, (0, round(BASE - BASE * s)))  # stays on the baseline
     return img
 
 
