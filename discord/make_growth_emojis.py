@@ -3,7 +3,7 @@ the socials board and uploads them as Race Control's own app emojis. Run once;
 the ids it prints go in socials_board.GROWTH_EMOJI.
 
     python3 discord/make_growth_emojis.py      (needs DISCORD_BOT_TOKEN, Pillow, Inter)
-    python3 discord/make_growth_emojis.py --labels   arrow+number emojis 1-99 (rc3_),
+    python3 discord/make_growth_emojis.py --labels   arrow+number emojis 1-99 (rc4_),
                                                      ids go in growth_emojis.json
     python3 discord/make_growth_emojis.py --preview   writes the pictures only
 """
@@ -92,20 +92,22 @@ if __name__ == "__main__" and "--labels" not in sys.argv:
 # emoji shows a gap. For weekly growth up to 99 the arrow and number are drawn
 # together in one picture, against the left edge, sitting on the text baseline.
 LABEL_MAX = 99
+LABEL_PREFIX = "rc4_"
+LEFT, GAP = 12, 14  # room before the arrow, and between the arrow and the number
 
 
 def label(font, up, number, color):
     text = str(number)
     l, t, r, b = font.getbbox(text)
     bottom8 = font.getbbox("8")[3]
-    aw, gap = TALL - 6, 8
-    w = aw + gap + (r - l)
-    big = Image.new("RGBA", (w + 4, H), (0, 0, 0, 0))
+    aw = TALL - 6
+    w = LEFT + aw + GAP + (r - l)
+    big = Image.new("RGBA", (w + 2, H), (0, 0, 0, 0))
     d = ImageDraw.Draw(big)
-    top, bottom = BASE - TALL + 10, BASE
-    d.polygon([(2 + aw / 2, top), (2 + aw, bottom), (2, bottom)] if up else
-              [(2, top), (2 + aw, top), (2 + aw / 2, bottom)], fill=color)
-    d.text((2 + aw + gap - l, BASE - bottom8), text, font=font, fill=color)
+    top, bottom, x = BASE - TALL + 10, BASE, LEFT
+    d.polygon([(x + aw / 2, top), (x + aw, bottom), (x, bottom)] if up else
+              [(x, top), (x + aw, top), (x + aw / 2, bottom)], fill=color)
+    d.text((x + aw + GAP - l, BASE - bottom8), text, font=font, fill=color)
     if big.width > H:  # shrink wide labels, keeping them on the baseline
         s = H / big.width
         small = big.resize((H, round(H * s)), Image.LANCZOS)
@@ -135,5 +137,5 @@ if __name__ == "__main__" and "--labels" in sys.argv:
         for n, img in pics.items():
             data = io.BytesIO()
             img.save(data, "PNG")
-            out[n] = upload_as("rc3_" + n, data.getvalue())
+            out[n] = upload_as(LABEL_PREFIX + n, data.getvalue())
         print(json.dumps(out, indent=1))

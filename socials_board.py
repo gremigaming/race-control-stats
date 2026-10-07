@@ -420,8 +420,8 @@ def brett(text):
     return "".join(BRETT.get(ch, ch) for ch in text.upper())
 
 
-# Arrow and number in one emoji for growth up to 99 (rc3_g1..rc3_g99 and
-# rc3_r1..rc3_r99), so there is no gap between them
+# Arrow and number in one emoji for growth up to 99 (rc4_g1..rc4_g99 and
+# rc4_r1..rc4_r99), so Discord leaves no big gap between them
 try:
     with open(os.path.join(os.path.dirname(os.path.abspath(__file__)),
                            "growth_emojis.json")) as _f:
@@ -435,7 +435,7 @@ def growth_text(growth):
     tone, arrow = ("r", "rdown") if growth < 0 else ("g", "gup")
     whole = f"{tone}{abs(growth)}"
     if whole in GROWTH_LABELS:
-        return f"<:rc3_{whole}:{GROWTH_LABELS[whole]}>"
+        return f"<:rc4_{whole}:{GROWTH_LABELS[whole]}>"
     parts = [arrow] + [tone + ("comma" if ch == "," else ch) for ch in f"{abs(growth):,}"]
     return "".join(f"<:rc2_{p}:{GROWTH_EMOJI[p]}>" for p in parts)
 
