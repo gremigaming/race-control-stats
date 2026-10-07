@@ -30,7 +30,7 @@ FILE_PREFIX = "socials-board-"
 TWITCH_PURPLE = 0x9146FF
 YOUTUBE_RED = 0xFF0033
 TIKTOK_CYAN = 0x25F4EE
-BOARD_GREY = 0x4E5058  # the side line; the platform colours are in the strip
+BOARD_GREY = 0x3F4147  # the side line; the platform colours are in the strip
 
 TWITCH_URL = "https://twitch.tv/GreMi_Gaming"
 TIKTOK_URL = "https://www.tiktok.com/@ttv.gremi_gaming"
@@ -275,31 +275,32 @@ def card_text(col):
     return "\n".join(lines)
 
 
-# Cut shorter in the side-by-side columns, which are a third of the card wide
-FIELD_TITLE_LIMIT = 18
+# Cut shorter in the side-by-side columns (a third of the card) so a title
+# never wraps onto a second line
+FIELD_TITLE_LIMIT = 14
 
 
 def field_for(col):
-    """One platform column: logo and name on top, the number, the latest stream or
-    video as a link, and a small grey line."""
+    """One platform column: logo and name on top, the number, a blank line for
+    air, then what the latest stream or video is and its link. (Headings and the
+    small grey -# text don't work inside columns, Discord shows them as is.)"""
     e = EMOJI[col["key"]]
     count = f"{col['count']:,}" if col.get("count") is not None else "\u2014"
-    lines = [f"### {count}"]
     preview, stream = col["preview"], col.get("stream")
     if stream:
         viewers = stream.get("viewer_count")
-        lines.append(f"\U0001F534 {link(stream.get('title', ''), TWITCH_URL, FIELD_TITLE_LIMIT - 3)}")
-        meta = "Live now" + (f" \u00b7 {viewers:,} watching" if viewers is not None else "")
+        label = "\U0001F534 Live now" + (f" \u00b7 {viewers:,}" if viewers is not None else "")
+        target = link(stream.get("title", ""), TWITCH_URL, FIELD_TITLE_LIMIT)
     elif preview:
-        lines.append(link(preview["title"], preview["url"], FIELD_TITLE_LIMIT))
-        meta = preview["label"]
+        label = preview["label"]
+        target = link(preview["title"], preview["url"], FIELD_TITLE_LIMIT)
     else:
+        label = TAGLINE[col["key"]]
         url = platform_url(col["key"])
-        follow = sans_bold(f"Follow on {col['name']}")
-        lines.append(f"[{follow}]({url})" if url else follow)
-        meta = TAGLINE[col["key"]]
-    lines.append(f"-# {col['word']} \u00b7 {sans_bold(meta)}")
-    return {"name": f"<:{e['name']}:{e['id']}> {col['name']}", "value": "\n".join(lines),
+        follow = sans_bold("Follow")
+        target = f"[{follow}]({url})" if url else follow
+    value = f"**{count}** {col['word']}\n\n{label}\n{target}"
+    return {"name": f"<:{e['name']}:{e['id']}> {col['name']}", "value": value,
             "inline": True}
 
 

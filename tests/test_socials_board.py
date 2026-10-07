@@ -213,9 +213,8 @@ class BoardTest(unittest.TestCase):
                           "<:TikTok:1097447464010788864> TikTok"])
         self.assertTrue(all(f["inline"] for f in fields))
         self.assertEqual(fields[0]["value"],
-                         "### 1,639\n"
-                         f"[{B('Monza league race')}](https://twitch.tv/videos/9)\n"
-                         f"-# followers \u00b7 {B('Last stream')}")
+                         "**1,639** followers\n\nLast stream\n"
+                         f"[{B('Monza league\u2026')}](https://twitch.tv/videos/9)")
         self.assertEqual(msg["attachments"], [{"id": 0, "filename": names[0]}])
         self.assertEqual(msg["allowed_mentions"], {"parse": []})
 
@@ -223,9 +222,14 @@ class BoardTest(unittest.TestCase):
         from PIL import Image
         img = Image.open(io.BytesIO(board_image.strip([0x9146FF, 0xFF0033, 0x25F4EE])))
         self.assertEqual(img.size, board_image.STRIP)
-        self.assertEqual(img.getpixel((10, 5)), (0x91, 0x46, 0xFF))
-        self.assertEqual(img.getpixel((450, 5)), (0xFF, 0x00, 0x33))
-        self.assertEqual(img.getpixel((890, 5)), (0x25, 0xF4, 0xEE))
+        self.assertEqual(img.mode, "RGB")  # nothing see-through
+        mid = board_image.STRIP[1] // 2
+        r, g, b = img.getpixel((100, mid))
+        self.assertTrue(b > r > g)  # Twitch purple block
+        r, g, b = img.getpixel((500, mid))
+        self.assertTrue(r > b and r > g)  # YouTube red block
+        r, g, b = img.getpixel((900, mid))
+        self.assertTrue(g > r and b > r)  # TikTok cyan block
 
     def run_update(self, stats):
         sent = []

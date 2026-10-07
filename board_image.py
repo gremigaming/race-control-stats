@@ -8,7 +8,7 @@ import io
 from PIL import Image, ImageOps
 
 # Bump when the pictures are made differently, so the live board is redrawn
-LAYOUT = 13
+LAYOUT = 14
 
 # The preview sits under the text as the card's picture. Discord fits it to the
 # card's width on PC and phone alike, which also gives all cards the same width.
@@ -33,18 +33,60 @@ def thumbnail(data):
     return out.getvalue()
 
 
-# The colour strip under the board: one block per platform, in column order
-STRIP = (900, 14)
+# The colour strip under the board: one slanted block per platform, in column
+# order, with a soft glow. Drawn on the embed's own dark background (fully
+# solid, since see-through parts show up as a grey box in Discord).
+STRIP = (1000, 84)
+EMBED_BG = (36, 36, 41)
+
+
+def _rgb(color):
+    return ((color >> 16) & 255, (color >> 8) & 255, color & 255)
 
 
 def strip(colors):
-    """PNG bytes of a thin solid strip split into one block per colour, so each
-    platform column gets its own colour detail underneath."""
-    img = Image.new("RGB", STRIP)
-    width = STRIP[0] / len(colors)
+    """PNG bytes of the colour strip: a slanted, glowing block per colour, so
+    each platform column gets its own colour detail underneath."""
+    from PIL import ImageDraw, ImageFilter
+    w, h = STRIP
+    scale = 2  # drawn larger and shrunk for smooth edges
+    W, H = w * scale, h * scale
+    gap, slant, bar = 22 * scale, 14 * scale, 16 * scale
+    top = (H - bar) // 2
+    seg = (W - gap * (len(colors) - 1)) / len(colors)
+    glow = Image.new("RGB", (W, H), EMBED_BG)
+    shapes = []
     for i, color in enumerate(colors):
-        rgb = ((color >> 16) & 255, (color >> 8) & 255, color & 255)
-        img.paste(rgb, (round(i * width), 0, round((i + 1) * width), STRIP[1]))
+        x0 = round(i * (seg + gap))
+        x1 = round(x0 + seg)
+        # the first and last blocks keep a straight outer edge
+        left = 0 if i == 0 else slant
+        right = 0 if i == len(colors) - 1 else slant
+        poly = [(x0 + left, top), (x1, top), (x1 - right, top + bar), (x0, top + bar)]
+        shapes.append((poly, _rgb(color), x0, x1))
+        ImageDraw.Draw(glow).polygon(poly, fill=_rgb(color))
+    # a soft glow in each colour behind the blocks
+    glow = glow.filter(ImageFilter.GaussianBlur(10 * scale))
+    img = Image.blend(Image.new("RGB", (W, H), EMBED_BG), glow, 0.55)
+    for poly, rgb, x0, x1 in shapes:
+        # each block runs from its colour to a lighter shade
+        light = tuple(min(255, c + (255 - c) * 2 // 5) for c in rgb)
+        grad = Image.new("RGB", (x1 - x0, bar))
+        gd = ImageDraw.Draw(grad)
+        for x in range(x1 - x0):
+            t = x / max(1, x1 - x0 - 1)
+            gd.line([(x, 0), (x, bar)],
+                    fill=tuple(round(a + (b - a) * t) for a, b in zip(rgb, light)))
+        mask = Image.new("L", (W, H), 0)
+        ImageDraw.Draw(mask).polygon(poly, fill=255)
+        layer = Image.new("RGB", (W, H))
+        layer.paste(grad, (x0, top))
+        img.paste(layer, (0, 0), mask)
+        # a thin highlight along the top edge
+        hi = Image.new("L", (W, H), 0)
+        ImageDraw.Draw(hi).polygon([(px, min(py, top + 2 * scale)) for px, py in poly], fill=90)
+        img.paste((255, 255, 255), (0, 0), Image.composite(hi, Image.new("L", (W, H), 0), mask))
+    img = img.resize(STRIP, Image.LANCZOS)
     out = io.BytesIO()
     img.save(out, "PNG", optimize=True)
     return out.getvalue()
