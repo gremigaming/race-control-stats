@@ -22,6 +22,7 @@ import urllib.request
 SOCIALS_CHANNEL_ID = os.environ.get("SOCIALS_CHANNEL_ID", "")
 TITLE = "Official channels"
 OLD_HEADERS = (f"## \U0001F3C1 GreMi_Gaming · {TITLE}", f"## GreMi_Gaming\n-# {TITLE}")
+PLATFORMS = ("Twitch", "YouTube", "TikTok")
 TAGLINE = {"twitch": "Live sim racing", "youtube": "Races and highlights",
            "tiktok": "Clips and highlights"}
 FILE_PREFIX = "socials-board-"
@@ -217,6 +218,7 @@ def sans_bold(text):
     return "".join(out)
 
 
+# The header the board used to have; it went so all three cards fit on one screen
 HEADER = f"## {sans_bold('GreMi_Gaming')}\n-# {sans_bold(TITLE)}"
 
 # Titles are cut to one line so every card has the same height
@@ -272,12 +274,16 @@ def card_text(col):
     return "\n".join(lines)
 
 
+def logo_url(key):
+    return f"https://cdn.discordapp.com/emojis/{EMOJI[key]['id']}.png?size=128"
+
+
 def embed_for(col, thumb_name):
-    e = EMOJI[col["key"]]
+    # the logo sits top right as the card's thumbnail, which also widens the card
     embed = {"color": col["color"],
-             "author": {"name": col["name"],
-                        "icon_url": f"https://cdn.discordapp.com/emojis/{e['id']}.png?size=64"},
-             "description": card_text(col)}
+             "author": {"name": col["name"]},
+             "description": card_text(col),
+             "thumbnail": {"url": logo_url(col["key"])}}
     if platform_url(col["key"]):
         embed["author"]["url"] = platform_url(col["key"])
     if thumb_name:
@@ -301,7 +307,7 @@ def build(stats, columns=None):
         if thumb:
             files.append((name, thumb))
         embeds.append(embed_for(c, name))
-    message = {"content": HEADER, "embeds": embeds, "components": components_for(columns),
+    message = {"content": "", "embeds": embeds, "components": components_for(columns),
                "attachments": [{"id": i, "filename": n} for i, (n, _) in enumerate(files)],
                "allowed_mentions": {"parse": []}}
     return message, files
@@ -354,8 +360,11 @@ def find_board(stats):
     """The board message in the Socials channel, or None if it isn't posted yet."""
     me = stats.discord("GET", "/users/@me")["id"]
     for msg in stats.discord("GET", f"/channels/{SOCIALS_CHANNEL_ID}/messages?limit=50"):
-        title = (msg.get("embeds") or [{}])[0].get("title", "")
-        known = msg.get("content") in (HEADER,) + OLD_HEADERS or title == TITLE
+        embeds = msg.get("embeds") or [{}]
+        title = embeds[0].get("title", "")
+        names = tuple((e.get("author") or {}).get("name") for e in embeds)
+        known = (msg.get("content") in (HEADER,) + OLD_HEADERS or title == TITLE
+                 or (names and all(n in PLATFORMS for n in names)))
         if msg["author"]["id"] == me and known:
             return msg
     return None

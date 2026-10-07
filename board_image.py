@@ -1,6 +1,6 @@
 """Small preview pictures for the socials board.
 
-Each platform's latest stream or video becomes its own picture, cut to 16:9,
+Each platform's latest stream or video becomes its own picture, cut to a wide strip,
 so they all look the same under the text. Needs Pillow (pip install pillow).
 """
 import io
@@ -8,15 +8,16 @@ import io
 from PIL import Image, ImageOps
 
 # Bump when the pictures are made differently, so the live board is redrawn
-LAYOUT = 11
+LAYOUT = 12
 
 # The preview sits under the text as the card's picture. Discord fits it to the
 # card's width on PC and phone alike, which also gives all cards the same width.
-THUMB = (640, 360)
+# A wide 3:1 strip keeps it low, so all three cards fit on one screen.
+THUMB = (480, 160)
 
 
 def thumbnail(data):
-    """PNG bytes of the 16:9 preview, or None if the picture
+    """PNG bytes of the wide preview strip, or None if the picture
     can't be read."""
     if not data:
         return None
@@ -26,7 +27,7 @@ def thumbnail(data):
         return None
     # fully solid: see-through parts show up as a grey box in Discord, and
     # Discord rounds the corners itself
-    img = ImageOps.fit(img.convert("RGB"), THUMB, Image.LANCZOS)
+    img = ImageOps.fit(img.convert("RGB"), THUMB, Image.LANCZOS, centering=(0.5, 0.4))
     out = io.BytesIO()
     img.save(out, "PNG", optimize=True)
     return out.getvalue()

@@ -169,7 +169,9 @@ class BoardTest(unittest.TestCase):
         self.assertIn(B("My first Le Mans"), youtube["description"])
         self.assertIn(B("Last lap at Spa"), tiktok["description"])
         self.assertEqual(youtube["image"]["url"], "attachment://youtube.png")
-        self.assertNotIn("thumbnail", youtube)
+        # the platform logo sits top right
+        self.assertEqual(youtube["thumbnail"]["url"],
+                         "https://cdn.discordapp.com/emojis/1508733155883094066.png?size=128")
         # same number of lines on every card, so they are the same height
         self.assertEqual({e["description"].count("\n") for e in (twitch, youtube, tiktok)}, {2})
     def test_cards_without_videos(self):
@@ -200,7 +202,7 @@ class BoardTest(unittest.TestCase):
         names = [n for n, _ in files]
         self.assertEqual(len(names), 3)
         self.assertTrue(all(d.startswith(b"\x89PNG") for _, d in files))
-        self.assertEqual(msg["content"], socials_board.HEADER)
+        self.assertEqual(msg["content"], "")  # no header, so all three fit on one screen
         self.assertEqual([e["image"]["url"] for e in msg["embeds"]],
                          [f"attachment://{n}" for n in names])
         self.assertEqual(msg["attachments"], [{"id": i, "filename": n}
@@ -240,6 +242,11 @@ class BoardTest(unittest.TestCase):
         method, path = sent[0][1], sent[0][2]
         self.assertEqual((method, path), ("PATCH", "/channels/555/messages/99"))
 
+    def test_board_without_header_is_found(self):
+        board = dict(self.posted(fake_stats(twitch=1600)), content="")
+        sent, _ = self.run_update(fake_stats(board=board))
+        self.assertEqual(sent[0][2], "/channels/555/messages/99")
+
     def test_old_picture_board_is_replaced(self):
         old = {"id": "99", "author": {"id": "bot"}, "content": socials_board.HEADER,
                "embeds": [], "attachments": [{"filename": "socials-board-abc.png"}]}
@@ -259,7 +266,7 @@ class ImageTest(unittest.TestCase):
             "\U0001F680 F1 26 VIEWER LOBBIES \U0001F680 ∣ ⚔️ GREMI'S GRID "
             "⚔️∣ !join !discord"), "F1 26 VIEWER LOBBIES | GREMI'S GRID")
 
-    def test_thumbnail_is_solid_16_by_9(self):
+    def test_thumbnail_is_a_solid_wide_strip(self):
         from PIL import Image
         img = Image.open(io.BytesIO(board_image.thumbnail(png())))
         self.assertEqual(img.size, board_image.THUMB)
