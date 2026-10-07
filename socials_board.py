@@ -1,14 +1,14 @@
 """The socials board in the Socials channel.
 
-One Race Control message: one card with Twitch, YouTube and TikTok side by side
-(follower number and the latest stream or video linked), a strip in the platform
-colours below, plus link buttons. The stats workflow edits that same message every run,
-and only when something on it changed.
+Three Race Control messages, one per platform (Twitch, YouTube, TikTok): a card
+in the platform colour with its logo, the follower number and the latest stream
+or video linked, and its own link button. The stats workflow edits those same
+messages every run, and only when something on them changed.
 
-The workflow never posts a new board by itself. The first post is done once by
-hand (after the owner approved it):
-    python3 socials_board.py --preview             draws the pictures, sends nothing
-    python3 socials_board.py --post                posts the board in the Socials channel
+The workflow never posts a new message by itself. Posting is done once by hand
+(after the owner approved it):
+    python3 socials_board.py --preview             prints the messages, sends nothing
+    python3 socials_board.py --post                posts the missing platform messages
 """
 import hashlib
 import json
@@ -193,15 +193,16 @@ def fingerprint(columns):
     return hashlib.sha1(json.dumps([board_image.LAYOUT, keep]).encode()).hexdigest()[:12]
 
 
-def components_for(columns):
-    """Link buttons to the three platforms (the latest videos are linked in the text)."""
-    live = columns[0]["live"]
-    links = [("Watch live" if live else "Twitch", TWITCH_URL, "twitch"),
-             ("YouTube", youtube_url(), "youtube"),
-             ("TikTok", TIKTOK_URL, "tiktok")]
+def button_for(col):
+    """The link button in a platform's own message."""
+    key = col["key"]
+    label = {"twitch": "Watch live" if col.get("live") else "Follow on Twitch",
+             "youtube": "Subscribe on YouTube", "tiktok": "Follow on TikTok"}[key]
+    url = platform_url(key)
+    if not url:
+        return []
     return [{"type": 1, "components": [
-        {"type": 2, "style": 5, "label": label, "url": url, "emoji": EMOJI[key]}
-        for label, url, key in links if url]}]
+        {"type": 2, "style": 5, "label": label, "url": url, "emoji": EMOJI[key]}]}]
 
 
 def sans_bold(text):
@@ -322,18 +323,33 @@ def embed_for(col, thumb_name):
     return embed
 
 
+def message_for(col):
+    """A platform's own message: its card with the logo top right and its own
+    link button right under it. No pictures, so nothing is uploaded."""
+    return {"content": "", "embeds": [embed_for(col, None)], "components": button_for(col),
+            "attachments": [], "allowed_mentions": {"parse": []}}
+
+
 def build(stats, columns=None):
-    """(message, [(file name, picture bytes), ...]) for the board: one card with
-    Twitch, YouTube and TikTok side by side and a strip in their colours below."""
+    """{platform key: message} for the three board messages (Twitch, YouTube, TikTok)."""
+    columns = columns or gather(stats)
+    return {c["key"]: message_for(c) for c in columns}
+
+
+def single_card(stats, columns=None):
+    """The one-card layout GreMi kept as a backup (2026-10-07): the three platforms
+    side by side in one embed with a glowing colour strip below.
+    Returns (message, [(file name, picture bytes)])."""
     import board_image
     columns = columns or gather(stats)
     fp = fingerprint(columns)
-    # one card with the platforms side by side and a strip in their colours below
     name = f"{FILE_PREFIX}strip-{fp}.png"
     files = [(name, board_image.strip([c["color"] for c in columns]))]
     embeds = [{"color": BOARD_GREY, "fields": [field_for(c) for c in columns],
                "image": {"url": f"attachment://{name}"}}]
-    message = {"content": "", "embeds": embeds, "components": components_for(columns),
+    rows = [{"type": 1, "components": [b for c in columns for row in button_for(c)
+                                       for b in row["components"]]}]
+    message = {"content": "", "embeds": embeds, "components": rows,
                "attachments": [{"id": i, "filename": n} for i, (n, _) in enumerate(files)],
                "allowed_mentions": {"parse": []}}
     return message, files
@@ -370,72 +386,77 @@ def send(stats, method, path, message, files):
     raise RuntimeError(f"{method} {path} failed after retries")
 
 
-def current_files(board):
-    """Picture names on the posted board. Discord leaves pictures that embeds use
-    out of the attachment list, so they are read from the embed addresses."""
-    names = [a.get("filename") for a in board.get("attachments", [])]
-    for e in board.get("embeds", []):
-        for kind in ("image", "thumbnail"):
-            url = (e.get(kind) or {}).get("url", "")
-            if url.startswith("https://cdn.discordapp.com/attachments/"):
-                names.append(url.split("?")[0].rsplit("/", 1)[-1])
-    return names
+def visible(message):
+    """What a reader sees of a board message, to tell if it needs an edit."""
+    cards = [(e.get("color"), (e.get("author") or {}).get("name"), e.get("description"),
+              (e.get("thumbnail") or {}).get("url"), bool(e.get("image")), bool(e.get("fields")))
+             for e in message.get("embeds", [])]
+    return cards, message.get("content") or "", buttons(message)
 
 
-def find_board(stats):
-    """The board message in the Socials channel, or None if it isn't posted yet."""
+KEYS = {"Twitch": "twitch", "YouTube": "youtube", "TikTok": "tiktok"}
+
+
+def find_boards(stats):
+    """{platform key: message} for the board messages already in the Socials channel.
+    The older one-message boards count as the Twitch message, since that one
+    came first and sits on top."""
     me = stats.discord("GET", "/users/@me")["id"]
+    found = {}
     for msg in stats.discord("GET", f"/channels/{SOCIALS_CHANNEL_ID}/messages?limit=50"):
+        if msg["author"]["id"] != me:
+            continue
         embeds = msg.get("embeds") or [{}]
-        title = embeds[0].get("title", "")
-        names = tuple((e.get("author") or {}).get("name") for e in embeds)
-        known = (msg.get("content") in (HEADER,) + OLD_HEADERS or title == TITLE
-                 or (names and all(n in PLATFORMS for n in names))
-                 or [f.get("name", "").split()[-1] for f in embeds[0].get("fields", [])]
-                 == list(PLATFORMS))
-        if msg["author"]["id"] == me and known:
-            return msg
-    return None
+        name = (embeds[0].get("author") or {}).get("name")
+        fields = [f.get("name", "").split()[-1] for f in embeds[0].get("fields", [])]
+        if len(embeds) == 1 and name in KEYS:
+            key = KEYS[name]
+        elif (msg.get("content") in (HEADER,) + OLD_HEADERS or embeds[0].get("title") == TITLE
+              or [(e.get("author") or {}).get("name") for e in embeds] == list(PLATFORMS)
+              or fields == list(PLATFORMS)):
+            key = "twitch"
+        else:
+            continue
+        found.setdefault(key, msg)  # newest first, so the newest wins
+    return found
 
 
 def update(stats):
-    """Edits the board when something changed. Called by update_stats.main()."""
+    """Edits each platform's message when something on it changed. Called by
+    update_stats.main(). Never posts: a missing message is skipped."""
     if not SOCIALS_CHANNEL_ID:
         return
-    board = find_board(stats)
-    if board is None:
+    boards = find_boards(stats)
+    if not boards:
         print("socials board: not posted yet, skipping")
         return
-    columns = gather(stats)
-    fp = fingerprint(columns)
-    current = current_files(board)
-    if (current and all(n.endswith(f"-{fp}.png") for n in current)
-            and buttons(board) == buttons({"components": components_for(columns)})):
-        print("unchanged: socials board")
-        return
-    message, files = build(stats, columns)
-    send(stats, "PATCH", f"/channels/{SOCIALS_CHANNEL_ID}/messages/{board['id']}",
-         message, files)
-    print("updated:   socials board")
+    for key, message in build(stats).items():
+        board = boards.get(key)
+        if board is None:
+            print(f"socials board: no {key} message posted yet, skipping")
+        elif visible(board) == visible(message):
+            print(f"unchanged: socials board ({key})")
+        else:
+            send(stats, "PATCH", f"/channels/{SOCIALS_CHANNEL_ID}/messages/{board['id']}",
+                 message, [])
+            print(f"updated:   socials board ({key})")
 
 
 def main(argv):
     import update_stats
-    message, files = build(update_stats)
+    messages = build(update_stats)
     if "--post" in argv:
+        # posts only the platforms that have no message yet, in board order
         if not SOCIALS_CHANNEL_ID:
             raise SystemExit("Set SOCIALS_CHANNEL_ID first")
-        if find_board(update_stats):
-            raise SystemExit("The board is already posted")
-        msg = send(update_stats, "POST", f"/channels/{SOCIALS_CHANNEL_ID}/messages",
-                   message, files)
-        print(f"posted socials board {msg['id']}")
+        existing = find_boards(update_stats)
+        for key, message in messages.items():
+            if key not in existing:
+                msg = send(update_stats, "POST", f"/channels/{SOCIALS_CHANNEL_ID}/messages",
+                           message, [])
+                print(f"posted socials board ({key}) {msg['id']}")
     else:
-        for name, data in files:
-            with open(name, "wb") as f:
-                f.write(data)
-            print(f"picture written to {name}")
-        print(json.dumps(message, indent=2, ensure_ascii=False))
+        print(json.dumps(messages, indent=2, ensure_ascii=False))
 
 
 if __name__ == "__main__":

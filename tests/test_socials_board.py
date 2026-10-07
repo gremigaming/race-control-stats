@@ -70,7 +70,8 @@ def fake_stats(stream=None, twitch=1639, youtube=2690, tiktok=3904, board=None,
             return {"id": "bot"}
         if path.endswith("/messages?limit=50"):
             old = {"id": "1", "author": {"id": "someone"}, "content": "links", "embeds": []}
-            return [board, old] if board else [old]
+            boards = board if isinstance(board, list) else [board] if board else []
+            return boards + [old]
         raise AssertionError(f"unexpected Discord call {method} {path}")
 
     return types.SimpleNamespace(
@@ -130,7 +131,7 @@ class BoardTest(unittest.TestCase):
         self.assertEqual(cols[0]["badge"], "LIVE \u00b7 1,234")
         self.assertTrue(cols[0]["live"])
         self.assertEqual(cols[0]["preview"]["thumb"], "https://static-cdn.jtvnw.net/x-320x180.jpg")
-        self.assertEqual(socials_board.components_for(cols)[0]["components"][0]["label"],
+        self.assertEqual(socials_board.button_for(cols[0])[0]["components"][0]["label"],
                          "Watch live")
         text = socials_board.card_text(cols[0])
         self.assertIn(f"[{B('Spa 6h, stint 2')}](https://twitch.tv/GreMi_Gaming)", text)
@@ -146,13 +147,14 @@ class BoardTest(unittest.TestCase):
         cols = self.gather(fake_stats(configured=False, twitch=None, youtube=None,
                                       tiktok_token=None))
         self.assertEqual([c["preview"] for c in cols], [None, None, None])
-        (msg, files), _ = self.quiet(socials_board.build, fake_stats(configured=False))
-        self.assertTrue(all(data.startswith(b"\x89PNG") for _, data in files))
+        msgs, _ = self.quiet(socials_board.build, fake_stats(configured=False))
+        self.assertEqual(len(msgs), 3)
 
-    def test_buttons(self):
-        rows = socials_board.components_for(self.gather(fake_stats()))
-        self.assertEqual([b["label"] for b in rows[0]["components"]],
-                         ["Twitch", "YouTube", "TikTok"])
+    def test_each_message_has_its_own_button(self):
+        cols = self.gather(fake_stats())
+        self.assertEqual([[b["label"] for b in socials_board.button_for(c)[0]["components"]]
+                          for c in cols],
+                         [["Follow on Twitch"], ["Subscribe on YouTube"], ["Follow on TikTok"]])
 
     def test_platform_cards(self):
         B = socials_board.sans_bold
@@ -197,13 +199,23 @@ class BoardTest(unittest.TestCase):
         self.assertNotEqual(socials_board.fingerprint(a),
                             socials_board.fingerprint(self.gather(fake_stats(tiktok=3905))))
 
-    def test_build(self):
+    def test_build_three_messages(self):
+        msgs, _ = self.quiet(socials_board.build, fake_stats())
+        self.assertEqual(list(msgs), ["twitch", "youtube", "tiktok"])
+        for key, msg in msgs.items():
+            self.assertEqual(msg["content"], "")
+            (embed,) = msg["embeds"]
+            self.assertNotIn("image", embed)  # no previews
+            self.assertIn("/emojis/", embed["thumbnail"]["url"])  # logo top right
+            self.assertEqual(len(msg["components"][0]["components"]), 1)
+            self.assertEqual(msg["attachments"], [])  # clears old pictures
+            self.assertEqual(msg["allowed_mentions"], {"parse": []})
+
+    def test_single_card_backup(self):
         B = socials_board.sans_bold
-        (msg, files), _ = self.quiet(socials_board.build, fake_stats())
+        (msg, files), _ = self.quiet(socials_board.single_card, fake_stats())
         names = [n for n, _ in files]
         self.assertEqual(len(names), 1)  # only the colour strip, no previews
-        self.assertTrue(files[0][1].startswith(b"\x89PNG"))
-        self.assertEqual(msg["content"], "")  # no header, so it fits on one screen
         (embed,) = msg["embeds"]
         self.assertEqual(embed["image"]["url"], f"attachment://{names[0]}")
         fields = embed["fields"]
@@ -211,12 +223,10 @@ class BoardTest(unittest.TestCase):
                          ["<:twitch:1085833562474938438> Twitch",
                           "<:Youtube_logo:1508733155883094066> YouTube",
                           "<:TikTok:1097447464010788864> TikTok"])
-        self.assertTrue(all(f["inline"] for f in fields))
         self.assertEqual(fields[0]["value"],
                          "**1,639** followers\n\nLast stream\n"
                          f"[{B('Monza league\u2026')}](https://twitch.tv/videos/9)")
-        self.assertEqual(msg["attachments"], [{"id": 0, "filename": names[0]}])
-        self.assertEqual(msg["allowed_mentions"], {"parse": []})
+        self.assertEqual(len(msg["components"][0]["components"]), 3)
 
     def test_strip_has_a_block_per_platform(self):
         from PIL import Image
@@ -243,38 +253,42 @@ class BoardTest(unittest.TestCase):
         self.assertIn("not posted yet", out)
         self.assertEqual(sent, [])
 
-    def posted(self, stats):
-        (msg, files), _ = self.quiet(socials_board.build, stats)
-        # Discord hides pictures used by embeds from the attachment list
-        embeds = [dict(e, image={"url": "https://cdn.discordapp.com/attachments/1/2/"
-                                 + e["image"]["url"].split("://")[1] + "?ex=abc"})
-                  for e in msg["embeds"]]
-        return {"id": "99", "author": {"id": "bot"}, "content": msg["content"],
-                "embeds": embeds, "components": msg["components"], "attachments": []}
+    def posted(self, stats, keys=("twitch", "youtube", "tiktok")):
+        msgs, _ = self.quiet(socials_board.build, stats)
+        # Discord returns the messages newest first
+        return [dict(msgs[k], id=f"m-{k}", author={"id": "bot"}) for k in reversed(keys)]
 
     def test_unchanged_board_is_not_edited(self):
-        board = self.posted(fake_stats())
-        sent, out = self.run_update(fake_stats(board=board))
-        self.assertIn("unchanged: socials board", out)
+        boards = self.posted(fake_stats())
+        sent, out = self.run_update(fake_stats(board=boards))
+        self.assertEqual(out.count("unchanged: socials board"), 3)
         self.assertEqual(sent, [])
 
-    def test_changed_numbers_redraw_the_picture(self):
-        board = self.posted(fake_stats(twitch=1600))
-        sent, out = self.run_update(fake_stats(board=board))
-        self.assertIn("updated:   socials board", out)
-        method, path = sent[0][1], sent[0][2]
-        self.assertEqual((method, path), ("PATCH", "/channels/555/messages/99"))
+    def test_only_the_changed_platform_is_edited(self):
+        boards = self.posted(fake_stats(twitch=1600))
+        sent, out = self.run_update(fake_stats(board=boards))
+        self.assertEqual([(a[1], a[2]) for a in sent],
+                         [("PATCH", "/channels/555/messages/m-twitch")])
+        self.assertIn("updated:   socials board (twitch)", out)
 
-    def test_board_without_header_is_found(self):
-        board = dict(self.posted(fake_stats(twitch=1600)), content="")
-        sent, _ = self.run_update(fake_stats(board=board))
-        self.assertEqual(sent[0][2], "/channels/555/messages/99")
+    def test_missing_platform_message_is_skipped_not_posted(self):
+        boards = self.posted(fake_stats(), keys=("twitch",))
+        sent, out = self.run_update(fake_stats(board=boards))
+        self.assertEqual(sent, [])
+        self.assertIn("no youtube message posted yet", out)
+
+    def test_single_card_board_becomes_the_twitch_message(self):
+        (old, _), _ = self.quiet(socials_board.single_card, fake_stats())
+        old = dict(old, id="99", author={"id": "bot"})
+        sent, _ = self.run_update(fake_stats(board=old))
+        self.assertEqual([a[2] for a in sent], ["/channels/555/messages/99"])
+        self.assertEqual(sent[0][3]["embeds"][0]["author"]["name"], "Twitch")
 
     def test_old_picture_board_is_replaced(self):
         old = {"id": "99", "author": {"id": "bot"}, "content": socials_board.HEADER,
                "embeds": [], "attachments": [{"filename": "socials-board-abc.png"}]}
         sent, _ = self.run_update(fake_stats(board=old))
-        self.assertEqual(len(sent[0][3]["embeds"][0]["fields"]), 3)
+        self.assertEqual(sent[0][3]["attachments"], [])
 
     def test_switched_off_without_channel(self):
         stats = fake_stats()
