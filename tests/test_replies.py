@@ -45,3 +45,21 @@ class PlainNameTests(unittest.TestCase):
                          "stream-schedule")
         self.assertEqual(replies.plain("\U0001F7E3\u2503\U0001D5E7\U0001D5EA\U0001D5DC\U0001D5E7\U0001D5D6\U0001D5DB: \U0001D7ED,\U0001D7F2\U0001D7EF\U0001D7F5"),
                          "twitch 1639")
+
+
+class AccessTests(unittest.TestCase):
+    def test_staff_check(self):
+        self.assertTrue(replies.is_staff(OWNER, OWNER, MODS))
+        self.assertTrue(replies.is_staff(MOD, OWNER, MODS))
+        self.assertFalse(replies.is_staff(MEMBER, OWNER, MODS))
+
+    def test_member_cooldown(self):
+        c = replies.Cooldown()
+        self.assertTrue(c.allow(MEMBER, 1000))
+        self.assertFalse(c.allow(MEMBER, 1010))
+        self.assertTrue(c.allow(MEMBER, 1030))
+        self.assertTrue(c.allow(OWNER, 1010))
+        for i in range(replies.Cooldown.PER_DAY - 2):
+            self.assertTrue(c.allow(MEMBER, 2000 + 30 * i))
+        self.assertFalse(c.allow(MEMBER, 40000))
+        self.assertTrue(c.allow(MEMBER, 86400 * 2))

@@ -34,6 +34,30 @@ def should_handle_tag(author_id, author_is_bot, mentions_bot, owner_id, mod_ids)
             and (author_id == owner_id or author_id in mod_ids))
 
 
+def is_staff(author_id, owner_id, mod_ids):
+    return author_id == owner_id or author_id in mod_ids
+
+
+class Cooldown:
+    """Members (not staff) get one answer per GAP seconds and PER_DAY a day."""
+    GAP = 20
+    PER_DAY = 30
+
+    def __init__(self):
+        self.last, self.days = {}, {}
+
+    def allow(self, user_id, now):
+        today = int(now // 86400)
+        day, count = self.days.get(user_id, (today, 0))
+        if day != today:
+            count = 0
+        if now - self.last.get(user_id, -1e9) < self.GAP or count >= self.PER_DAY:
+            return False
+        self.last[user_id] = now
+        self.days[user_id] = (today, count + 1)
+        return True
+
+
 def is_approval(emoji, reactor_id, owner_id, message_author_id, bot_id, content):
     """The owner's ✅ on one of Race Control's own plan messages."""
     return (emoji == APPROVE and reactor_id == owner_id

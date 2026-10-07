@@ -41,9 +41,12 @@ class Memory:
         except OSError:
             pass  # memory is a nice-to-have; answering still works
 
-    def recall(self, limit=RECALL):
+    def recall(self, limit=RECALL, channel=None):
+        """Our latest answers; only from `channel` when given (members never see
+        what we told staff elsewhere)."""
+        items = [i for i in self.items if channel is None or i["channel"] == channel]
         lines = []
-        for i in self.items[-limit:]:
+        for i in items[-limit:]:
             day = time.strftime("%Y-%m-%d %H:%M", time.gmtime(i["at"]))
             lines.append(f"[{day} UTC #{i['channel']}] {i['asker']}: {i['q']}\n  you: {i['a']}")
         return "\n".join(lines)

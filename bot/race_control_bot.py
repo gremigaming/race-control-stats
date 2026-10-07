@@ -1,6 +1,8 @@
 """Race Control's always-online Discord bot.
 
-When the owner or an allow-listed moderator tags it, it shows "typing..." and
+Anyone can tag it to chat (members get chat and their own data only, with a
+cooldown, and are sent to feedback-and-suggestions for changes). When the owner
+or an allow-listed moderator tags it, it shows "typing..." and
 answers within seconds through one small Claude API call (bot/brain.py).
 Change requests, and anything it can't answer, wake Claude Code (a routine)
 instead, which posts a plan for a server change. When the owner reacts ✅ to such
@@ -27,8 +29,8 @@ from bot.brain import Brain, HandOff
 from bot.members import GUILD_ID, Members
 from bot.profiles import write_profiles
 
-from bot.replies import (FIRE_HEADERS, FIRE_URL, approval_body, is_approval,
-                         load_staff, plain, should_handle_tag, tag_body)
+from bot.replies import (FIRE_HEADERS, FIRE_URL, Cooldown, approval_body, is_approval,
+                         is_staff, load_staff, plain, tag_body)
 
 ROUTINE_ID = os.environ["ROUTINE_ID"]
 ROUTINE_TOKEN = os.environ["ROUTINE_FIRE_TOKEN"]
@@ -119,6 +121,13 @@ async def backfill(days=90):
 
 # Tags and plans Claude is working on: message id -> set when Claude's reply lands
 waiting = {}
+FEEDBACK_CHANNEL_ID = 1556941698490306621  # feedback-and-suggestions
+CHANGE_REQUESTS_ID = 1557354121743306772   # staff only, where plans wait for GreMi's ✅
+FEEDBACK_NOTE = ("I can't change the server, only the mods can ask for that. "
+                 f"Drop your idea in <#{FEEDBACK_CHANNEL_ID}> and the team will look at it!")
+MEMBER_CANT = "That one's beyond what I can check right now. A mod can help you out!"
+PLAN_NOTE = f"\U0001F50E On it, I'll put a plan in <#{CHANGE_REQUESTS_ID}> for GreMi to approve."
+cooldown = Cooldown()
 # Posted when a quick answer isn't enough; Claude Code's answer follows in a minute
 RESEARCH_NOTE = "\U0001F50E Let me do some research, I'll be back shortly."
 TYPING_FOR = 300
@@ -159,21 +168,30 @@ async def on_message(message):
     if message.author == bot.user and ref in waiting:
         waiting[ref].set()  # Claude answered, stop typing
         return
-    if not should_handle_tag(message.author.id, message.author.bot, tags_me(message),
-                             OWNER_ID, MOD_IDS):
+    if message.author.bot or not tags_me(message):
+        return
+    staff = is_staff(message.author.id, OWNER_ID, MOD_IDS)
+    if not staff and not cooldown.allow(message.author.id, time.time()):
+        await message.add_reaction("\u23F3")  # slow down
         return
     if brain:
         try:
             async with message.channel.typing():
-                text = await brain.answer(message)
+                text = await brain.answer(message, staff)
             secs = round(time.time() - message.created_at.timestamp())
             await message.reply(f"{text}\n-# \u23F1\uFE0F {secs} s", mention_author=False)
             return
         except HandOff as e:
-            log.info("handing to Claude Code: %s", e)
-            await message.reply(RESEARCH_NOTE, mention_author=False)
+            log.info("handing off (%s): %s", "staff" if staff else "member", e)
+            if not staff:  # members never reach Claude Code or change anything
+                await message.reply(FEEDBACK_NOTE if e.change else MEMBER_CANT,
+                                    mention_author=False)
+                return
+            await message.reply(PLAN_NOTE if e.change else RESEARCH_NOTE, mention_author=False)
         except anthropic.APIError as e:
             log.warning("Claude API failed, handing to Claude Code: %s", e)
+    if not staff:
+        return
     await hand_over(message.channel, message.id,
                     tag_body(message.channel.id, message.id, message.author.id),
                     "\U0001F4FB Radio trouble, I couldn't reach Claude. Try again in a minute.",
