@@ -59,6 +59,10 @@ class FakeDiscord:
             raise RuntimeError(f"{method} {path} failed after retries")
         if path.endswith("/channels"):
             return self.channels
+        if path == "/users/@me":
+            return {"id": "999"}
+        if path.endswith("/scheduled-events"):  # stream_schedule.py: no events yet
+            return []
         if "with_counts" in path:
             return {"approximate_member_count": self.members}
         if path.endswith("/roles"):
@@ -104,6 +108,8 @@ class FakeHttp:
             return {"data": [{"type": "live"}] if self.live else []}
         if "/helix/users" in url:
             return {"data": [{"id": "42"}] if self.twitch_user_found else []}
+        if "/helix/schedule" in url:  # stream_schedule.py: nothing planned
+            return {"data": {"segments": []}}
         if "/helix/channels/followers" in url:
             if self.followers_error:
                 raise RuntimeError(self.followers_error)

@@ -23,8 +23,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install Pillow (draws the socials board picture)
-        run: python3 -m pip install --quiet "pillow>=10,<13" || echo "Pillow install failed, the socials board will be skipped"
+      - name: Install Pillow (draws the socials board and schedule pictures)
+        run: python3 -m pip install --quiet "pillow>=10,<13" || echo "Pillow install failed, the pictures will be skipped"
 
       - name: Update stat channels
         env:
@@ -33,6 +33,9 @@ jobs:
           GUILD_ID: "1079917337165172876"
           # Socials channel, where the socials board lives (socials_board.py)
           SOCIALS_CHANNEL_ID: "1083312808759926844"
+          # Stream Schedule channel (schedule picture) and the role its weekly post pings
+          SCHEDULE_CHANNEL_ID: "1105048860461645907"
+          NOTIFY_ROLE_ID: "1117766461147070554"
           SOCIALS_BOARD_POST: ${{ inputs.post_socials_board && 'true' || '' }}
           TWITCH_CLIENT_ID: ${{ secrets.TWITCH_CLIENT_ID }}
           TWITCH_CLIENT_SECRET: ${{ secrets.TWITCH_CLIENT_SECRET }}
