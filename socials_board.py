@@ -345,7 +345,7 @@ CARD_TITLE_LIMIT = 30
 # Saved follower counts, one per day, for the growth arrows (committed by the
 # stats workflow at most once a day)
 HISTORY_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "follower_history.json")
-GROWTH_DAYS = 30
+GROWTH_DAYS = 7
 
 
 def load_history():
@@ -369,8 +369,8 @@ def record(history, today, columns):
 
 
 def add_growth(columns, history, today):
-    """Growth since the oldest saved count of the last 30 days (none until there
-    is an earlier day to compare with)."""
+    """Growth since the oldest saved count of the last week (none until there is
+    an earlier day to compare with)."""
     import datetime
     start = (datetime.date.fromisoformat(today)
              - datetime.timedelta(days=GROWTH_DAYS)).isoformat()
@@ -382,32 +382,32 @@ def add_growth(columns, history, today):
 
 # Green and red arrow, digit and comma emojis (Race Control's own app emojis,
 # made by discord/make_growth_emojis.py): Discord text can't be coloured, so the
-# growth number is spelled with these
+# growth number is spelled with these. They are drawn a bit smaller than the text.
 GROWTH_EMOJI = {
-    "g0": "1557294800531881984",
-    "g1": "1557294801647571034",
-    "g2": "1557294802695888906",
-    "g3": "1557294803761373205",
-    "g4": "1557294804797493369",
-    "g5": "1557294805925634058",
-    "g6": "1557294806802104374",
-    "g7": "1557294808395943957",
-    "g8": "1557294809251582023",
-    "g9": "1557294810849746975",
-    "gcomma": "1557294812179333161",
-    "gup": "1557294813290692719",
-    "r0": "1557294814553444352",
-    "r1": "1557294816126304276",
-    "r2": "1557294817384468500",
-    "r3": "1557294818617729174",
-    "r4": "1557294819842195507",
-    "r5": "1557294820827865240",
-    "r6": "1557294822367301732",
-    "r7": "1557294823432781904",
-    "r8": "1557294824644939858",
-    "r9": "1557294826062483498",
-    "rcomma": "1557294827333484624",
-    "rdown": "1557294828176285728",
+    "g0": "1557298134051328040",
+    "g1": "1557298136731488258",
+    "g2": "1557298138388373554",
+    "g3": "1557298139780743178",
+    "g4": "1557298141370515546",
+    "g5": "1557298142637068398",
+    "g6": "1557298143840702574",
+    "g7": "1557298144793071617",
+    "g8": "1557298146281914389",
+    "g9": "1557298147745599488",
+    "gcomma": "1557298149112946719",
+    "gup": "1557298131538808834",
+    "r0": "1557298150149070848",
+    "r1": "1557298151218610279",
+    "r2": "1557298152430895106",
+    "r3": "1557298153462431746",
+    "r4": "1557298154729242664",
+    "r5": "1557298155790409808",
+    "r6": "1557298157023666227",
+    "r7": "1557298158361518102",
+    "r8": "1557298159535792160",
+    "r9": "1557298160622112853",
+    "rcomma": "1557298162081996881",
+    "rdown": "1557298133048893530",
 }
 
 
@@ -415,17 +415,17 @@ def growth_text(growth):
     """The growth as green (up) or red (down) emojis, like a green arrow and 24."""
     tone, arrow = ("r", "rdown") if growth < 0 else ("g", "gup")
     parts = [arrow] + [tone + ("comma" if ch == "," else ch) for ch in f"{abs(growth):,}"]
-    return "".join(f"<:rc_{p}:{GROWTH_EMOJI[p]}>" for p in parts)
+    return "".join(f"<:rc2_{p}:{GROWTH_EMOJI[p]}>" for p in parts)
 
 
 def card_v2_text(col):
-    """The number small on top with its growth behind it, the name as a big
-    heading, the latest stream or video as one link, and a small grey line."""
+    """The number in bold on top with its weekly growth behind it (none when it
+    didn't change), the name as a big heading right under it, the latest stream
+    or video as one link, and a small grey line."""
     count = f"{col['count']:,}" if col.get("count") is not None else "\u2014"
-    stat = f"-# {count} {col['word']}"
-    growth = col.get("growth")
-    if growth is not None:  # since the oldest saved count of the last 30 days
-        stat += f"  {growth_text(growth)}"
+    stat = sans_bold(f"{count} {col['word']}")
+    if col.get("growth"):  # since the oldest saved count of the last week
+        stat += f" {growth_text(col['growth'])}"
     lines = [stat, f"# {col['name']}"]
     preview, stream = col["preview"], col.get("stream")
     if stream:

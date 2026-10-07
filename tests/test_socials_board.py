@@ -230,7 +230,7 @@ class BoardTest(unittest.TestCase):
                          ["Twitch", "YouTube", "TikTok"])
         self.assertEqual(cards[0]["accent_color"], socials_board.TWITCH_PURPLE)
         self.assertEqual(cards[0]["components"][0]["components"][0]["content"],
-                         "-# 1,639 followers\n# Twitch\n"
+                         f"{B('1,639 followers')}\n# Twitch\n"
                          f"[{B('Monza league race')}](https://twitch.tv/videos/9)\n"
                          f"-# {B('Last stream')} \u00b7 {B('offline right now')}")
         self.assertEqual(cards[2]["accent_color"], 0x161823)
@@ -245,20 +245,24 @@ class BoardTest(unittest.TestCase):
         self.assertEqual(len(files), 3)  # only the spacers
 
     def test_growth_behind_the_follower_number(self):
-        history = {"2026-08-01": {"twitch": 1000},  # too old
-                   "2026-09-10": {"twitch": 1600, "youtube": 2700},
+        B = socials_board.sans_bold
+        history = {"2026-09-20": {"twitch": 1000},  # more than a week ago
+                   "2026-10-01": {"twitch": 1600, "youtube": 2700, "tiktok": 3904},
                    "2026-10-07": {"twitch": 1639}}
         cols = self.gather(fake_stats())
         socials_board.add_growth(cols, history, "2026-10-07")
-        self.assertEqual([c.get("growth") for c in cols], [39, -10, None])
+        self.assertEqual([c.get("growth") for c in cols], [39, -10, 0])
+        # no change, no arrow
+        self.assertTrue(socials_board.card_v2_text(cols[2]).startswith(
+            B("3,904 followers") + "\n# TikTok\n"))
         e = socials_board.GROWTH_EMOJI
         text = socials_board.card_v2_text(cols[0])
         self.assertTrue(text.startswith(
-            f"-# 1,639 followers  <:rc_gup:{e['gup']}><:rc_g3:{e['g3']}><:rc_g9:{e['g9']}>"
+            B("1,639 followers") + f" <:rc2_gup:{e['gup']}><:rc2_g3:{e['g3']}><:rc2_g9:{e['g9']}>"
             "\n# Twitch\n"))
-        self.assertIn(f"2,690 subscribers  <:rc_rdown:{e['rdown']}><:rc_r1:{e['r1']}>"
-                      f"<:rc_r0:{e['r0']}>", socials_board.card_v2_text(cols[1]))
-        self.assertIn(f"<:rc_gcomma:{e['gcomma']}>", socials_board.growth_text(1200))
+        self.assertIn(B("2,690 subscribers") + f" <:rc2_rdown:{e['rdown']}><:rc2_r1:{e['r1']}>"
+                      f"<:rc2_r0:{e['r0']}>", socials_board.card_v2_text(cols[1]))
+        self.assertIn(f"<:rc2_gcomma:{e['gcomma']}>", socials_board.growth_text(1200))
 
     def test_counts_are_saved_once_a_day(self):
         cols = self.gather(fake_stats())
