@@ -8,7 +8,7 @@ import io
 from PIL import Image, ImageOps
 
 # Bump when the pictures are made differently, so the live board is redrawn
-LAYOUT = 16
+LAYOUT = 17
 
 # The preview sits under the text as the card's picture. Discord fits it to the
 # card's width on PC and phone alike, which also gives all cards the same width.
@@ -101,6 +101,24 @@ SPACER = (1000, 2)
 def spacer():
     out = io.BytesIO()
     Image.new("RGB", SPACER, EMBED_BG).save(out, "PNG", optimize=True)
+    return out.getvalue()
+
+
+def square_logo(data, size=128, margin=0.08):
+    """PNG bytes of a platform logo centred on a square, see-through canvas, so
+    Discord's square thumbnail never cuts it off. None if it can't be read."""
+    if not data:
+        return None
+    try:
+        img = Image.open(io.BytesIO(data)).convert("RGBA")
+    except Exception:
+        return None
+    inner = round(size * (1 - 2 * margin))
+    img.thumbnail((inner, inner), Image.LANCZOS)
+    canvas = Image.new("RGBA", (size, size), (0, 0, 0, 0))
+    canvas.paste(img, ((size - img.width) // 2, (size - img.height) // 2), img)
+    out = io.BytesIO()
+    canvas.save(out, "PNG", optimize=True)
     return out.getvalue()
 
 
