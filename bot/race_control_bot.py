@@ -63,6 +63,16 @@ async def on_ready():
     log.info("Race Control is online as %s", bot.user)
     if not members.backfilled():
         asyncio.create_task(backfill())
+    if not getattr(bot, "saving", False):
+        bot.saving = True
+        asyncio.create_task(save_members())
+
+
+async def save_members():
+    """Writes the member counts to disk every minute, even in quiet hours."""
+    while True:
+        await asyncio.sleep(60)
+        members.maybe_save(force=True)
 
 
 async def backfill(days=90):
