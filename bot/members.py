@@ -11,7 +11,10 @@ or it saves its copy of their stats again):
 import json
 import os
 import pathlib
+import re
 import time
+
+from bot.replies import plain
 
 PATH = pathlib.Path(os.environ.get("RACE_CONTROL_MEMBERS", "/var/lib/race-control/members.json"))
 GUILD_ID = 1079917337165172876  # the real GreMi_Gaming server, not the test one
@@ -19,6 +22,32 @@ DAYS_KEPT = 60
 ARCHIVE = pathlib.Path(os.environ.get("RACE_CONTROL_ARCHIVE", "/var/lib/race-control/messages"))
 ARCHIVE_DAYS = 90
 SAVE_EVERY = 60  # seconds
+
+
+LEET = str.maketrans("013457", "oieast")
+
+
+def squash(name):
+    """'TTV_H1ddegam1ng' and '[QDR] Shw1ks' to 'hiddegaming' and 'shwiks'."""
+    name = plain(re.sub(r"^\[[^\]]*\]\s*", "", name)).translate(LEET)
+    for tag in ("ttv_", "ttv "):
+        name = name.removeprefix(tag)
+    return "".join(c for c in name if c.isalpha())
+
+
+def named_members(text, members):
+    """Members whose name shows up in the text (at most 2)."""
+    flat = squash(text)
+    words = {squash(w) for w in text.split()}
+    found = []
+    for m in members:
+        keys = {k for k in (squash(m.display_name), squash(m.name)) if len(k) >= 4}
+        if any(k in flat for k in keys) or any(
+                len(w) >= 5 and any(k.startswith(w) for k in keys) for w in words):
+            found.append(m)
+            if len(found) == 2:
+                break
+    return found
 
 
 def day(ts):
@@ -124,6 +153,12 @@ class Members:
             tmp.replace(self.path)
         except OSError:
             pass
+
+    def top(self, n=5, days=7, now=None):
+        """[(user id, messages)] for the most active members of the last days."""
+        since = day((now or time.time()) - days * 86400)
+        counts = {u: sum(c for d, c in m["days"].items() if d >= since) for u, m in self.data.items()}
+        return sorted(((u, c) for u, c in counts.items() if c), key=lambda uc: -uc[1])[:n]
 
     def profile(self, user_id, roles=(), joined=None, now=None):
         """One short line about a member for Race Control's prompt."""

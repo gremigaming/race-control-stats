@@ -64,6 +64,26 @@ class MembersTests(unittest.TestCase):
         files = sorted(p.name for p in (Path(self.dir.name) / "messages").iterdir())
         self.assertEqual(files, ["2026-10-03.jsonl"])
 
+    def test_top_last_week(self):
+        for _ in range(3):
+            self.m.message(1, "general", NOW)
+        self.m.message(2, "general", NOW)
+        self.m.message(3, "general", NOW - 30 * 86400)
+        self.assertEqual(self.m.top(5, now=NOW), [("1", 3), ("2", 1)])
+
+
+class NamesTests(unittest.TestCase):
+    def test_finds_members_by_loose_name(self):
+        class M:
+            def __init__(self, display_name, name):
+                self.display_name, self.name = display_name, name
+        hidde, shw, dd = M("TTV_H1ddegam1ng", "h1dde"), M("[QDR] Shw1ks", "shwiks"), M("DevilDriver", "dd")
+        people = [hidde, shw, dd]
+        self.assertEqual(members.named_members("Tell me something about hiddegaming", people), [hidde])
+        self.assertEqual(members.named_members("how active is shwiks", people), [shw])
+        self.assertEqual(members.named_members("what about hidde?", people), [hidde])
+        self.assertEqual(members.named_members("how active am I", people), [])
+
 
 if __name__ == "__main__":
     unittest.main()
