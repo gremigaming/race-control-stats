@@ -346,12 +346,18 @@ def update_stream_schedule(stat):
     stream_schedule.update(sys.modules[__name__])
 
 
+def update_leaderboard(stat):
+    import leaderboard_post
+    import sys
+    leaderboard_post.update(sys.modules[__name__])
+
+
 def main():
     stat = find_stat_channels()
     failed = False
     for task in (update_members, update_status, update_live_role, update_twitch,
                  update_youtube, update_tiktok, update_socials_board,
-                 update_stream_schedule):
+                 update_stream_schedule, update_leaderboard):
         try:
             task(stat)
         except Exception as e:
