@@ -8,7 +8,7 @@ import io
 from PIL import Image, ImageOps
 
 # Bump when the pictures are made differently, so the live board is redrawn
-LAYOUT = 14
+LAYOUT = 15
 
 # The preview sits under the text as the card's picture. Discord fits it to the
 # card's width on PC and phone alike, which also gives all cards the same width.

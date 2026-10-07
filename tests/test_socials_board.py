@@ -1,5 +1,6 @@
 """Tests for socials_board.py and board_image.py with simulated sources (no network)."""
 import contextlib
+import json
 import io
 import os
 import types
@@ -153,7 +154,7 @@ class BoardTest(unittest.TestCase):
     def test_each_card_has_its_own_button(self):
         cols = self.gather(fake_stats())
         self.assertEqual([socials_board.link_button(c)["label"] for c in cols],
-                         ["Follow", "Subscribe", "Follow"])
+                         ["Follow on Twitch", "Subscribe on YouTube", "Follow on TikTok"])
 
     def test_platform_cards(self):
         B = socials_board.sans_bold
@@ -202,22 +203,27 @@ class BoardTest(unittest.TestCase):
         B = socials_board.sans_bold
         msgs, _ = self.quiet(socials_board.build, fake_stats())
         self.assertEqual(list(msgs), ["twitch", "youtube", "tiktok"])
-        for key, msg in msgs.items():
+        for key, (msg, files) in msgs.items():
             self.assertEqual(msg["flags"], socials_board.COMPONENTS_V2)
-            self.assertEqual((msg["content"], msg["embeds"], msg["attachments"]), ("", [], []))
+            self.assertEqual((msg["content"], msg["embeds"]), ("", []))
             (card,) = msg["components"]
             self.assertEqual(card["type"], socials_board.CONTAINER)
-            (section,) = card["components"]
-            # the button sits on the right inside the card
-            self.assertEqual(section["accessory"]["type"], 2)
+            section, gallery, row = card["components"]
+            # logo top right, full-width strip, button at the bottom
+            self.assertIn("/emojis/", section["accessory"]["media"]["url"])
+            ((name, data),) = files
+            self.assertTrue(data.startswith(b"\x89PNG"))
+            self.assertEqual(gallery["items"][0]["media"]["url"], f"attachment://{name}")
+            self.assertEqual(msg["attachments"], [{"id": 0, "filename": name}])
+            self.assertEqual(row["components"][0]["type"], 2)
             self.assertEqual(msg["allowed_mentions"], {"parse": []})
-        card = msgs["twitch"]["components"][0]
+        card = msgs["twitch"][0]["components"][0]
         self.assertEqual(card["accent_color"], socials_board.TWITCH_PURPLE)
         self.assertEqual(card["components"][0]["components"][0]["content"],
-                         "<:twitch:1085833562474938438> **Twitch**\n## 1,639 followers\n"
+                         "**Twitch**\n## 1,639 followers\n"
                          f"[{B('Monza league race')}](https://twitch.tv/videos/9)\n"
                          f"-# {B('Last stream')} \u00b7 {B('offline right now')}")
-        self.assertEqual(msgs["tiktok"]["components"][0]["accent_color"], 0x161823)
+        self.assertEqual(msgs["tiktok"][0]["components"][0]["accent_color"], 0x161823)
 
     def test_single_card_backup(self):
         B = socials_board.sans_bold
@@ -263,8 +269,16 @@ class BoardTest(unittest.TestCase):
 
     def posted(self, stats, keys=("twitch", "youtube", "tiktok")):
         msgs, _ = self.quiet(socials_board.build, stats)
-        # Discord returns the messages newest first
-        return [dict(msgs[k], id=f"m-{k}", author={"id": "bot"}) for k in reversed(keys)]
+        out = []
+        for k in reversed(keys):  # Discord returns the messages newest first
+            msg = json.loads(json.dumps(msgs[k][0]))
+            # Discord swaps attachment:// for its own picture address
+            gallery = msg["components"][0]["components"][1]
+            name = gallery["items"][0]["media"]["url"].split("://")[1]
+            gallery["items"][0]["media"]["url"] = (
+                f"https://cdn.discordapp.com/attachments/1/2/{name}?ex=abc")
+            out.append(dict(msg, id=f"m-{k}", author={"id": "bot"}))
+        return out
 
     def test_unchanged_board_is_not_edited(self):
         boards = self.posted(fake_stats())
@@ -297,7 +311,8 @@ class BoardTest(unittest.TestCase):
         old = {"id": "99", "author": {"id": "bot"}, "content": socials_board.HEADER,
                "embeds": [], "attachments": [{"filename": "socials-board-abc.png"}]}
         sent, _ = self.run_update(fake_stats(board=old))
-        self.assertEqual(sent[0][3]["attachments"], [])
+        self.assertEqual([a["filename"] for a in sent[0][3]["attachments"]],
+                         ["socials-board-twitch-strip-%d.png" % board_image.LAYOUT])
 
     def test_switched_off_without_channel(self):
         stats = fake_stats()

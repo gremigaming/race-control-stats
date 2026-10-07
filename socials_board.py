@@ -2,7 +2,8 @@
 
 Three Race Control messages, one per platform (Twitch, YouTube, TikTok): a card
 in the platform colour with its logo, the follower number and the latest stream
-or video linked, and its own link button on the right inside the card. The stats workflow edits those same
+or video linked, the logo top right, a colour strip and its own link button at
+the bottom, all inside the card. The stats workflow edits those same
 messages every run, and only when something on them changed.
 
 The workflow never posts a new message by itself. Posting is done once by hand
@@ -194,11 +195,12 @@ def fingerprint(columns):
     return hashlib.sha1(json.dumps([board_image.LAYOUT, keep]).encode()).hexdigest()[:12]
 
 
-BUTTON_LABEL = {"twitch": "Follow", "youtube": "Subscribe", "tiktok": "Follow"}
+BUTTON_LABEL = {"twitch": "Follow on Twitch", "youtube": "Subscribe on YouTube",
+                "tiktok": "Follow on TikTok"}
 
 
 def link_button(col):
-    """The link button on the right inside a platform's card."""
+    """The link button at the bottom of a platform's card."""
     key = col["key"]
     label = "Watch live" if col.get("live") else BUTTON_LABEL[key]
     return {"type": 2, "style": 5, "label": label, "url": platform_url(key),
@@ -332,10 +334,14 @@ def embed_for(col, thumb_name):
     return embed
 
 
-# Discord's newer message layout: a card (container) that can hold a button
-# on the right of its text
+# Discord's newer message layout: a card (container) holding the text with the
+# logo beside it, a colour strip and the button, all inside the card
 COMPONENTS_V2 = 1 << 15
-CONTAINER, SECTION, TEXT = 17, 9, 10
+ROW, CONTAINER, SECTION, TEXT, THUMBNAIL, GALLERY = 1, 17, 9, 10, 11, 12
+# The strip colours per card. TikTok's card colour is almost black, so its strip
+# uses TikTok's cyan and pink instead.
+STRIP_COLORS = {"twitch": [TWITCH_PURPLE], "youtube": [YOUTUBE_RED],
+                "tiktok": [TIKTOK_CYAN, 0xFE2C55]}
 # a bit shorter than in the old cards, since the button takes room on the right
 CARD_TITLE_LIMIT = 30
 
@@ -343,9 +349,8 @@ CARD_TITLE_LIMIT = 30
 def card_v2_text(col):
     """Logo and name, the number as a heading, the latest stream or video as one
     link, and a small grey line."""
-    e = EMOJI[col["key"]]
     count = f"{col['count']:,}" if col.get("count") is not None else "\u2014"
-    lines = [f"<:{e['name']}:{e['id']}> **{col['name']}**", f"## {count} {col['word']}"]
+    lines = [f"**{col['name']}**", f"## {count} {col['word']}"]
     preview, stream = col["preview"], col.get("stream")
     if stream:
         viewers = stream.get("viewer_count")
@@ -363,22 +368,36 @@ def card_v2_text(col):
     return "\n".join(lines)
 
 
+def strip_name(key):
+    import board_image
+    return f"{FILE_PREFIX}{key}-strip-{board_image.LAYOUT}.png"
+
+
 def message_for(col):
-    """A platform's own message: a card in the platform colour with the text on
-    the left and its link button on the right, inside the card."""
-    section = {"type": SECTION, "components": [{"type": TEXT, "content": card_v2_text(col)}]}
-    if platform_url(col["key"]):
-        section["accessory"] = link_button(col)
-    else:  # a section needs something on the right
-        section = section["components"][0]
-    return {"flags": COMPONENTS_V2, "content": "", "embeds": [], "attachments": [],
-            "components": [{"type": CONTAINER, "accent_color": col["color"],
-                            "components": [section]}],
-            "allowed_mentions": {"parse": []}}
+    """A platform's own message and its picture: a card in the platform colour
+    with the text and the logo top right, a full-width colour strip (which also
+    makes every card the same width, the widest Discord allows) and the button
+    at the bottom, all inside the card."""
+    import board_image
+    key = col["key"]
+    name = strip_name(key)
+    parts = [{"type": SECTION,
+              "components": [{"type": TEXT, "content": card_v2_text(col)}],
+              "accessory": {"type": THUMBNAIL, "media": {"url": logo_url(key)}}},
+             {"type": GALLERY, "items": [{"media": {"url": f"attachment://{name}"}}]}]
+    if platform_url(key):
+        parts.append({"type": ROW, "components": [link_button(col)]})
+    message = {"flags": COMPONENTS_V2, "content": "", "embeds": [],
+               "attachments": [{"id": 0, "filename": name}],
+               "components": [{"type": CONTAINER, "accent_color": col["color"],
+                               "components": parts}],
+               "allowed_mentions": {"parse": []}}
+    return message, [(name, board_image.strip(STRIP_COLORS[key]))]
 
 
 def build(stats, columns=None):
-    """{platform key: message} for the three board messages (Twitch, YouTube, TikTok)."""
+    """{platform key: (message, [(file name, picture bytes)])} for the three board
+    messages (Twitch, YouTube, TikTok)."""
     columns = columns or gather(stats)
     return {c["key"]: message_for(c) for c in columns}
 
@@ -438,8 +457,12 @@ def _parts(components):
     """The texts, colours and buttons in a message's components, in order."""
     out = []
     for c in components or []:
+        media = [(c.get("media") or {}).get("url", "")] + [
+            (i.get("media") or {}).get("url", "") for i in c.get("items", [])]
+        # pictures by file name: Discord swaps attachment:// for its own address
+        media = [m.split("?")[0].rsplit("/", 1)[-1] for m in media if m]
         out.append((c.get("type"), c.get("content"), c.get("accent_color"),
-                    c.get("label"), c.get("url")))
+                    c.get("label"), c.get("url"), media))
         out += _parts(c.get("components"))
         if c.get("accessory"):
             out += _parts([c["accessory"]])
@@ -466,8 +489,9 @@ def platform_of(msg):
     if msg.get("embeds") and len(embeds) == 1 and name in KEYS:
         return KEYS[name]
     texts = " ".join(p[1] or "" for p in _parts(msg.get("components")) if p[0] == TEXT)
-    for key, e in EMOJI.items():  # cards start with the platform's logo
-        if texts.startswith(f"<:{e['name']}:{e['id']}>"):
+    for name, key in KEYS.items():  # cards start with the platform name
+        e = EMOJI[key]
+        if texts.startswith((f"**{name}**", f"<:{e['name']}:{e['id']}>")):
             return key
     # the older one-message boards count as the Twitch message: it came first
     if (msg.get("content") in (HEADER,) + OLD_HEADERS or embeds[0].get("title") == TITLE
@@ -497,7 +521,7 @@ def update(stats):
     if not boards:
         print("socials board: not posted yet, skipping")
         return
-    for key, message in build(stats).items():
+    for key, (message, files) in build(stats).items():
         board = boards.get(key)
         if board is None:
             print(f"socials board: no {key} message posted yet, skipping")
@@ -505,7 +529,7 @@ def update(stats):
             print(f"unchanged: socials board ({key})")
         else:
             send(stats, "PATCH", f"/channels/{SOCIALS_CHANNEL_ID}/messages/{board['id']}",
-                 message, [])
+                 message, files)
             print(f"updated:   socials board ({key})")
 
 
@@ -517,13 +541,18 @@ def main(argv):
         if not SOCIALS_CHANNEL_ID:
             raise SystemExit("Set SOCIALS_CHANNEL_ID first")
         existing = find_boards(update_stats)
-        for key, message in messages.items():
+        for key, (message, files) in messages.items():
             if key not in existing:
                 msg = send(update_stats, "POST", f"/channels/{SOCIALS_CHANNEL_ID}/messages",
-                           message, [])
+                           message, files)
                 print(f"posted socials board ({key}) {msg['id']}")
     else:
-        print(json.dumps(messages, indent=2, ensure_ascii=False))
+        for key, (message, files) in messages.items():
+            for name, data in files:
+                with open(name, "wb") as f:
+                    f.write(data)
+                print(f"picture written to {name}")
+            print(json.dumps(message, indent=2, ensure_ascii=False))
 
 
 if __name__ == "__main__":
