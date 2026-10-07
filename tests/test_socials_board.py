@@ -231,7 +231,7 @@ class BoardTest(unittest.TestCase):
         self.assertEqual(cards[0]["accent_color"], socials_board.TWITCH_PURPLE)
         # the count in its own text block above the rest
         self.assertEqual("\n".join(t["content"] for t in cards[0]["components"][0]["components"]),
-                         f"{B('1,639 followers')}\n# Twitch\n"
+                         "1,639 FOLLOWERS\n# Twitch\n"
                          f"[{B('Monza league race')}](https://twitch.tv/videos/9)\n"
                          f"-# {B('Last stream')} \u00b7 {B('offline right now')}")
         self.assertEqual(cards[2]["accent_color"], 0x161823)
@@ -255,13 +255,14 @@ class BoardTest(unittest.TestCase):
         self.assertEqual([c.get("growth") for c in cols], [39, -10, 0])
         # no change, no arrow
         self.assertTrue(socials_board.card_v2_text(cols[2]).startswith(
-            B("3,904 followers") + "\n# TikTok\n"))
+            "3,904 FOLLOWERS\n# TikTok\n"))
         e = socials_board.GROWTH_EMOJI
         text = socials_board.card_v2_text(cols[0])
         self.assertTrue(text.startswith(
-            B("1,639 followers") + f" <:rc2_gup:{e['gup']}><:rc2_g3:{e['g3']}><:rc2_g9:{e['g9']}>"
+            "1,639 FOLLOWERS" + f" <:rc2_gup:{e['gup']}><:rc2_g3:{e['g3']}><:rc2_g9:{e['g9']}>"
             "\n# Twitch\n"))
-        self.assertIn(B("2,690 subscribers") + f" <:rc2_rdown:{e['rdown']}><:rc2_r1:{e['r1']}>"
+        self.assertEqual(socials_board.brett("YouTube"), "\u024eOU\u0393UBE")
+        self.assertIn("2,690 SUBSCRIBERS" + f" <:rc2_rdown:{e['rdown']}><:rc2_r1:{e['r1']}>"
                       f"<:rc2_r0:{e['r0']}>", socials_board.card_v2_text(cols[1]))
         self.assertIn(f"<:rc2_gcomma:{e['gcomma']}>", socials_board.growth_text(1200))
 

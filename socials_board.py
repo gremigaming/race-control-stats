@@ -411,6 +411,15 @@ GROWTH_EMOJI = {
 }
 
 
+# GreMi's "Brett" style for the follower count: capitals with lookalike letters,
+# from his sample "\u024eOU\u0393UBE" (Y and T swapped, the rest plain capitals)
+BRETT = {"Y": "\u024e", "T": "\u0393"}
+
+
+def brett(text):
+    return "".join(BRETT.get(ch, ch) for ch in text.upper())
+
+
 def growth_text(growth):
     """The growth as green (up) or red (down) emojis, like a green arrow and 24."""
     tone, arrow = ("r", "rdown") if growth < 0 else ("g", "gup")
@@ -423,7 +432,7 @@ def card_v2_text(col):
     didn't change), the name as a big heading right under it, the latest stream
     or video as one link, and a small grey line."""
     count = f"{col['count']:,}" if col.get("count") is not None else "\u2014"
-    stat = sans_bold(f"{count} {col['word']}")
+    stat = brett(f"{count} {col['word']}")
     if col.get("growth"):  # since the oldest saved count of the last week
         stat += f" {growth_text(col['growth'])}"
     lines = [stat, f"# {col['name']}"]
