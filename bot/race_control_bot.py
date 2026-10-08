@@ -4,9 +4,10 @@ Anyone can tag it to chat (members get chat and their own data only, with a
 cooldown, and are sent to feedback-and-suggestions for changes). When the owner
 or an allow-listed moderator tags it, it shows "typing..." and
 answers within seconds through one small Claude API call (bot/brain.py).
-Change requests, and anything it can't answer, wake Claude Code (a routine)
-instead, which posts a plan for a server change. When the owner reacts ✅ to such
-a plan, it wakes Claude again to carry it out. Claude logs every change in the repo.
+Anything it can't answer wakes Claude Code (a routine). Staff change requests
+are posted by the bot itself in the change-requests channel; when the owner
+reacts ✅ there, it wakes Claude to carry the change out. Claude logs every change
+in the repo, and new bot code on main is loaded by itself (follow_updates).
 
 Needs DISCORD_BOT_TOKEN, ROUTINE_ID and ROUTINE_FIRE_TOKEN in the environment.
 With ANTHROPIC_API_KEY set, quick answers come from the Claude API; without it,
@@ -18,7 +19,8 @@ import asyncio
 import datetime
 import logging
 import os
-
+import pathlib
+import subprocess
 import time
 
 import aiohttp
@@ -29,8 +31,9 @@ from bot.brain import Brain, HandOff
 from bot.members import GUILD_ID, Members
 from bot.profiles import write_profiles
 
-from bot.replies import (FIRE_HEADERS, FIRE_URL, Cooldown, approval_body, is_approval,
-                         is_staff, load_staff, plain, tag_body)
+from bot.replies import (CHANGE_REQUESTS_ID, FIRE_HEADERS, FIRE_URL, Cooldown, approval_body,
+                         change_request, is_approval, is_staff, load_staff, needs_restart,
+                         plain, tag_body)
 
 ROUTINE_ID = os.environ["ROUTINE_ID"]
 ROUTINE_TOKEN = os.environ["ROUTINE_FIRE_TOKEN"]
@@ -69,6 +72,44 @@ async def on_ready():
     if not getattr(bot, "saving", False):
         bot.saving = True
         asyncio.create_task(save_members())
+        asyncio.create_task(follow_updates())
+
+
+REPO_DIR = pathlib.Path(__file__).resolve().parents[1]
+COMPARE_URL = "https://api.github.com/repos/gremigaming/race-control-stats/compare/{}...main"
+UPDATE_EVERY = 300  # seconds
+TRIED_FILE = pathlib.Path(os.environ.get("RACE_CONTROL_UPDATE_MARK",
+                                         "/var/lib/race-control/update-tried"))
+
+
+async def follow_updates():
+    """Approved code changes go live by themselves: when main has new bot code,
+    the bot stops and systemd starts it again, pulling main first (ExecStartPre).
+    Each new main commit is tried once, so a failing pull can't loop."""
+    while True:
+        await asyncio.sleep(UPDATE_EVERY)
+        try:
+            head = subprocess.run(["git", "-C", str(REPO_DIR), "rev-parse", "HEAD"],
+                                  capture_output=True, text=True, check=True).stdout.strip()
+            async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=20)) as s:
+                async with s.get(COMPARE_URL.format(head)) as r:
+                    if r.status != 200:
+                        continue
+                    data = await r.json()
+            if data.get("ahead_by", 0) == 0:
+                continue
+            files = [f["filename"] for f in data.get("files", [])]
+            latest = data["commits"][-1]["sha"] if data.get("commits") else ""
+            tried = TRIED_FILE.read_text().strip() if TRIED_FILE.exists() else ""
+            if not needs_restart(files) or latest == tried:
+                continue
+            TRIED_FILE.parent.mkdir(parents=True, exist_ok=True)
+            TRIED_FILE.write_text(latest)
+            log.info("new bot code on main (%s), restarting to load it", latest[:7])
+            members.maybe_save(force=True)
+            os._exit(0)  # systemd (Restart=always) pulls main and starts again
+        except Exception as e:  # never let the updater take the bot down
+            log.warning("update check failed: %s", e)
 
 
 async def save_members():
@@ -122,11 +163,12 @@ async def backfill(days=90):
 # Tags and plans Claude is working on: message id -> set when Claude's reply lands
 waiting = {}
 FEEDBACK_CHANNEL_ID = 1556941698490306621  # feedback-and-suggestions
-CHANGE_REQUESTS_ID = 1557354121743306772   # staff only, where plans wait for GreMi's ✅
 FEEDBACK_NOTE = ("I can't change the server, only the mods can ask for that. "
                  f"Drop your idea in <#{FEEDBACK_CHANNEL_ID}> and the team will look at it!")
 MEMBER_CANT = "That one's beyond what I can check right now. A mod can help you out!"
-PLAN_NOTE = f"\U0001F50E On it, I'll put a plan in <#{CHANGE_REQUESTS_ID}> for GreMi to approve."
+REQUEST_NOTE = ("\U0001F4CB Change request posted in <#{}>. "
+                "Once GreMi approves it with \u2705, Claude carries it out and replies there.")
+REQUEST_FAILED = "\U0001F4FB I couldn't post in the change-requests channel. Try again in a minute."
 cooldown = Cooldown()
 # Posted when a quick answer isn't enough; Claude Code's answer follows in a minute
 RESEARCH_NOTE = "\U0001F50E Let me do some research, I'll be back shortly."
@@ -187,7 +229,10 @@ async def on_message(message):
                 await message.reply(FEEDBACK_NOTE if e.change else MEMBER_CANT,
                                     mention_author=False)
                 return
-            await message.reply(PLAN_NOTE if e.change else RESEARCH_NOTE, mention_author=False)
+            if e.change:
+                await post_change_request(message, str(e))
+                return
+            await message.reply(RESEARCH_NOTE, mention_author=False)
         except anthropic.APIError as e:
             log.warning("Claude API failed, handing to Claude Code: %s", e)
     if not staff:
@@ -196,6 +241,21 @@ async def on_message(message):
                     tag_body(message.channel.id, message.id, message.author.id),
                     "\U0001F4FB Radio trouble, I couldn't reach Claude. Try again in a minute.",
                     message)
+
+
+async def post_change_request(message, request):
+    """Staff change requests go straight to the change-requests channel, where
+    GreMi's ✅ wakes Claude to carry them out (on_raw_reaction_add)."""
+    try:
+        channel = (bot.get_channel(CHANGE_REQUESTS_ID)
+                   or await bot.fetch_channel(CHANGE_REQUESTS_ID))
+        await channel.send(change_request(message.author.id, message.channel.id,
+                                          message.jump_url, request))
+    except discord.DiscordException as e:
+        log.warning("change request not posted: %s", e)
+        await message.reply(REQUEST_FAILED, mention_author=False)
+        return
+    await message.reply(REQUEST_NOTE.format(CHANGE_REQUESTS_ID), mention_author=False)
 
 
 @bot.event

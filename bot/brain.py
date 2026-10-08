@@ -2,6 +2,7 @@
 about 1500 input tokens. Anything that needs a lookup or research, and every
 request to change the server, is handed to Claude Code (the routine) instead.
 """
+import datetime
 import logging
 import re
 import os
@@ -9,10 +10,11 @@ import time
 
 import aiohttp
 import anthropic
+import discord
 
 from bot.members import named_members
 from bot.memory import Memory, said
-from bot.replies import plain
+from bot.replies import ASKS_CHANGE, plain, schedule_lines, split_marker
 
 # Small model on purpose: quick chat answers are cheap and fast. Set QUICK_MODEL on the
 # server to try another one.
@@ -41,11 +43,18 @@ ASKS_ABOUT = re.compile(
     r"|wat vind je van|what does .* like|vertel .*over", re.I)
 ASKS_TOP = re.compile(r"most active|top \d|top (five|ten)|leaderboard|meest actie", re.I)
 STATS_CATEGORY_ID = 1556945370959843380
+ASKS_SCHEDULE = re.compile(
+    r"\blive\b|stream|schedule|twitch|when .*(on|online|back)|wanneer|planning|rooster"
+    r"|uitzend|tonight|vanavond|this week|deze week|tomorrow|morgen", re.I)
+TWITCH_URL = "twitch.tv/gremi_gaming"
 
 log = logging.getLogger("race_control")
 
 SYSTEM = """You are Race Control, the bot of GreMi_Gaming's Discord server, chatting with everyone in it. Reply in 1 to 3 short sentences, in the asker's language. No em dashes, no pings.
-Take facts only from the briefing, race news, stats and chat below; never invent facts (jokes and banter are free). If you'd need anything else (channel contents, schedules, research), reply only: RESEARCH: <what to find out>. If someone asks to change the server (channels, roles, settings, bans, posts), reply only: CHANGE: <the request>
+Take facts only from the briefing, race news, stats and chat below; never invent facts (jokes and banter are free). GreMi's stream schedule, when asked about, comes from his Twitch schedule below; use the <t:...> times exactly as given so Discord shows them in each reader's time zone. If no stream is listed, nothing is planned on Twitch in the next 7 days.
+If you'd need anything else (channel contents, research), reply only: RESEARCH: <what to find out>
+If someone asks for any change (server channels, roles, settings, posts, or how you work, your code, your data or routines), reply only: CHANGE: <the request in one sentence>. Nothing before it. That posts a change request GreMi approves with a checkmark, then Claude carries it out.
+You can't change anything yourself and you can't tell if a change is done: never claim you made, flagged, posted or remembered something, and never say you lack access or can't run routines.
 Be a fun regular of the gang with a backbone: read the vibe and play along. Asked for a joke, a roast or a silly take? Deliver one, never refuse. On GreMi Gaming topics (racing, sim racing, streaming, GreMi's content) hold opinions, back them with reasons, argue, banter. Don't fold to pressure or trolling on opinions; change one only for a real reason and say why. If someone goes too far, tell them off once, calmly and family friendly. Never insult anyone personally. On politics, religion and other real-world debates stay neutral.
 Askers marked access="member" get chat, racing talk, public server info and their own data only: never others' stats or profiles, staff or mod matters, or what staff said.
 Member activity, when given, is your own server data on those members: answer about them from it, never RESEARCH them. Only give numbers for people listed there.
@@ -91,6 +100,17 @@ class Brain:
             lines += [plain(c.name) for c in cat.channels]
         return ", ".join(lines)
 
+    @staticmethod
+    def schedule(guild):
+        """GreMi's next streams, from the Discord events the stats updater makes
+        out of his Twitch schedule (stream_schedule.py), so no Twitch keys here."""
+        now = datetime.datetime.now(datetime.timezone.utc)
+        streams = [(e.start_time, e.end_time, e.name) for e in guild.scheduled_events
+                   if TWITCH_URL in (e.location or "").lower()
+                   and e.status in (discord.EventStatus.scheduled, discord.EventStatus.active)]
+        lines = schedule_lines(streams, now)
+        return "\n".join(lines) or "(no streams on the Twitch schedule in the next 7 days)"
+
     def activity(self, message, history, staff=True):
         """Activity lines, only when the question is about activity, roles or members.
         Covers members tagged or named in the question or the last chat lines,
@@ -124,6 +144,8 @@ class Brain:
 
     async def answer(self, message, staff=True):
         """Returns the reply text, or raises HandOff when Claude Code should take it."""
+        if staff and ASKS_CHANGE.search(message.clean_content):
+            raise HandOff(message.clean_content[:ASK_CLIP], change=True)
         history = [m async for m in message.channel.history(limit=HISTORY, before=message)]
         me = message.guild.me
         chat = [f"you: {said(m.clean_content)[:CLIP]}" if m.author.id == me.id
@@ -132,6 +154,8 @@ class Brain:
         system = (f"{SYSTEM}\n<briefing>\n{await self.fetch(BRIEFING_URL)}</briefing>\n"
                   f"<race_news>\n{await self.fetch(RACING_URL)}</race_news>\n"
                   f"<stats>{self.stats(message.guild)}</stats>")
+        if ASKS_SCHEDULE.search(message.clean_content):
+            system += f"\n<twitch_schedule>\n{self.schedule(message.guild)}\n</twitch_schedule>"
         a = message.author
         activity = self.activity(message, history, staff)
         ask = (f"{activity}"
@@ -158,10 +182,11 @@ class Brain:
         if response.stop_reason == "refusal":
             raise HandOff("refused")
         text = "".join(b.text for b in response.content if b.type == "text").strip()
-        if text.startswith(CHANGE):
-            raise HandOff(text[len(CHANGE):].strip(" :") or "change request", change=True)
-        if not text or text.startswith(RESEARCH):
-            raise HandOff(text[len(RESEARCH):].strip(" :") or "no answer")
+        kind, rest = split_marker(text)
+        if kind == CHANGE:
+            raise HandOff(rest or message.clean_content[:ASK_CLIP], change=True)
+        if not text or kind == RESEARCH:
+            raise HandOff(rest or "no answer")
         self.memory.add(plain(message.channel.name), message.author.display_name,
                         message.clean_content, text)
         return text

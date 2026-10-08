@@ -63,3 +63,55 @@ class AccessTests(unittest.TestCase):
             self.assertTrue(c.allow(MEMBER, 2000 + 30 * i))
         self.assertFalse(c.allow(MEMBER, 40000))
         self.assertTrue(c.allow(MEMBER, 86400 * 2))
+
+
+class ChangeRequestTests(unittest.TestCase):
+    def test_marker_counts_anywhere(self):
+        # What the quick model really wrote on 2026-10-08
+        kind, rest = replies.split_marker(
+            "Got it, GreMi! CHANGE: Link Race Control to your Twitch schedule.")
+        self.assertEqual((kind, rest), ("CHANGE", "Link Race Control to your Twitch schedule."))
+        kind, _ = replies.split_marker("Hey GreMi! RESEARCH: what's your next stream time?")
+        self.assertEqual(kind, "RESEARCH")
+        self.assertEqual(replies.split_marker("Spa, obviously."), (None, "Spa, obviously."))
+        self.assertIsNone(replies.split_marker("Big change: Max won")[0])
+
+    def test_staff_asking_outright_is_a_change(self):
+        for text in ["Make a change request of this and let me accept it",
+                     "Run a routine and make the change from the routine",
+                     "Make sure you edit something in your code so you see my schedule"]:
+            self.assertTrue(replies.ASKS_CHANGE.search(text), text)
+        for text in ["when will i go live again", "who wins Singapore?"]:
+            self.assertFalse(replies.ASKS_CHANGE.search(text), text)
+
+    def test_request_message_is_approvable(self):
+        text = replies.change_request(2, 10, "https://discord.com/channels/1/10/20", "Add a role")
+        self.assertTrue(text.startswith(replies.REQUEST_MARK))
+        self.assertIn("<@2>", text)
+        self.assertIn("> Add a role", text)
+        self.assertTrue(replies.is_approval(replies.APPROVE, OWNER, OWNER, BOT, BOT, text))
+        self.assertFalse(replies.is_approval(replies.APPROVE, MOD, OWNER, BOT, BOT, text))
+
+    def test_restart_only_for_bot_code(self):
+        self.assertTrue(replies.needs_restart(["bot/brain.py"]))
+        self.assertTrue(replies.needs_restart(["follower_history.json", "bot/requirements.txt"]))
+        self.assertFalse(replies.needs_restart(["bot/briefing.md", "bot/racing.md",
+                                                "follower_history.json"]))
+
+
+class ScheduleTests(unittest.TestCase):
+    def test_upcoming_streams_in_order(self):
+        import datetime
+        utc = datetime.timezone.utc
+        now = datetime.datetime(2026, 10, 8, 12, 0, tzinfo=utc)
+        h = datetime.timedelta(hours=1)
+        later = datetime.datetime(2026, 10, 10, 18, 0, tzinfo=utc)
+        soon = datetime.datetime(2026, 10, 8, 18, 0, tzinfo=utc)
+        lines = replies.schedule_lines(
+            [(later, later + 2 * h, "LMU"), (now - 3 * h, now - h, "old"),
+             (now - h, now + h, "F1 league"), (soon, soon + 2 * h, "F1")], now)
+        self.assertEqual(len(lines), 3)
+        self.assertIn("LIVE NOW", lines[0])
+        self.assertIn("Thu 08 Oct 20:00 Amsterdam time", lines[1])
+        self.assertIn(f"<t:{int(soon.timestamp())}:F>", lines[1])
+        self.assertTrue(lines[2].endswith("LMU"))
