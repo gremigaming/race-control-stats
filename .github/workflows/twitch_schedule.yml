@@ -1,0 +1,88 @@
+name: Twitch schedule
+
+on:
+  workflow_dispatch:
+    inputs:
+      command:
+        description: "login, or one change as JSON (see twitch_edit.py), e.g. {\"action\": \"list\"}"
+        required: true
+        default: '{"action": "list"}'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: twitch-schedule
+  cancel-in-progress: false
+
+env:
+  TWITCH_CLIENT_ID: ${{ secrets.TWITCH_CLIENT_ID }}
+  TWITCH_CLIENT_SECRET: ${{ secrets.TWITCH_CLIENT_SECRET }}
+  TWITCH_LOGIN: ${{ secrets.TWITCH_LOGIN }}
+
+jobs:
+  # Login, step 1: shows the code to enter at twitch.tv/activate (this job's log)
+  login-code:
+    if: inputs.command == 'login'
+    runs-on: ubuntu-latest
+    outputs:
+      device_code: ${{ steps.code.outputs.device_code }}
+      interval: ${{ steps.code.outputs.interval }}
+      expires_in: ${{ steps.code.outputs.expires_in }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: code
+        run: python3 twitch_edit.py login-start
+
+  # Login, step 2: waits for the approval and saves it as a secret
+  login-wait:
+    needs: login-code
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Wait for the approval
+        env:
+          DEVICE_CODE: ${{ needs.login-code.outputs.device_code }}
+          INTERVAL: ${{ needs.login-code.outputs.interval }}
+          EXPIRES_IN: ${{ needs.login-code.outputs.expires_in }}
+          TWITCH_REFRESH_TOKEN_OUT: ${{ runner.temp }}/twitch_refresh_token
+        run: python3 twitch_edit.py login-finish "$DEVICE_CODE" "$INTERVAL" "$EXPIRES_IN"
+      - name: Save the Twitch login as a secret
+        env:
+          GH_TOKEN: ${{ secrets.GH_SECRETS_TOKEN }}
+          FILE: ${{ runner.temp }}/twitch_refresh_token
+        run: |
+          if [ ! -s "$FILE" ]; then exit 0; fi
+          if [ -z "$GH_TOKEN" ]; then
+            echo "Missing the GH_SECRETS_TOKEN secret, so the Twitch login can't be saved."
+            rm -f "$FILE"; exit 1
+          fi
+          gh secret set TWITCH_REFRESH_TOKEN --repo "${{ github.repository }}" < "$FILE"
+          rm -f "$FILE"
+          echo "Saved the Twitch login."
+
+  change:
+    if: inputs.command != 'login'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Change the schedule
+        env:
+          TWITCH_REFRESH_TOKEN: ${{ secrets.TWITCH_REFRESH_TOKEN }}
+          TWITCH_REFRESH_TOKEN_OUT: ${{ runner.temp }}/twitch_refresh_token
+          COMMAND: ${{ inputs.command }}
+        run: python3 twitch_edit.py run "$COMMAND"
+      - name: Save a renewed Twitch login
+        if: always()
+        env:
+          GH_TOKEN: ${{ secrets.GH_SECRETS_TOKEN }}
+          FILE: ${{ runner.temp }}/twitch_refresh_token
+        run: |
+          if [ ! -s "$FILE" ]; then exit 0; fi
+          if [ -z "$GH_TOKEN" ]; then
+            echo "Missing the GH_SECRETS_TOKEN secret, so the Twitch login can't be saved."
+            rm -f "$FILE"; exit 1
+          fi
+          gh secret set TWITCH_REFRESH_TOKEN --repo "${{ github.repository }}" < "$FILE"
+          rm -f "$FILE"
+          echo "Saved the Twitch login."
