@@ -98,7 +98,7 @@ def login_finish(device_code, interval=5, expires_in=1800):
         if status == 200:
             save_refresh(res["refresh_token"])
             check = user_headers(res["access_token"])
-            print(f"Approved by {whoami(check)}. Saved the login.")
+            print(f"Approved by {whoami(check)['display_name']}. Saved the login.")
             return
         message = str(res.get("message", ""))
         if "authorization_pending" in message:
