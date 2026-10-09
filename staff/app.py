@@ -529,6 +529,23 @@ def undo_change(cid):
 PAGES = {"/": home, "/incidents": incidents, "/results": results, "/names": names_page, "/log": log_page}
 
 
+def explain(ex):
+    """Says which outside service refused, and which key to check."""
+    if isinstance(ex, urllib.error.HTTPError):
+        url = ex.url or ""
+        if "oauth2/token" in url:
+            return (f"Discord refused the login ({ex.code}). Check the Discord client secret and that the redirect "
+                    f"{BASE_URL}/callback is saved on the Discord OAuth2 page. To type the secret again: "
+                    "run the setup script with --keys.")
+        if "api.github.com" in url:
+            return (f"GitHub refused the token ({ex.code}). Make a new token with access to race-stats "
+                    "(Contents: read and write) and run the setup script with --keys.")
+        if "discord.com" in url:
+            return f"Discord said {ex.code} ({url.split('/api/v10', 1)[-1].split('?')[0]})."
+        return f"{url.split('?')[0]} said {ex.code}."
+    return f"{type(ex).__name__}: {ex}"
+
+
 class Handler(BaseHTTPRequestHandler):
     server_version = "GreMiStaff/1"
 
@@ -583,7 +600,7 @@ class Handler(BaseHTTPRequestHandler):
                 body = body.replace("<main>", f"<main><div class=flash>{e(flash)}</div>", 1)
             self.send(200, body)
         except Exception as ex:  # keep the page up and say what went wrong
-            self.send(500, page("Error", f"<p class='flash err'>Something went wrong: {e(type(ex).__name__)}: {e(ex)}</p>", self.user()))
+            self.send(500, page("Error", f"<p class='flash err'>Something went wrong: {e(explain(ex))}</p>", self.user()))
 
     def do_POST(self):
         user = self.user()
@@ -607,7 +624,7 @@ class Handler(BaseHTTPRequestHandler):
         except (ValueError, KeyError) as ex:
             msg = f"Not saved: {str(ex) or 'check the values'}"
         except Exception as ex:
-            msg = f"Not saved: {type(ex).__name__}: {ex}"
+            msg = f"Not saved: {explain(ex)}"
         sep = "&" if "?" in back else "?"
         self.redirect(f"{back}{sep}ok={urllib.parse.quote(msg)}")
 
