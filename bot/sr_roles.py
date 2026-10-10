@@ -95,7 +95,17 @@ def panel_names(drivers):
     return [names[i:i + size] for i in range(0, len(names), size)]
 
 
-def panel(drivers):
+def linked_to(guild):
+    """{driver name lowercased: member display name} for the dropdown descriptions."""
+    out = {}
+    for uid, v in store.read().items():
+        m = guild.get_member(int(uid)) if guild else None
+        out[v["driver"].lower()] = m.display_name if m else "a member who left"
+    return out
+
+
+def panel(drivers, linked=None):
+    linked = linked or {}
     groups = panel_names(drivers)
     embed = discord.Embed(
         title=PANEL_TITLE, colour=0x4ADE80,
@@ -108,11 +118,14 @@ def panel(drivers):
     for i, g in enumerate(groups):
         view.add_item(discord.ui.Select(
             custom_id=f"{PICK}{i}", placeholder=f"Drivers {g[0][:1].upper()} to {g[-1][:1].upper()}",
-            options=[discord.SelectOption(label=n[:100], value=n[:100]) for n in g]))
+            options=[discord.SelectOption(
+                label=n[:100], value=n[:100], emoji="\U0001F517" if n.lower() in linked else None,
+                description=(f"Linked to {linked[n.lower()]}"[:100] if n.lower() in linked else "Not linked yet"))
+                for n in g]))
     view.add_item(discord.ui.Button(label="Unlink me", style=discord.ButtonStyle.secondary, custom_id=UNLINK))
     view.add_item(discord.ui.Button(label="Full ranking", style=discord.ButtonStyle.link,
                                     url=L.SITE_URL))
-    return embed, view, [n for g in groups for n in g]
+    return embed, view, [(n, linked.get(n.lower())) for g in groups for n in g]
 
 
 async def keep_panel(guild, drivers):
@@ -120,10 +133,12 @@ async def keep_panel(guild, drivers):
     channel = guild.get_channel(PANEL_CHANNEL_ID)
     if channel is None:
         return
-    embed, view, names = panel(drivers)
+    linked = linked_to(guild)
+    embed, view, names = panel(drivers, linked)
     async for msg in channel.history(limit=50):
         if msg.author == guild.me and msg.embeds and msg.embeds[0].title == PANEL_TITLE:
-            shown = [o.value for row in msg.components for c in getattr(row, "children", [])
+            shown = [(o.value, o.description[len("Linked to "):] if (o.description or "").startswith("Linked to ") else None)
+                     for row in msg.components for c in getattr(row, "children", [])
                      for o in getattr(c, "options", [])]
             if shown != names:
                 await msg.edit(embed=embed, view=view)
@@ -145,6 +160,18 @@ async def link_member(interaction, driver, drivers):
     return msg
 
 
+async def refresh_panel(guild):
+    """Shows a new link in the dropdowns straight away."""
+    if guild is None:
+        return
+    try:
+        drivers = await fetch_safety()
+        if drivers:
+            await keep_panel(guild, drivers)
+    except discord.DiscordException as e:
+        log.warning("link panel not updated: %s", e)
+
+
 async def on_panel(interaction):
     """Dropdown picks and the Unlink button on the panel."""
     if interaction.type != discord.InteractionType.component:
@@ -161,6 +188,7 @@ async def on_panel(interaction):
             except discord.DiscordException as e:
                 log.warning("SR role not removed: %s", e)
         await interaction.followup.send("Unlinked." if done else "You weren't linked to a driver.", ephemeral=True)
+        await refresh_panel(interaction.guild)
         return
     drivers = await fetch_safety()
     picked = ((interaction.data or {}).get("values") or [""])[0]
@@ -169,20 +197,21 @@ async def on_panel(interaction):
         await interaction.followup.send("That driver isn't in the list anymore. Try again.", ephemeral=True)
         return
     await interaction.followup.send(await link_member(interaction, name, drivers), ephemeral=True)
+    await refresh_panel(interaction.guild)
 
 
 async def sync(guild):
     drivers = await fetch_safety()
     if not drivers:
         return
-    try:
-        await keep_panel(guild, drivers)
-    except discord.DiscordException as e:
-        log.warning("link panel not posted: %s", e)
     members = [(m.id, names_of(m)) for m in guild.members if not m.bot]
     new = store.auto(members, list(drivers))
     for uid, d in new:
         log.info("linked %s to %s by name", uid, d)
+    try:
+        await keep_panel(guild, drivers)
+    except discord.DiscordException as e:
+        log.warning("link panel not posted: %s", e)
     if ROLES_ON:
         for uid, rank in L.wanted_roles(store.read(), drivers).items():
             try:
@@ -227,6 +256,7 @@ def setup(bot, guild_id):
                 "you're on it once you've raced with us since 7 Oct 2026.", ephemeral=True)
             return
         await interaction.followup.send(await link_member(interaction, name, drivers), ephemeral=True)
+        await refresh_panel(interaction.guild)
 
     @tree.command(name="unlink", description="Remove the link between your Discord and your driver name", guild=server)
     async def unlink(interaction: discord.Interaction):
@@ -239,6 +269,8 @@ def setup(bot, guild_id):
         await interaction.response.send_message(
             "Unlinked. Use /link to pick your name again." if done else "You weren't linked to a driver.",
             ephemeral=True)
+        if done:
+            await refresh_panel(interaction.guild)
 
     @tree.command(name="sr", description="Show a safety rating", guild=server)
     @app_commands.describe(member="Whose rating (yours if empty)")
