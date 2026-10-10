@@ -46,7 +46,8 @@ def drivers_of(safety):
 
 def personal_url(name):
     from urllib.parse import quote
-    return f"{SITE_URL}?tab=personal&driver={quote(re.sub(r'\s+', ' ', name).strip().lower())}"
+    key_ = re.sub(r"\s+", " ", name).strip().lower()
+    return f"{SITE_URL}?tab=personal&driver={quote(key_)}"
 
 
 # Real F1 driver names many players use; too common to link by themselves
