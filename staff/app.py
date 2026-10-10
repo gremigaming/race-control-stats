@@ -227,7 +227,8 @@ form.inline{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin:4px 0 
 def page(title, body, user=None, tab=""):
     nav = ""
     if user:
-        links = [("", "Home"), ("incidents", "Incidents"), ("results", "Results"), ("names", "Names"), ("log", "All changes")]
+        links = [("", "Home"), ("incidents", "Incidents"), ("results", "Results"), ("names", "Names"),
+                 ("members", "Members"), ("log", "All changes")]
         nav = "<nav>" + "".join(f'<a href="/{p}" class="{"on" if p == tab else ""}">{t}</a>' for p, t in links) + "</nav>"
         nav += f'<span class="me">{e(user["name"])} · <a href="/logout">log out</a></span>'
     return (f"<!doctype html><html lang=en><head><meta charset=utf-8><meta name=viewport content='width=device-width,initial-scale=1'>"
@@ -526,7 +527,78 @@ def undo_change(cid):
 
 # ---------------------------------------------------------------- server
 
-PAGES = {"/": home, "/incidents": incidents, "/results": results, "/names": names_page, "/log": log_page}
+def guild_members(ttl=600):
+    """{discord id: display name} of the server's members, cached."""
+    now = time.time()
+    with _cache_lock:
+        hit = _cache.get("members")
+        if hit and now - hit[0] < ttl:
+            return hit[1]
+    out, after = {}, 0
+    for _ in range(10):
+        page_ = http(f"https://discord.com/api/v10/guilds/{GUILD_ID}/members?limit=1000&after={after}",
+                     headers={"Authorization": f"Bot {BOT_TOKEN}"})
+        for m in page_:
+            if not m["user"].get("bot"):
+                out[int(m["user"]["id"])] = m.get("nick") or m["user"].get("global_name") or m["user"]["username"]
+        if len(page_) < 1000:
+            break
+        after = page_[-1]["user"]["id"]
+    with _cache_lock:
+        _cache["members"] = (now, out)
+    return out
+
+
+def members_page(user, q):
+    from bot import links as L
+    store = L.Links()
+    data = store.read()
+    people = guild_members()
+    drivers = L.drivers_of(site_json("league/safety.json"))
+    how = {"auto": "matched by name", "self": "linked themself", "staff": "linked by staff"}
+    rows = ""
+    for uid, v in sorted(data.items(), key=lambda x: x[1]["driver"].lower()):
+        d = drivers.get(v["driver"])
+        rank = f"{L.rank_of(d['sr'])} · {d['sr']:.1f}" if d else "no rating"
+        unlink = (f'<form method=post action="/member" class="inline">{field("csrf", csrf_token(user))}'
+                  f'{field("action", "unlink")}{field("uid", uid)}<button class=red>Unlink</button></form>')
+        rows += (f"<tr><td><b>{e(v['driver'])}</b><div class=muted>{e(rank)}</div></td>"
+                 f"<td>{e(people.get(int(uid), 'left the server'))}<div class=muted>{e(how.get(v['how'], v['how']))}</div></td>"
+                 f"<td>{unlink}</td></tr>")
+    linked = {v["driver"].lower() for v in data.values()}
+    missing = [n for n in drivers if n.lower() not in linked]
+    opts = "".join(f'<option value="{uid}">{e(n)}</option>' for uid, n in sorted(people.items(), key=lambda x: x[1].lower()))
+    dl = "".join(f'<option value="{e(n)}">' for n in sorted(drivers, key=str.lower))
+    form = (f'<form method=post action="/member" class="inline">{field("csrf", csrf_token(user))}{field("action", "link")}'
+            f'<select name=uid required>{opts}</select><input name=driver list=drivers placeholder="Driver name" required>'
+            f'<datalist id=drivers>{dl}</datalist><button>Link</button></form>')
+    return page("Members", f"""<h1>Members</h1>
+<p class=muted>Which Discord member drives under which name. The bot links members by itself when their Discord name
+matches a driver exactly or almost, and members can use <b>/link</b>. A link set here replaces any other link to that name.</p>
+<div class=card><h2 style='margin-top:0'>Link a member</h2>{form}</div>
+<h2>Drivers with a rating but no member ({len(missing)})</h2><div class=card>{e(', '.join(missing)) or 'None.'}</div>
+<h2>Linked ({len(data)})</h2><div class=card><table>{rows or '<tr><td class=muted>Nobody yet.</td></tr>'}</table></div>""",
+                user, "members")
+
+
+def member_change(form, user):
+    from bot import links as L
+    store = L.Links()
+    uid = int(form["uid"])
+    if form.get("action") == "unlink":
+        store.unlink(uid)
+        return "Unlinked. The bot updates their role within 10 minutes."
+    drivers = L.drivers_of(site_json("league/safety.json"))
+    name = next((n for n in drivers if n.lower() == form.get("driver", "").strip().lower()), None)
+    if not name:
+        raise ValueError("Pick a driver name from the list.")
+    store.unlink(uid)
+    store.link(uid, name, "staff", by=int(user["id"]))
+    return f"Linked to {name}. The bot updates their role within 10 minutes."
+
+
+PAGES = {"/": home, "/incidents": incidents, "/results": results, "/names": names_page,
+         "/members": members_page, "/log": log_page}
 
 
 def explain(ex):
@@ -616,6 +688,9 @@ class Handler(BaseHTTPRequestHandler):
                 c = build_change(form, user)
                 apply_change(c)
                 msg = "Saved. The site updates in about 2 minutes."
+            elif self.path == "/member":
+                back = "/members"
+                msg = member_change(form, user)
             elif self.path == "/undo":
                 undo_change(form.get("id", ""))
                 back, msg = "/log", "Undone. The site updates in about 2 minutes."

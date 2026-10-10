@@ -48,6 +48,12 @@ intents.message_content = True
 intents.members = True
 bot = discord.Client(intents=intents,
                      allowed_mentions=discord.AllowedMentions.none())
+try:  # the safety rating commands; a problem there must not stop the bot
+    from bot import sr_roles
+    sr_roles.setup(bot, GUILD_ID)
+except Exception as e:  # pragma: no cover
+    sr_roles = None
+    logging.getLogger("race_control").warning("safety rating commands off: %s", e)
 
 
 def tags_me(message):
@@ -67,6 +73,8 @@ async def wake_claude(body):
 @bot.event
 async def on_ready():
     log.info("Race Control is online as %s", bot.user)
+    if sr_roles:
+        asyncio.create_task(sr_roles.setup_ready(bot, GUILD_ID))
     if not members.backfilled():
         asyncio.create_task(backfill())
     if not getattr(bot, "saving", False):
