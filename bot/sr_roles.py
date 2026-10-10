@@ -17,6 +17,12 @@ SYNC_EVERY = 600  # seconds
 # GreMi approved creating the 8 rank roles on 2026-10-10
 ROLES_ON = True
 
+# The "pick your driver name" panel; in staff-commands for now (GreMi 2026-10-10)
+PANEL_CHANNEL_ID = 1113717920321773579
+PANEL_TITLE = "Link your driver name"
+PICK = "srlink:pick:"
+UNLINK = "srlink:unlink"
+
 store = L.Links()
 safety = {"data": None, "at": 0}
 
@@ -82,10 +88,97 @@ async def ensure_roles(guild):
     return out
 
 
+def panel_names(drivers):
+    """Driver names for the dropdowns, A to Z, in groups of at most 25 (4 dropdowns)."""
+    names = sorted((n for n, d in drivers.items() if not d.get("banned")), key=str.lower)[:100]
+    size = max(1, -(-len(names) // max(1, -(-len(names) // 25))))  # even groups
+    return [names[i:i + size] for i in range(0, len(names), size)]
+
+
+def panel(drivers):
+    groups = panel_names(drivers)
+    embed = discord.Embed(
+        title=PANEL_TITLE, colour=0x4ADE80,
+        description=("Pick your name as it shows in the game, and you get the safety rating role of your rank. "
+                     "It updates by itself after every stream.\n\n"
+                     "Not in the list? Your name shows up after your first race with us. "
+                     "Picked the wrong one? Pick again, or press Unlink."))
+    embed.set_footer(text=f"{sum(len(g) for g in groups)} drivers · the full ranking is on the race stats site")
+    view = discord.ui.View(timeout=None)
+    for i, g in enumerate(groups):
+        view.add_item(discord.ui.Select(
+            custom_id=f"{PICK}{i}", placeholder=f"Drivers {g[0][:1].upper()} to {g[-1][:1].upper()}",
+            options=[discord.SelectOption(label=n[:100], value=n[:100]) for n in g]))
+    view.add_item(discord.ui.Button(label="Unlink me", style=discord.ButtonStyle.secondary, custom_id=UNLINK))
+    view.add_item(discord.ui.Button(label="Full ranking", style=discord.ButtonStyle.link,
+                                    url=L.SITE_URL))
+    return embed, view, [n for g in groups for n in g]
+
+
+async def keep_panel(guild, drivers):
+    """Posts the panel once, and updates its dropdowns when new drivers show up."""
+    channel = guild.get_channel(PANEL_CHANNEL_ID)
+    if channel is None:
+        return
+    embed, view, names = panel(drivers)
+    async for msg in channel.history(limit=50):
+        if msg.author == guild.me and msg.embeds and msg.embeds[0].title == PANEL_TITLE:
+            shown = [o.value for row in msg.components for c in getattr(row, "children", [])
+                     for o in getattr(c, "options", [])]
+            if shown != names:
+                await msg.edit(embed=embed, view=view)
+            return
+    await channel.send(embed=embed, view=view)
+
+
+async def link_member(interaction, driver, drivers):
+    """The /link and panel answer: links, sets the role, says the rating."""
+    ok, msg = store.link(interaction.user.id, driver, "self")
+    if ok:
+        msg += "\n" + line_for(driver, drivers)
+        if interaction.guild:
+            try:
+                await set_roles(interaction.guild, interaction.user.id, L.wanted_roles(
+                    {str(interaction.user.id): {"driver": driver}}, drivers)[interaction.user.id])
+            except discord.DiscordException as e:
+                log.warning("SR role not set after linking: %s", e)
+    return msg
+
+
+async def on_panel(interaction):
+    """Dropdown picks and the Unlink button on the panel."""
+    if interaction.type != discord.InteractionType.component:
+        return
+    cid = (interaction.data or {}).get("custom_id", "")
+    if not cid.startswith("srlink:"):
+        return
+    await interaction.response.defer(ephemeral=True, thinking=True)
+    if cid == UNLINK:
+        done = store.unlink(interaction.user.id)
+        if done and interaction.guild:
+            try:
+                await set_roles(interaction.guild, interaction.user.id, None)
+            except discord.DiscordException as e:
+                log.warning("SR role not removed: %s", e)
+        await interaction.followup.send("Unlinked." if done else "You weren't linked to a driver.", ephemeral=True)
+        return
+    drivers = await fetch_safety()
+    picked = ((interaction.data or {}).get("values") or [""])[0]
+    name = next((n for n in drivers if n[:100] == picked), None)
+    if not name:
+        await interaction.followup.send("That driver isn't in the list anymore. Try again.", ephemeral=True)
+        return
+    await interaction.followup.send(await link_member(interaction, name, drivers), ephemeral=True)
+
+
 async def sync(guild):
     drivers = await fetch_safety()
     if not drivers:
         return
+    try:
+        await keep_panel(guild, drivers)
+    except discord.DiscordException as e:
+        log.warning("link panel not posted: %s", e)
     members = [(m.id, names_of(m)) for m in guild.members if not m.bot]
     new = store.auto(members, list(drivers))
     for uid, d in new:
@@ -133,16 +226,7 @@ def setup(bot, guild_id):
                 f"I don't know the driver **{discord.utils.escape_markdown(driver)}** yet. Pick a name from the list; "
                 "you're on it once you've raced with us since 7 Oct 2026.", ephemeral=True)
             return
-        ok, msg = store.link(interaction.user.id, name, "self")
-        if ok:
-            msg += "\n" + line_for(name, drivers)
-            if interaction.guild:
-                try:
-                    await set_roles(interaction.guild, interaction.user.id, L.wanted_roles(
-                        {str(interaction.user.id): {"driver": name}}, drivers)[interaction.user.id])
-                except discord.DiscordException as e:
-                    log.warning("SR role not set after /link: %s", e)
-        await interaction.followup.send(msg, ephemeral=True)
+        await interaction.followup.send(await link_member(interaction, name, drivers), ephemeral=True)
 
     @tree.command(name="unlink", description="Remove the link between your Discord and your driver name", guild=server)
     async def unlink(interaction: discord.Interaction):
@@ -171,6 +255,13 @@ def setup(bot, guild_id):
         await interaction.followup.send(line_for(link["driver"], drivers))
 
     bot.sr_tree = tree
+
+    @bot.event
+    async def on_interaction(interaction):
+        try:
+            await on_panel(interaction)
+        except Exception as e:  # never let a click take the bot down
+            log.warning("link panel click failed: %s", e)
 
 
 async def setup_ready(bot, guild_id):
