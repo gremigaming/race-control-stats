@@ -14,8 +14,8 @@ from bot import links as L
 
 log = logging.getLogger("race_control.sr")
 SYNC_EVERY = 600  # seconds
-# Off until GreMi approves creating the roles on the server
-ROLES_ON = False
+# GreMi approved creating the 8 rank roles on 2026-10-10
+ROLES_ON = True
 
 store = L.Links()
 safety = {"data": None, "at": 0}
