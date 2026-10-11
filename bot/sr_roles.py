@@ -147,7 +147,9 @@ async def keep_panel(guild, drivers):
             shown = [(o.value, o.description[len("Linked to "):] if (o.description or "").startswith("Linked to ") else None)
                      for row in msg.components for c in getattr(row, "children", [])
                      for o in getattr(c, "options", [])]
-            if shown != names:
+            holders = [getattr(c, "placeholder", None) for row in msg.components
+                       for c in getattr(row, "children", []) if getattr(c, "options", None)]
+            if shown != names or holders != [i.placeholder for i in view.children if hasattr(i, "options")]:
                 await msg.edit(embed=embed, view=view)
             return
     await channel.send(embed=embed, view=view)
