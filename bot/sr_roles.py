@@ -3,6 +3,7 @@ by name every few minutes, and (once switched on) the SR rank roles.
 The matching and storage live in bot/links.py."""
 import asyncio
 import logging
+import re
 import time
 from typing import Optional
 
@@ -89,8 +90,13 @@ async def ensure_roles(guild):
 
 
 def panel_names(drivers):
-    """Driver names for the dropdowns, A to Z, in groups of at most 25 (4 dropdowns)."""
-    names = sorted((n for n, d in drivers.items() if not d.get("banned")), key=str.lower)[:100]
+    """Driver names for the dropdowns in the site's order (last race day first, then
+    A to Z), in groups of at most 25 (4 dropdowns)."""
+    def last_day(d):
+        days = [m.group(0) for s in d.get("sessions", []) for m in [re.search(r"\d{4}_\d\d_\d\d", s["file"])] if m]
+        return max(days, default="")
+    names = sorted((n for n, d in drivers.items() if not d.get("banned")), key=str.lower)
+    names = sorted(names, key=lambda n: last_day(drivers[n]), reverse=True)[:100]
     size = max(1, -(-len(names) // max(1, -(-len(names) // 25))))  # even groups
     return [names[i:i + size] for i in range(0, len(names), size)]
 
@@ -117,7 +123,8 @@ def panel(drivers, linked=None):
     view = discord.ui.View(timeout=None)
     for i, g in enumerate(groups):
         view.add_item(discord.ui.Select(
-            custom_id=f"{PICK}{i}", placeholder=f"Drivers {g[0][:1].upper()} to {g[-1][:1].upper()}",
+            custom_id=f"{PICK}{i}", placeholder=("Pick your driver name" if len(groups) == 1
+                                                   else f"Pick your driver name ({i + 1} of {len(groups)})"),
             options=[discord.SelectOption(
                 label=n[:100], value=n[:100], emoji="\U0001F517" if n.lower() in linked else None,
                 description=(f"Linked to {linked[n.lower()]}"[:100] if n.lower() in linked else "Not linked yet"))
