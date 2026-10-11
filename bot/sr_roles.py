@@ -1,6 +1,7 @@
 """Discord side of the safety rating: /link, /unlink and /sr, linking members
-by name every few minutes, and (once switched on) the SR rank roles.
-The matching and storage live in bot/links.py."""
+by name every few minutes, the SR rank roles, and the live championship and
+safety rating boards. The matching and storage live in bot/links.py, the
+board text in bot/boards.py."""
 import asyncio
 import logging
 import re
@@ -11,6 +12,7 @@ import aiohttp
 import discord
 from discord import app_commands
 
+from bot import boards as B
 from bot import links as L
 
 log = logging.getLogger("race_control.sr")
@@ -18,28 +20,36 @@ SYNC_EVERY = 600  # seconds
 # GreMi approved creating the 8 rank roles on 2026-10-10
 ROLES_ON = True
 
-# The "pick your driver name" panel; in staff-commands for now (GreMi 2026-10-10)
-PANEL_CHANNEL_ID = 1113717920321773579
+# F1 channels GreMi asked for on 2026-10-11, in the RACING category
+PANEL_CHANNEL_ID = 1558730257593409628  # link-your-name: the "pick your driver name" panel
+CHAMPIONSHIP_CHANNEL_ID = 1558730259585826836
+SAFETY_CHANNEL_ID = 1558730261036802088
 PANEL_TITLE = "Link your driver name"
 PICK = "srlink:pick:"
 UNLINK = "srlink:unlink"
 
 store = L.Links()
 safety = {"data": None, "at": 0}
+champ = {"data": None, "at": 0}
+
+
+async def load(cache, url):
+    """The site's JSON at url, cached for 5 minutes."""
+    if cache["data"] is None or time.time() - cache["at"] > 300:
+        try:
+            async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=20)) as s:
+                async with s.get(url) as r:
+                    if r.status == 200:
+                        cache["data"] = await r.json(content_type=None)
+                        cache["at"] = time.time()
+        except (aiohttp.ClientError, asyncio.TimeoutError, ValueError) as e:
+            log.warning("%s not loaded: %s", url, e)
+    return cache["data"]
 
 
 async def fetch_safety():
-    """{driver: entry} from the site's safety.json, cached for 5 minutes."""
-    if safety["data"] is None or time.time() - safety["at"] > 300:
-        try:
-            async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=20)) as s:
-                async with s.get(L.SAFETY_URL) as r:
-                    if r.status == 200:
-                        safety["data"] = await r.json(content_type=None)
-                        safety["at"] = time.time()
-        except (aiohttp.ClientError, asyncio.TimeoutError, ValueError) as e:
-            log.warning("safety.json not loaded: %s", e)
-    return L.drivers_of(safety["data"])
+    """{driver: entry} from the site's safety.json."""
+    return L.drivers_of(await load(safety, L.SAFETY_URL))
 
 
 def names_of(member):
@@ -115,11 +125,21 @@ def panel(drivers, linked=None):
     groups = panel_names(drivers)
     embed = discord.Embed(
         title=PANEL_TITLE, colour=0x4ADE80,
-        description=("Pick your name as it shows in the game, and you get the safety rating role of your rank. "
-                     "It updates by itself after every stream.\n\n"
-                     "Not in the list? Your name shows up after your first race with us. "
-                     "Picked the wrong one? Pick again, or press Unlink."))
-    embed.set_footer(text=f"{sum(len(g) for g in groups)} drivers · the full ranking is on the race stats site")
+        description=(
+            "**What is this?**\n"
+            "Every F1 race in our lobby is saved on the race stats site. Each driver gets a safety rating (SR): "
+            "clean races and clean overtakes raise it, contacts, penalties and retirements lower it.\n\n"
+            "**Why link?**\n"
+            "The site knows your name in the game, not your Discord. Linking tells us which driver you are, so:\n"
+            "• you get the SR role of your rank (S+ down to F) here on the server\n"
+            "• `/sr` shows your rating and your place in the ranking\n"
+            "• your role follows your rating by itself after every stream\n\n"
+            "**How?**\n"
+            "Pick your name as it shows in the game in the menu below. Only you see the answer.\n\n"
+            "Not in the list? Your name shows up after your first race with us. "
+            "Picked the wrong one? Pick again, or press Unlink me. "
+            "Someone else has your name? Ask a mod."))
+    embed.set_footer(text=f"{sum(len(g) for g in groups)} drivers · 🔗 means the name is already linked")
     view = discord.ui.View(timeout=None)
     for i, g in enumerate(groups):
         view.add_item(discord.ui.Select(
@@ -153,6 +173,39 @@ async def keep_panel(guild, drivers):
                 await msg.edit(embed=embed, view=view)
             return
     await channel.send(embed=embed, view=view)
+
+
+async def keep_board(guild, channel_id, title_start, title, blocks, footer, url, label):
+    """Posts a board once and edits it when its text changes."""
+    channel = guild.get_channel(channel_id)
+    if channel is None:
+        return
+    embeds = [discord.Embed(title=title if i == 0 else None, description=b, colour=0xE10600)
+              for i, b in enumerate(blocks)]
+    embeds[-1].set_footer(text=footer)
+    view = discord.ui.View(timeout=None)
+    view.add_item(discord.ui.Button(label=label, style=discord.ButtonStyle.link, url=url))
+    async for msg in channel.history(limit=50):
+        if msg.author == guild.me and msg.embeds and (msg.embeds[0].title or "").startswith(title_start):
+            if ([(e.title, e.description, e.footer.text) for e in msg.embeds]
+                    != [(e.title, e.description, e.footer.text) for e in embeds]):
+                await msg.edit(embeds=embeds, view=view)
+            return
+    await channel.send(embeds=embeds, view=view)
+
+
+async def keep_boards(guild):
+    """The live championship and safety rating boards in the F1 channels."""
+    data = await load(champ, B.CHAMPIONSHIP_URL)
+    if data:
+        title, blocks, footer = B.championship(data)
+        await keep_board(guild, CHAMPIONSHIP_CHANNEL_ID, B.CHAMPIONSHIP_TITLE, title, blocks, footer,
+                         B.LEADERBOARD_URL, "Full standings")
+    data = await load(safety, L.SAFETY_URL)
+    if data:
+        title, blocks, footer = B.safety(data, PANEL_CHANNEL_ID)
+        await keep_board(guild, SAFETY_CHANNEL_ID, B.SAFETY_TITLE, title, blocks, footer,
+                         L.SITE_URL, "Your rating on the site")
 
 
 async def link_member(interaction, driver, drivers):
@@ -221,6 +274,10 @@ async def sync(guild):
         await keep_panel(guild, drivers)
     except discord.DiscordException as e:
         log.warning("link panel not posted: %s", e)
+    try:
+        await keep_boards(guild)
+    except discord.DiscordException as e:
+        log.warning("live boards not posted: %s", e)
     if ROLES_ON:
         for uid, rank in L.wanted_roles(store.read(), drivers).items():
             try:
