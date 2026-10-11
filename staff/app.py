@@ -6,9 +6,10 @@ stream. Every change is one entry in races/corrections.json in
 gremigaming/race-stats; the site applies it the next time it builds (about 2
 minutes) and any entry can be undone.
 
-Drivers protest an incident from the site (/protest, any Discord account);
-protests are kept on this server only (PROTESTS_FILE) and show up for the
-staff under Protests.
+Drivers protest an incident right on the site: the form there posts to
+/api/protest (no login, they give their name), or here at /protest with a
+Discord login. Protests are kept on this server only (PROTESTS_FILE) and show
+up for the staff under Protests.
 
 Runs behind Caddy (HTTPS) on the Race Control server, standard library only.
 Needs in the environment: DISCORD_CLIENT_SECRET, DISCORD_BOT_TOKEN,
@@ -651,7 +652,8 @@ def protest_card(p, staff=None):
     out = f"<div class=card>{head}<div class=muted>{e(p['what'])}</div>"
     if staff:
         linked = p.get("linked")
-        who = ("their linked Discord account" if linked and linked.lower() == p["driver"].lower()
+        who = ("from the site, name not checked" if p.get("site")
+               else "their linked Discord account" if linked and linked.lower() == p["driver"].lower()
                else f"linked to {linked}, not this driver" if linked else "not linked to a driver")
         out += f"<div class=muted style='margin-top:8px'>Sent by {e(p['by_name'])} ({e(who)}) · {e(p['at'][:16].replace('T', ' '))} UTC</div>"
     out += f"<div class=quote>{e(p['text'])}</div>"
@@ -746,7 +748,29 @@ def protest_page(member, q):
                 f"<div class=muted>{e(it['text'])}</div></div><div class=card>{form}</div></div>")
 
 
-def protest_send(form, member):
+SITE_ORIGIN = "https://gremigaming.github.io"
+_sent_by_ip = {}  # ip -> [times], against spam from the open site form
+
+
+def site_protest(body, ip):
+    """A protest from the form on the site: {item, text, clip, name}. Returns a message."""
+    now = time.time()
+    with _protest_lock:
+        times = [t for t in _sent_by_ip.get(ip, []) if now - t < 3600]
+        _sent_by_ip[ip] = times
+        if len(times) >= 5:
+            raise ValueError("You sent 5 protests in the last hour. Try again later.")
+    name = (body.get("name") or "").strip()[:40]
+    if not name:
+        raise ValueError("Please give your Discord name, so the stewards can answer you.")
+    member = {"id": None, "name": name}
+    protest_send({k: str(body.get(k) or "") for k in ("item", "text", "clip")}, member, site=True)
+    with _protest_lock:
+        _sent_by_ip.setdefault(ip, []).append(now)
+    return "Sent to the stewards."
+
+
+def protest_send(form, member, site=False):
     item = form.get("item", "")
     text = (form.get("text") or "").strip()[:1500]
     clip = (form.get("clip") or "").strip()[:300]
@@ -760,14 +784,14 @@ def protest_send(form, member):
     driver, file, it = found
 
     def edit(data):
-        mine = [p for p in data if p["by"] == member["id"]]
+        mine = [p for p in data if p["by"] == member["id"] and (not site or p["by_name"].lower() == member["name"].lower())]
         if any(p["item"] == item for p in mine):
             raise ValueError("You already protested this incident.")
         if sum(p["status"] == "open" for p in mine) >= 10:
             raise ValueError("You have 10 open protests. Wait for the stewards to answer those first.")
         data.append({"id": secrets.token_hex(6), "item": item, "driver": driver, "file": file, "lap": it.get("lap"),
                      "pts": it["pts"], "what": it["text"], "by": member["id"], "by_name": member["name"],
-                     "linked": linked_driver(int(member["id"])), "text": text, "clip": clip, "status": "open",
+                     "linked": linked_driver(int(member["id"])) if member["id"] else None, "site": site, "text": text, "clip": clip, "status": "open",
                      "at": datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")})
     save_protests(edit)
     return "Sent. The stewards get a notice and will answer here."
@@ -932,8 +956,27 @@ class Handler(BaseHTTPRequestHandler):
         except Exception as ex:  # keep the page up and say what went wrong
             self.send(500, page("Error", f"<p class='flash err'>Something went wrong: {e(explain(ex))}</p>", self.user()))
 
+    def do_OPTIONS(self):
+        self.send(204, "", {"Access-Control-Allow-Origin": SITE_ORIGIN, "Access-Control-Allow-Methods": "POST",
+                            "Access-Control-Allow-Headers": "Content-Type", "Access-Control-Max-Age": "86400"})
+
+    def api_protest(self, raw):
+        cors = {"Access-Control-Allow-Origin": SITE_ORIGIN, "Content-Type": "application/json"}
+        ip = (self.headers.get("X-Forwarded-For") or self.client_address[0]).split(",")[0].strip()
+        try:
+            body = json.loads(raw or "{}")
+            if not isinstance(body, dict):
+                raise ValueError("Bad request.")
+            return self.send(200, json.dumps({"ok": True, "message": site_protest(body, ip)}), cors)
+        except ValueError as ex:
+            return self.send(400, json.dumps({"ok": False, "message": str(ex) or "Bad request."}), cors)
+        except Exception as ex:
+            return self.send(500, json.dumps({"ok": False, "message": "The stewards' page had a problem. Try again later."}), cors)
+
     def do_POST(self):
         length = min(int(self.headers.get("Content-Length") or 0), 20000)
+        if self.path == "/api/protest":
+            return self.api_protest(self.rfile.read(length).decode(errors="replace"))
         multi = urllib.parse.parse_qs(self.rfile.read(length).decode())
         form = {k: v[0] for k, v in multi.items()}
         form["cars"] = "\n".join(multi.get("cars", []))
