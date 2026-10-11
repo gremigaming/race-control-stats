@@ -36,6 +36,9 @@ jobs:
           # Stream Schedule channel (schedule picture) and the role its weekly post pings
           SCHEDULE_CHANNEL_ID: "1105048860461645907"
           NOTIFY_ROLE_ID: "1117766461147070554"
+          # F1-CHAMPIONSHIP and SAFETY-RATING channels: pictures of the site (leaderboard_post.py)
+          LEADERBOARD_CHANNEL_ID: "1558730259585826836"
+          SAFETY_CHANNEL_ID: "1558730261036802088"
           SOCIALS_BOARD_POST: ${{ inputs.post_socials_board && 'true' || '' }}
           TWITCH_CLIENT_ID: ${{ secrets.TWITCH_CLIENT_ID }}
           TWITCH_CLIENT_SECRET: ${{ secrets.TWITCH_CLIENT_SECRET }}

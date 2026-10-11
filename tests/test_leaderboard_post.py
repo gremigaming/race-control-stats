@@ -78,5 +78,38 @@ class Update(unittest.TestCase):
             self.assertIsNone(lp.update(stats))
 
 
+class Safety(unittest.TestCase):
+    def run_update(self, digest, messages):
+        sent = []
+        stats = types.SimpleNamespace(UA="test")
+        stats.discord = lambda method, path, data=None: {"id": ME} if path == "/users/@me" else messages
+
+        def fetch(_stats, path):
+            return json.dumps({"hash": digest}).encode() if path.startswith("discord/safety.json") else b"png"
+
+        def send(_stats, method, path, message, files):
+            sent.append((method, path, message, files))
+            return {"id": "new"}
+
+        with mock.patch.object(lp, "SAFETY_CHANNEL_ID", "43"), \
+                mock.patch.object(lp, "fetch", fetch), \
+                mock.patch("socials_board.send", send), \
+                contextlib.redirect_stdout(io.StringIO()):
+            lp.update_safety(stats)
+        return sent
+
+    def test_first_post(self):
+        sent = self.run_update("abc", [post("1", "leaderboard-2026-10-x.png")])
+        self.assertEqual(sent[0][:2], ("POST", "/channels/43/messages"))
+        self.assertEqual(sent[0][3][0][0], "safety-abc.png")
+
+    def test_new_ranking_edits_the_post(self):
+        sent = self.run_update("new", [post("5", "safety-old.png")])
+        self.assertEqual(sent[0][:2], ("PATCH", "/channels/43/messages/5"))
+
+    def test_unchanged_ranking_sends_nothing(self):
+        self.assertEqual(self.run_update("same", [post("5", "safety-same.png")]), [])
+
+
 if __name__ == "__main__":
     unittest.main()

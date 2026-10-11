@@ -1,7 +1,7 @@
 """Discord side of the safety rating: /link, /unlink and /sr, linking members
-by name every few minutes, the SR rank roles, and the live championship and
-safety rating boards. The matching and storage live in bot/links.py, the
-board text in bot/boards.py."""
+by name every few minutes, and the SR rank roles. The matching and storage
+live in bot/links.py. The championship and safety rating pictures in their
+channels come from leaderboard_post.py."""
 import asyncio
 import logging
 import re
@@ -12,7 +12,6 @@ import aiohttp
 import discord
 from discord import app_commands
 
-from bot import boards as B
 from bot import links as L
 
 log = logging.getLogger("race_control.sr")
@@ -22,15 +21,12 @@ ROLES_ON = True
 
 # F1 channels GreMi asked for on 2026-10-11, in the RACING category
 PANEL_CHANNEL_ID = 1558730257593409628  # link-your-name: the "pick your driver name" panel
-CHAMPIONSHIP_CHANNEL_ID = 1558730259585826836
-SAFETY_CHANNEL_ID = 1558730261036802088
 PANEL_TITLE = "Link your driver name"
 PICK = "srlink:pick:"
 UNLINK = "srlink:unlink"
 
 store = L.Links()
 safety = {"data": None, "at": 0}
-champ = {"data": None, "at": 0}
 
 
 async def load(cache, url):
@@ -175,39 +171,6 @@ async def keep_panel(guild, drivers):
     await channel.send(embed=embed, view=view)
 
 
-async def keep_board(guild, channel_id, title_start, title, blocks, footer, url, label):
-    """Posts a board once and edits it when its text changes."""
-    channel = guild.get_channel(channel_id)
-    if channel is None:
-        return
-    embeds = [discord.Embed(title=title if i == 0 else None, description=b, colour=0xE10600)
-              for i, b in enumerate(blocks)]
-    embeds[-1].set_footer(text=footer)
-    view = discord.ui.View(timeout=None)
-    view.add_item(discord.ui.Button(label=label, style=discord.ButtonStyle.link, url=url))
-    async for msg in channel.history(limit=50):
-        if msg.author == guild.me and msg.embeds and (msg.embeds[0].title or "").startswith(title_start):
-            if ([(e.title, e.description, e.footer.text) for e in msg.embeds]
-                    != [(e.title, e.description, e.footer.text) for e in embeds]):
-                await msg.edit(embeds=embeds, view=view)
-            return
-    await channel.send(embeds=embeds, view=view)
-
-
-async def keep_boards(guild):
-    """The live championship and safety rating boards in the F1 channels."""
-    data = await load(champ, B.CHAMPIONSHIP_URL)
-    if data:
-        title, blocks, footer = B.championship(data)
-        await keep_board(guild, CHAMPIONSHIP_CHANNEL_ID, B.CHAMPIONSHIP_TITLE, title, blocks, footer,
-                         B.LEADERBOARD_URL, "Full standings")
-    data = await load(safety, L.SAFETY_URL)
-    if data:
-        title, blocks, footer = B.safety(data, PANEL_CHANNEL_ID)
-        await keep_board(guild, SAFETY_CHANNEL_ID, B.SAFETY_TITLE, title, blocks, footer,
-                         L.SITE_URL, "Your rating on the site")
-
-
 async def link_member(interaction, driver, drivers):
     """The /link and panel answer: links, sets the role, says the rating."""
     ok, msg = store.link(interaction.user.id, driver, "self")
@@ -274,10 +237,6 @@ async def sync(guild):
         await keep_panel(guild, drivers)
     except discord.DiscordException as e:
         log.warning("link panel not posted: %s", e)
-    try:
-        await keep_boards(guild)
-    except discord.DiscordException as e:
-        log.warning("live boards not posted: %s", e)
     if ROLES_ON:
         for uid, rank in L.wanted_roles(store.read(), drivers).items():
             try:
