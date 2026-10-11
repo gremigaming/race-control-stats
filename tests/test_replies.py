@@ -94,6 +94,7 @@ class ChangeRequestTests(unittest.TestCase):
 
     def test_restart_only_for_bot_code(self):
         self.assertTrue(replies.needs_restart(["bot/brain.py"]))
+        self.assertTrue(replies.needs_restart(["staff/app.py"]))
         self.assertTrue(replies.needs_restart(["follower_history.json", "bot/requirements.txt"]))
         self.assertFalse(replies.needs_restart(["bot/briefing.md", "bot/racing.md",
                                                 "follower_history.json"]))
