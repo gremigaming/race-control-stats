@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       command:
-        description: "login, or one change as JSON (see twitch_edit.py), e.g. {\"action\": \"list\"}"
+        description: "login, or one change as JSON (see twitch_edit.py), e.g. {\"action\": \"list\"} or {\"action\": \"ad\", \"length\": 90}"
         required: true
         default: '{"action": "list"}'
 
