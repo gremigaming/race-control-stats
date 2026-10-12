@@ -12,8 +12,12 @@ What to say and how often lives in bot/twitch_timers.json:
   gap         minutes between any two timed messages
   timers      [{"text", "every" (minutes), "first" (minutes after going live)}]
 
-Usage from the workflow: python3 -m bot.twitch_chat seal <refresh token file>
-(TWITCH_CLIENT_ID, TWITCH_CLIENT_SECRET and DISCORD_BOT_TOKEN in the environment).
+Usage from the workflow:
+  python3 -m bot.twitch_chat seal <refresh token file>
+      (TWITCH_CLIENT_ID, TWITCH_CLIENT_SECRET and DISCORD_BOT_TOKEN in the environment)
+  python3 -m bot.twitch_chat say "<message>"
+      sends one message now (DISCORD_BOT_TOKEN in the environment); if Twitch
+      renews the login, the sealed file is rewritten so the bot gets it too
 Never logs tokens.
 """
 import asyncio
@@ -215,7 +219,23 @@ async def run(discord_token):
             await asyncio.sleep(CHECK_EVERY)
 
 
+async def say_once(text, discord_token):
+    import aiohttp
+    login = unseal(SEALED.read_text(), discord_token)
+    async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=20)) as session:
+        chat = Chat(login, session)
+        await chat.setup(load_timers()["channel"])
+        await chat.say(text)
+    if chat.refresh_token != login["refresh_token"]:
+        login["refresh_token"] = chat.refresh_token
+        SEALED.write_text(seal(login, discord_token) + "\n")
+
+
 def main(argv):
+    if len(argv) == 3 and argv[1] == "say":
+        asyncio.run(say_once(argv[2], os.environ["DISCORD_BOT_TOKEN"]))
+        print("Sent.")
+        return
     if len(argv) == 3 and argv[1] == "seal":
         refresh = pathlib.Path(argv[2]).read_text().strip()
         login = {"client_id": os.environ["TWITCH_CLIENT_ID"],
@@ -224,7 +244,7 @@ def main(argv):
         SEALED.write_text(seal(login, os.environ["DISCORD_BOT_TOKEN"]) + "\n")
         print("Sealed the Twitch chat login.")
         return
-    sys.exit("usage: python3 -m bot.twitch_chat seal <refresh token file>")
+    sys.exit("usage: python3 -m bot.twitch_chat seal <refresh token file> | say <message>")
 
 
 if __name__ == "__main__":

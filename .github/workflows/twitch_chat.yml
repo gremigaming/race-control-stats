@@ -4,12 +4,13 @@ name: Twitch chat
 # enter the code at twitch.tv/activate while logged in to the account the chat
 # messages should come from. The login is sealed (see bot/twitch_chat.py) and
 # committed as bot/twitch_chat.sealed; the bot on the server picks it up by itself.
+# Any other input is sent in chat once, right away.
 
 on:
   workflow_dispatch:
     inputs:
       command:
-        description: "login"
+        description: "login, or a message to send in chat now"
         required: true
         default: login
 
@@ -64,5 +65,27 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add bot/twitch_chat.sealed
           git commit -m "Twitch chat login for Race Control"
+          for i in 1 2 3; do git pull -q --rebase origin main && git push -q origin HEAD:main && exit 0; sleep 5; done
+          exit 1
+
+  say:
+    if: inputs.command != 'login'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Send the message
+        env:
+          DISCORD_BOT_TOKEN: ${{ secrets.DISCORD_BOT_TOKEN }}
+          RACE_CONTROL_TWITCH: ${{ runner.temp }}/twitch_chat.json
+          MESSAGE: ${{ inputs.command }}
+        run: |
+          python3 -m pip install --quiet "cryptography>=41" "aiohttp>=3.9"
+          python3 -m bot.twitch_chat say "$MESSAGE"
+      - name: Hand a renewed login to the bot
+        run: |
+          if git diff --quiet bot/twitch_chat.sealed; then exit 0; fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -qm "Twitch chat login renewed" bot/twitch_chat.sealed
           for i in 1 2 3; do git pull -q --rebase origin main && git push -q origin HEAD:main && exit 0; sleep 5; done
           exit 1
