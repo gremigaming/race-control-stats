@@ -1,0 +1,76 @@
+name: YouTube
+
+# Race Control in GreMi's YouTube live chat (see bot/youtube_chat.py).
+# Inputs:
+#   login     open the login-code job log and enter the code at google.com/device,
+#             signed in to the YouTube channel. The login is sealed and committed as
+#             bot/youtube.sealed; the bot picks it up by itself.
+#   anything else is sent in the YouTube live chat once (only while live)
+
+on:
+  workflow_dispatch:
+    inputs:
+      command:
+        description: "login, or a message to send in YouTube live chat now"
+        required: true
+        default: login
+
+permissions:
+  contents: write
+
+concurrency:
+  group: youtube
+  cancel-in-progress: false
+
+env:
+  YOUTUBE_CLIENT_ID: ${{ secrets.YOUTUBE_CLIENT_ID }}
+  YOUTUBE_CLIENT_SECRET: ${{ secrets.YOUTUBE_CLIENT_SECRET }}
+
+jobs:
+  # Login, step 1: shows the code to enter at google.com/device (this job's log)
+  login-code:
+    if: inputs.command == 'login'
+    runs-on: ubuntu-latest
+    outputs:
+      device_code: ${{ steps.code.outputs.device_code }}
+      interval: ${{ steps.code.outputs.interval }}
+      expires_in: ${{ steps.code.outputs.expires_in }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: code
+        run: python3 -m bot.youtube_chat login-start
+
+  # Login, step 2: waits for the approval, seals it and commits it for the bot
+  login-wait:
+    needs: login-code
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Wait for the approval and seal it
+        env:
+          DISCORD_BOT_TOKEN: ${{ secrets.DISCORD_BOT_TOKEN }}
+          DEVICE_CODE: ${{ needs.login-code.outputs.device_code }}
+          INTERVAL: ${{ needs.login-code.outputs.interval }}
+          EXPIRES_IN: ${{ needs.login-code.outputs.expires_in }}
+        run: |
+          python3 -m pip install --quiet "cryptography>=41"
+          python3 -m bot.youtube_chat login-finish "$DEVICE_CODE" "$INTERVAL" "$EXPIRES_IN"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add bot/youtube.sealed
+          git commit -m "YouTube login for Race Control"
+          for i in 1 2 3; do git pull -q --rebase origin main && git push -q origin HEAD:main && exit 0; sleep 5; done
+          exit 1
+
+  say:
+    if: inputs.command != 'login'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Send the message
+        env:
+          DISCORD_BOT_TOKEN: ${{ secrets.DISCORD_BOT_TOKEN }}
+          MESSAGE: ${{ inputs.command }}
+        run: |
+          python3 -m pip install --quiet "cryptography>=41" "aiohttp>=3.9"
+          python3 -m bot.youtube_chat say "$MESSAGE"

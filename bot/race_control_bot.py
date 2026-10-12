@@ -30,7 +30,7 @@ import discord
 from bot.brain import Brain, HandOff
 from bot.members import GUILD_ID, Members
 from bot.profiles import write_profiles
-from bot import twitch_chat
+from bot import twitch_chat, youtube_chat
 
 from bot.replies import (CHANGE_REQUESTS_ID, FIRE_HEADERS, FIRE_URL, Cooldown, approval_body,
                          change_request, is_approval, is_staff, load_staff, needs_restart,
@@ -84,6 +84,7 @@ async def on_ready():
         asyncio.create_task(follow_updates())
         twitch_chat.REPORTER = report_twitch
         asyncio.create_task(twitch_chat.run(os.environ["DISCORD_BOT_TOKEN"]))
+        asyncio.create_task(youtube_chat.run(os.environ["DISCORD_BOT_TOKEN"]))
 
 
 LOGS_CHANNEL_ID = 1091494080741122148  # staff-only logs

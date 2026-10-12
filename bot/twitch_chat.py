@@ -326,6 +326,9 @@ def chat_command(config, text, badges):
 
 
 REPORTER = None   # async fn(text): the Discord bot posts Twitch status in the staff LOGS channel
+MIRRORS = []      # async fn(text) per other chat (YouTube) that gets the timers and commands too
+SAY = None        # async fn(text): post in Twitch chat (set while running)
+ROOM = None       # the running Room, so other chats can add their activity and commands
 _reported = set()
 
 
@@ -338,6 +341,15 @@ async def report(text):
             await REPORTER(text)
         except Exception as e:
             log.warning("Twitch report: %s", e)
+
+
+async def say_everywhere(bot, text):
+    await bot.say(text)
+    for say in MIRRORS:
+        try:
+            await say(text)
+        except Exception as e:
+            await report(f"mirror problem: {e}")
 
 
 class Room:
@@ -389,7 +401,7 @@ async def listen_chat(bot, room, ads_command):
                             # answered here, not on the next tick, so it lands right away
                             if time.time() - room.commands.get(i, 0) > COMMAND_GAP:
                                 room.commands[i] = time.time()
-                                await bot.say(config["timers"][i]["text"])
+                                await say_everywhere(bot, config["timers"][i]["text"])
                                 log.info("Twitch chat: %s", config["timers"][i]["command"])
                             continue
                         room.chat.append(time.time())
@@ -436,12 +448,14 @@ async def run(discord_token):
                              "it may be sealed with a different Discord bot token")
     if "chat" not in logins:
         return
-    room = Room()
+    global ROOM, SAY
+    room = ROOM = Room()
     sent, last_any, was_live, since = {}, 0.0, None, None
     last_race_ad, lobby_done, schedule, checked_live, checked_ads = 0.0, 0.0, None, 0.0, 0.0
     spent, counted = collections.Counter(), set()  # ad seconds per stream hour
     async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=20)) as session:
         bot = Twitch("chat", logins["chat"], session)
+        SAY = bot.say
         owner = Twitch("owner", logins["owner"], session) if "owner" in logins else None
         tasks = []
         while True:
@@ -471,7 +485,7 @@ async def run(discord_token):
                 i = next_timer(config, minutes, sent, last_any, now,
                                room.since(last_any or (since or now)))
                 if i is not None:
-                    await bot.say(config["timers"][i]["text"])
+                    await say_everywhere(bot, config["timers"][i]["text"])
                     sent[i] = last_any = now
                     log.info("Twitch chat: sent timer %d", i)
 
