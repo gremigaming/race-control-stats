@@ -18,6 +18,8 @@ Usage:
   python3 -m bot.youtube_chat login-start            prints the code (workflow step 1)
   python3 -m bot.youtube_chat login-finish CODE N S  waits for approval and seals it
   python3 -m bot.youtube_chat say "message"          sends a message in the live chat now
+                                                     (or an upcoming stream's chat, for tests)
+  python3 -m bot.youtube_chat check                  shows the channel and live/upcoming streams
 """
 import asyncio
 import collections
@@ -211,14 +213,26 @@ def login_finish(device_code, interval, expires_in, discord_token):
 
 
 async def say_once(text, discord_token):
+    """Posts in the live chat, or, when not live, in the chat of an upcoming stream (for tests)."""
     import aiohttp
     login = twitch_chat.unseal(SEALED.read_text(), discord_token)
     async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=20)) as session:
         yt = YouTube(login, session, keep=False)
+        me = (await yt.call("GET", "/channels", params={"part": "snippet", "mine": "true"}))
+        print("Logged in as:", ", ".join(i["snippet"]["title"] for i in me.get("items", [])) or "?")
         yt.chat_id = await yt.live_chat()
         if not yt.chat_id:
-            sys.exit("Not live on YouTube right now, so there is no chat to post in.")
-        await yt.say(text)
+            res = await yt.call("GET", "/liveBroadcasts", params={
+                "part": "snippet", "broadcastStatus": "upcoming", "broadcastType": "all"})
+            for item in res.get("items", []):
+                print("Upcoming stream:", item["snippet"].get("title"),
+                      item["snippet"].get("scheduledStartTime"))
+                yt.chat_id = yt.chat_id or item["snippet"].get("liveChatId")
+        if not yt.chat_id:
+            sys.exit("Not live, and no upcoming stream with a chat to post in.")
+        if text:
+            await yt.say(text)
+            print("Sent.")
 
 
 def main(argv):
@@ -229,7 +243,8 @@ def main(argv):
         login_finish(argv[2], argv[3], argv[4], token)
     elif len(argv) == 3 and argv[1] == "say":
         asyncio.run(say_once(argv[2], token))
-        print("Sent.")
+    elif len(argv) == 2 and argv[1] == "check":
+        asyncio.run(say_once("", token))
     else:
         sys.exit(__doc__)
 

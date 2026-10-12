@@ -5,13 +5,14 @@ name: YouTube
 #   login     open the login-code job log and enter the code at google.com/device,
 #             signed in to the YouTube channel. The login is sealed and committed as
 #             bot/youtube.sealed; the bot picks it up by itself.
-#   anything else is sent in the YouTube live chat once (only while live)
+#   check     shows the logged-in channel and any live or upcoming stream
+#   anything else is sent in the YouTube live chat once (or an upcoming stream's chat)
 
 on:
   workflow_dispatch:
     inputs:
       command:
-        description: "login, or a message to send in YouTube live chat now"
+        description: "login, check, or a message to send in YouTube live chat now"
         required: true
         default: login
 
@@ -73,4 +74,5 @@ jobs:
           MESSAGE: ${{ inputs.command }}
         run: |
           python3 -m pip install --quiet "cryptography>=41" "aiohttp>=3.9"
-          python3 -m bot.youtube_chat say "$MESSAGE"
+          if [ "$MESSAGE" = check ]; then python3 -m bot.youtube_chat check
+          else python3 -m bot.youtube_chat say "$MESSAGE"; fi
