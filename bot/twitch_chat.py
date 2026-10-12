@@ -18,7 +18,8 @@ The bot listens to chat (EventSub over a websocket) so it knows how busy chat is
     still short later on, one longer ad tops it up in the lobby right after a
     race (a race has ended when the uploader on the racing PC sends a new race
     file to race-stats). Twitch's own scheduled ads count toward the hour, and
-    one about to hit while chat is busy is snoozed. GreMi or a mod can type !ad.
+    one about to hit while chat is busy is snoozed. GreMi or a mod can type !ad, or a timer's
+    "command" (like !simgasm) to send that message right away.
 
 Everything is set in bot/twitch_timers.json:
   only_live   send only while the channel is live
@@ -63,6 +64,7 @@ TOKEN_URL = "https://id.twitch.tv/oauth2/token"
 EVENTSUB = "wss://eventsub.wss.twitch.tv/ws"
 RACES_URL = "https://api.github.com/repos/gremigaming/race-stats/commits?path=races&per_page=1"
 TICK = 10          # seconds between checks
+COMMAND_GAP = 20   # seconds before the same !command is answered again
 LIVE_EVERY = 60    # seconds between live checks
 RACES_EVERY = 20   # seconds between race file checks (ETag, so 304s are free)
 ADS_EVERY = 60     # seconds between ad schedule checks
@@ -312,11 +314,23 @@ class Twitch:
 
 # ---------------------------------------------------------------- running on the server
 
+def chat_command(config, text, badges):
+    """Index of the timer whose "command" (e.g. !simgasm) GreMi or a mod just typed, else None."""
+    word = (text.split() or [""])[0].lower()
+    if not word.startswith("!") or not badges & {"broadcaster", "moderator"}:
+        return None
+    for i, timer in enumerate(config["timers"]):
+        if (timer.get("command") or "").lower() == word:
+            return i
+    return None
+
+
 class Room:
     """What the listeners saw: chat messages and finished races."""
     def __init__(self):
         self.chat = collections.deque(maxlen=2000)  # times of viewer messages
         self.asked = False                           # !ad from GreMi or a mod
+        self.commands = {}                           # timer index -> when a command sent it
         self.race_ended = 0.0
 
     def since(self, t):
@@ -353,6 +367,15 @@ async def listen_chat(bot, room, ads_command):
                         if text.split()[:1] == ["!ad"]:
                             if ads_command and badges & {"broadcaster", "moderator"}:
                                 room.asked = True
+                            continue
+                        config = load_timers()
+                        i = chat_command(config, text, badges)
+                        if i is not None:
+                            # answered here, not on the next tick, so it lands right away
+                            if time.time() - room.commands.get(i, 0) > COMMAND_GAP:
+                                room.commands[i] = time.time()
+                                await bot.say(config["timers"][i]["text"])
+                                log.info("Twitch chat: %s", config["timers"][i]["command"])
                             continue
                         room.chat.append(time.time())
         except Exception as e:
@@ -426,6 +449,9 @@ async def run(discord_token):
                     spent, counted, schedule = collections.Counter(), set(), None
                 minutes = None if since is None else (now - since) / 60
 
+                for i, t in room.commands.items():  # a !command counts as that timer going out
+                    if since is not None and t > since:
+                        sent[i] = max(sent.get(i, 0.0), t)
                 i = next_timer(config, minutes, sent, last_any, now,
                                room.since(last_any or (since or now)))
                 if i is not None:

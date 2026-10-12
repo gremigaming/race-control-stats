@@ -100,5 +100,17 @@ class AdTests(unittest.TestCase):
         self.assertEqual(tc.stamp(""), 0)
 
 
+
+class ChatCommandTest(unittest.TestCase):
+    def test_only_mods_and_broadcaster(self):
+        config = {"timers": [{"text": "a"}, {"text": "Simgasm!", "command": "!simgasm"}]}
+        self.assertEqual(tc.chat_command(config, "!simgasm", {"broadcaster"}), 1)
+        self.assertEqual(tc.chat_command(config, "!SimGasm please", {"moderator"}), 1)
+        self.assertIsNone(tc.chat_command(config, "!simgasm", {"subscriber"}))
+        self.assertIsNone(tc.chat_command(config, "simgasm", {"broadcaster"}))
+        self.assertIsNone(tc.chat_command(config, "!discord", {"broadcaster"}))
+        self.assertIsNone(tc.chat_command(config, "", {"broadcaster"}))
+
+
 if __name__ == "__main__":
     unittest.main()
