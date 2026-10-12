@@ -14,6 +14,10 @@ on:
         description: "Optional: words to match in file paths, separated by |, to download only those"
         required: false
         default: ""
+      sheet:
+        description: "Also print a small contact sheet of the downloads (base64 JPEG) in the log"
+        required: false
+        default: "no"
 
 permissions:
   contents: read
@@ -26,15 +30,19 @@ jobs:
         env:
           URL: ${{ inputs.url }}
           NAMES: ${{ inputs.names }}
+          SHEET: ${{ inputs.sheet }}
         run: |
           python3 -m pip install --quiet "gdown>=5" pillow
           python3 - <<'PY'
           import os, pathlib, gdown
           from PIL import Image
+          import collections
           files = gdown.download_folder(os.environ["URL"], skip_download=True, quiet=True)
           names = [n.strip().lower() for n in os.environ["NAMES"].split("|") if n.strip()]
+          folders = collections.defaultdict(list)
           for f in files:
-              print("FILE", f.path)
+              folders[os.path.dirname(f.path)].append(os.path.basename(f.path))
+          got = []
           out = pathlib.Path("files")
           for f in files:
               if names and any(n in f.path.lower() for n in names):
@@ -44,12 +52,41 @@ jobs:
                   try:
                       im = Image.open(target)
                       alpha = im.mode in ("RGBA", "LA") or "transparency" in im.info
-                      print(f"GOT {f.path}  {im.size[0]}x{im.size[1]}  transparent={alpha}")
+                      got.append(f"GOT {f.path}  {im.size[0]}x{im.size[1]}  transparent={alpha}")
                   except Exception:
-                      print(f"GOT {f.path}  (not an image)")
+                      got.append(f"GOT {f.path}  (not an image)")
+          if os.environ.get("SHEET") == "yes":
+              thumbs = []
+              for p in sorted(out.rglob("*")):
+                  try:
+                      im = Image.open(p).convert("RGBA")
+                      im.thumbnail((160, 160))
+                      bg = Image.new("RGBA", (160, 160), (255, 0, 255, 255))  # magenta shows transparency
+                      bg.alpha_composite(im, ((160 - im.width) // 2, (160 - im.height) // 2))
+                      thumbs.append(bg.convert("RGB"))
+                  except Exception:
+                      pass
+              if thumbs:
+                  import base64, io
+                  cols = 6
+                  sheet = Image.new("RGB", (cols * 160, -(-len(thumbs) // cols) * 160), "white")
+                  for i, t in enumerate(thumbs):
+                      sheet.paste(t, ((i % cols) * 160, (i // cols) * 160))
+                  buf = io.BytesIO()
+                  sheet.save(buf, "JPEG", quality=60)
+                  print("SHEET-START")
+                  print(base64.b64encode(buf.getvalue()).decode())
+                  print("SHEET-END")
+          # summary last, so it sits at the end of the log
+          for d, fs in sorted(folders.items()):
+              print(f"DIR {d or '.'}: {len(fs)} files, e.g. {', '.join(sorted(fs)[:4])}")
+          for line in got:
+              print(line)
           PY
           mkdir -p files
       - uses: actions/upload-artifact@v4
+        if: inputs.names != ''
+
         with:
           name: files
           path: files
