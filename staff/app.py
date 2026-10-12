@@ -48,6 +48,10 @@ SITE = "https://gremigaming.github.io/race-stats/"
 STAFF_FILE = pathlib.Path(__file__).resolve().parents[1] / "bot" / "staff.json"
 NAMES_FILE = pathlib.Path(os.environ.get("STAFF_NAMES_FILE", "/var/lib/race-control/staff-names.json"))
 PROTESTS_FILE = pathlib.Path(os.environ.get("STAFF_PROTESTS_FILE", "/var/lib/race-control/protests.json"))
+CLIPS_DIR = pathlib.Path(os.environ.get("STAFF_CLIPS_DIR", "/var/lib/race-control/clips"))
+CLIP_MAX = 100 * 1024 * 1024  # one clip
+CLIPS_TOTAL = 3 * 1024 ** 3   # all clips together, so the disk can't fill up
+CLIP_TYPES = {"video/mp4": "mp4", "video/webm": "webm", "video/quicktime": "mov", "video/x-matroska": "mkv"}
 UA = "DiscordBot (https://github.com/gremigaming/race-control-stats, 1.0)"
 SESSION_DAYS = 14
 AI_NAME = re.compile(r" #\d+$")  # AI and hidden names
@@ -656,7 +660,15 @@ def protest_card(p, staff=None):
                else "their linked Discord account" if linked and linked.lower() == p["driver"].lower()
                else f"linked to {linked}, not this driver" if linked else "not linked to a driver")
         out += f"<div class=muted style='margin-top:8px'>Sent by {e(p['by_name'])} ({e(who)}) · {e(p['at'][:16].replace('T', ' '))} UTC</div>"
+    said = " · ".join(x for x in (p.get("kind") and f"Type: {p['kind']}", p.get("fault") and f"At fault: {p['fault']}") if x)
+    if said:
+        out += f"<div style='margin-top:8px'>{e(said)}</div>"
     out += f"<div class=quote>{e(p['text'])}</div>"
+    if staff and p.get("clip_file"):
+        out += (f"<video controls preload=metadata src='/clip/{e(p['id'])}' style='width:100%;max-width:640px;border-radius:8px'></video>"
+                f"<div><a href='/clip/{e(p['id'])}' target=_blank>Open the clip</a></div>")
+    elif p.get("clip_file"):
+        out += "<div class=muted>Clip uploaded</div>"
     if p.get("clip"):
         out += f'<div><a href="{e(p["clip"])}" target=_blank rel="noopener noreferrer nofollow">Video clip</a></div>'
     if p["status"] != "open":
@@ -753,7 +765,8 @@ _sent_by_ip = {}  # ip -> [times], against spam from the open site form
 
 
 def site_protest(body, ip):
-    """A protest from the form on the site: {item, text, clip, name}. Returns a message."""
+    """A protest from the form on the site: {item, fault, kind, text, clip, name}.
+    Returns the protest id and a token to upload a clip for it."""
     now = time.time()
     with _protest_lock:
         times = [t for t in _sent_by_ip.get(ip, []) if now - t < 3600]
@@ -764,16 +777,57 @@ def site_protest(body, ip):
     if not name:
         raise ValueError("Please give your Discord name, so the stewards can answer you.")
     member = {"id": None, "name": name}
-    protest_send({k: str(body.get(k) or "") for k in ("item", "text", "clip")}, member, site=True)
+    pid = protest_send({k: str(body.get(k) or "") for k in ("item", "fault", "kind", "text", "clip")}, member, site=True)
     with _protest_lock:
         _sent_by_ip.setdefault(ip, []).append(now)
-    return "Sent to the stewards."
+    return pid, sign(f"clip:{pid}".encode())
+
+
+def clip_upload(pid, token, ctype, length, stream):
+    """Stores the video clip of a protest sent from the site, once, shortly after it was sent."""
+    ext = CLIP_TYPES.get(ctype.split(";")[0].strip().lower())
+    if not ext:
+        raise ValueError("Only mp4, webm, mov or mkv videos.")
+    if not re.fullmatch(r"[0-9a-f]{12}", pid or "") or not hmac.compare_digest(token or "", sign(f"clip:{pid}".encode())):
+        raise ValueError("Bad upload.")
+    if length <= 0 or length > CLIP_MAX:
+        raise ValueError(f"The clip is too big. The limit is {CLIP_MAX // 1024 ** 2} MB, so trim it or share a link.")
+    p = next((x for x in protests() if x["id"] == pid), None)
+    if not p or p.get("clip_file"):
+        raise ValueError("Bad upload.")
+    age = datetime.datetime.now(datetime.timezone.utc) - datetime.datetime.fromisoformat(p["at"].replace("Z", "+00:00"))
+    if age.total_seconds() > 3600:
+        raise ValueError("Too late to add a clip to this protest.")
+    CLIPS_DIR.mkdir(parents=True, exist_ok=True)
+    if sum(f.stat().st_size for f in CLIPS_DIR.iterdir()) + length > CLIPS_TOTAL:
+        raise ValueError("The stewards' clip storage is full. Share a link to the clip instead.")
+    tmp = CLIPS_DIR / f".{pid}.part"
+    left = length
+    with open(tmp, "wb") as f:
+        while left:
+            chunk = stream.read(min(left, 1 << 20))
+            if not chunk:
+                break
+            f.write(chunk)
+            left -= len(chunk)
+    if left:
+        tmp.unlink(missing_ok=True)
+        raise ValueError("The upload was cut off. Try again.")
+    tmp.rename(CLIPS_DIR / f"{pid}.{ext}")
+
+    def edit(data):
+        for x in data:
+            if x["id"] == pid:
+                x["clip_file"] = f"{pid}.{ext}"
+    save_protests(edit)
 
 
 def protest_send(form, member, site=False):
     item = form.get("item", "")
     text = (form.get("text") or "").strip()[:1500]
     clip = (form.get("clip") or "").strip()[:300]
+    fault = (form.get("fault") or "").strip()[:60]
+    kind = (form.get("kind") or "").strip()[:60]
     if len(text) < 10:
         raise ValueError("Please tell us a bit more.")
     if clip and not re.match(r"^https://[^\s\"'<>]+$", clip):
@@ -783,18 +837,20 @@ def protest_send(form, member, site=False):
         raise ValueError("That incident isn't on the site any more.")
     driver, file, it = found
 
+    pid = secrets.token_hex(6)
+
     def edit(data):
         mine = [p for p in data if p["by"] == member["id"] and (not site or p["by_name"].lower() == member["name"].lower())]
         if any(p["item"] == item for p in mine):
             raise ValueError("You already protested this incident.")
         if sum(p["status"] == "open" for p in mine) >= 10:
             raise ValueError("You have 10 open protests. Wait for the stewards to answer those first.")
-        data.append({"id": secrets.token_hex(6), "item": item, "driver": driver, "file": file, "lap": it.get("lap"),
+        data.append({"id": pid, "item": item, "driver": driver, "file": file, "lap": it.get("lap"),
                      "pts": it["pts"], "what": it["text"], "by": member["id"], "by_name": member["name"],
-                     "linked": linked_driver(int(member["id"])) if member["id"] else None, "site": site, "text": text, "clip": clip, "status": "open",
+                     "linked": linked_driver(int(member["id"])) if member["id"] else None, "site": site, "fault": fault, "kind": kind, "text": text, "clip": clip, "status": "open",
                      "at": datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")})
     save_protests(edit)
-    return "Sent. The stewards get a notice and will answer here."
+    return pid
 
 
 # ---------------------------------------------------------------- server
@@ -945,6 +1001,8 @@ class Handler(BaseHTTPRequestHandler):
                 msg = {"denied": "<p class='flash err'>That Discord account isn't on the staff list.</p>"}.get(q.get("m", [""])[0], "")
                 return self.send(200, page("Log in", f"<div class=login><h1>GreMi Gang staff</h1>{msg}"
                                            f"<p class=muted>For moderators only.</p><a class=btn href='/login'>Log in with Discord</a></div>"))
+            if url.path.startswith("/clip/"):
+                return self.send_clip(url.path[6:])
             fn = PAGES.get(url.path)
             if not fn:
                 return self.send(404, page("Not found", "<p>Not found.</p>", user))
@@ -967,13 +1025,66 @@ class Handler(BaseHTTPRequestHandler):
             body = json.loads(raw or "{}")
             if not isinstance(body, dict):
                 raise ValueError("Bad request.")
-            return self.send(200, json.dumps({"ok": True, "message": site_protest(body, ip)}), cors)
+            pid, token = site_protest(body, ip)
+            return self.send(200, json.dumps({"ok": True, "message": "Sent to the stewards.", "id": pid, "token": token}), cors)
         except ValueError as ex:
             return self.send(400, json.dumps({"ok": False, "message": str(ex) or "Bad request."}), cors)
         except Exception as ex:
             return self.send(500, json.dumps({"ok": False, "message": "The stewards' page had a problem. Try again later."}), cors)
 
+    def api_clip(self, q):
+        cors = {"Access-Control-Allow-Origin": SITE_ORIGIN, "Content-Type": "application/json"}
+        length = int(self.headers.get("Content-Length") or 0)
+        try:
+            clip_upload(q.get("id", [""])[0], q.get("token", [""])[0], self.headers.get("Content-Type", ""), length, self.rfile)
+            return self.send(200, json.dumps({"ok": True}), cors)
+        except ValueError as ex:
+            self.close_connection = True  # the body may be unread
+            return self.send(400, json.dumps({"ok": False, "message": str(ex)}), cors)
+        except Exception:
+            self.close_connection = True
+            return self.send(500, json.dumps({"ok": False, "message": "The clip didn't save. Share a link instead."}), cors)
+
+    def send_clip(self, pid):
+        """A protest clip, for staff only, with Range so the video player can seek."""
+        p = next((x for x in protests() if x["id"] == pid), None)
+        if not p or not p.get("clip_file"):
+            return self.send(404, page("Not found", "<p>Not found.</p>", self.user()))
+        path = CLIPS_DIR / p["clip_file"]
+        size = path.stat().st_size
+        start, end, code = 0, size - 1, 200
+        m = re.fullmatch(r"bytes=(\d*)-(\d*)", self.headers.get("Range", ""))
+        if m and size and (m[1] or m[2]):
+            if m[1]:
+                start, end = int(m[1]), min(int(m[2]) if m[2] else size - 1, size - 1)
+            else:
+                start = max(0, size - int(m[2]))
+            if start > end:
+                return self.send(416, "", {"Content-Range": f"bytes */{size}"})
+            code = 206
+        ctype = {v: k for k, v in CLIP_TYPES.items()}[path.suffix[1:]]
+        self.send_response(code)
+        self.send_header("Content-Type", ctype)
+        self.send_header("Accept-Ranges", "bytes")
+        self.send_header("Cache-Control", "private, max-age=3600")
+        self.send_header("Content-Length", str(end - start + 1))
+        if code == 206:
+            self.send_header("Content-Range", f"bytes {start}-{end}/{size}")
+        self.end_headers()
+        with open(path, "rb") as f:
+            f.seek(start)
+            left = end - start + 1
+            while left > 0:
+                chunk = f.read(min(left, 1 << 20))
+                if not chunk:
+                    break
+                self.wfile.write(chunk)
+                left -= len(chunk)
+
     def do_POST(self):
+        url = urllib.parse.urlparse(self.path)
+        if url.path == "/api/protest-clip":
+            return self.api_clip(urllib.parse.parse_qs(url.query))
         length = min(int(self.headers.get("Content-Length") or 0), 20000)
         if self.path == "/api/protest":
             return self.api_protest(self.rfile.read(length).decode(errors="replace"))
@@ -986,7 +1097,8 @@ class Handler(BaseHTTPRequestHandler):
             if not member or not hmac.compare_digest(form.get("csrf", ""), csrf_token(member)):
                 return self.redirect(back)
             try:
-                msg = protest_send(form, member)
+                protest_send(form, member)
+                msg = "Sent. The stewards get a notice and will answer here."
             except ValueError as ex:
                 msg = f"Not sent: {ex}"
             except Exception as ex:
