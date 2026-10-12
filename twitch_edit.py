@@ -1,7 +1,6 @@
-"""Edits GreMi's Twitch schedule and runs ads (run by the "Twitch schedule" workflow).
+"""Edits GreMi's Twitch schedule (run by the "Twitch schedule" workflow).
 
-Needs a user login as the channel owner with the schedule and ads permissions
-(SCOPE), made once:
+Needs a user login with the channel:manage:schedule permission, made once:
   login-start   asks Twitch for a code; GreMi enters it at twitch.tv/activate
   login-finish  waits for that approval and writes the refresh token to
                 TWITCH_REFRESH_TOKEN_OUT, which the workflow saves as the
@@ -16,9 +15,6 @@ After that:
     {"action": "delete", "id": "<segment id>"}
     {"action": "vacation", "start": "2026-10-20 00:00", "end": "2026-10-27 00:00"}
     {"action": "vacation-off"}
-    {"action": "ad", "length": 90}   runs an ad now (only while live, 30-180 s)
-    {"action": "ads"}                when the next scheduled ad is due
-    {"action": "snooze"}             pushes the next scheduled ad back 5 minutes
   Times are Europe/Amsterdam unless "timezone" says otherwise.
 Never prints tokens.
 """
@@ -38,8 +34,7 @@ LOGIN = os.environ.get("TWITCH_LOGIN", "")
 REFRESH_TOKEN = os.environ.get("TWITCH_REFRESH_TOKEN", "")
 OUT = os.environ.get("TWITCH_REFRESH_TOKEN_OUT", "")
 GITHUB_OUTPUT = os.environ.get("GITHUB_OUTPUT", "")
-SCOPE = os.environ.get("TWITCH_SCOPES") or \
-    "channel:manage:schedule channel:edit:commercials channel:read:ads channel:manage:ads"
+SCOPE = os.environ.get("TWITCH_SCOPES") or "channel:manage:schedule"
 HELIX = "https://api.twitch.tv/helix"
 DEFAULT_TZ = "Europe/Amsterdam"
 
@@ -194,10 +189,6 @@ def run(cmd):
         show(data.get("segments") or [], tz)
         return
 
-    if action in ("ad", "ads", "snooze"):
-        ads(action, cmd, bid, headers, tz)
-        return
-
     if action in ("add", "edit"):
         body = {}
         if "start" in cmd:
@@ -236,46 +227,6 @@ def run(cmd):
     segments = (res.get("data") or {}).get("segments") if isinstance(res.get("data"), dict) else None
     if segments:
         show(segments, tz)
-
-
-def ads(action, cmd, bid, headers, tz):
-    if action == "ad":
-        length = min(180, max(30, int(cmd.get("length", 90))))
-        status, res = request("POST", HELIX + "/channels/commercial",
-                              {"broadcaster_id": bid, "length": length}, headers)
-    elif action == "snooze":
-        status, res = request("POST", f"{HELIX}/channels/ads/schedule/snooze?broadcaster_id={bid}",
-                              headers=headers)
-    else:
-        status, res = request("GET", f"{HELIX}/channels/ads?broadcaster_id={bid}", headers=headers)
-    if status in (401, 403):
-        sys.exit("The Twitch login has no ads permission yet: run the workflow with 'login' "
-                 "and approve it as the channel owner.")
-    if status != 200:
-        sys.exit(f"Twitch said no: {status} {res.get('message', '')}")
-    data = (res.get("data") or [{}])[0]
-    zone = ZoneInfo(tz)
-
-    def when(value):
-        if not value:
-            return "none"
-        if isinstance(value, (int, float)) or str(value).isdigit():
-            t = dt.datetime.fromtimestamp(int(value), dt.timezone.utc)
-        else:
-            t = dt.datetime.fromisoformat(str(value).replace("Z", "+00:00"))
-        return f"{t.astimezone(zone):%a %d %b %H:%M:%S}"
-
-    if action == "ad":
-        print(f"Ad running: {data.get('length')} seconds. {data.get('message', '')}".strip())
-        print(f"Next ad possible in {data.get('retry_after')} seconds.")
-    elif action == "snooze":
-        print(f"Snoozed. Next ad: {when(data.get('next_ad_at'))}, "
-              f"snoozes left: {data.get('snooze_count')}")
-    else:
-        print(f"Next ad: {when(data.get('next_ad_at'))} ({data.get('duration')} s), "
-              f"last ad: {when(data.get('last_ad_at'))}, "
-              f"pre-roll free for {data.get('preroll_free_time')} s, "
-              f"snoozes left: {data.get('snooze_count')} (more at {when(data.get('snooze_refresh_at'))})")
 
 
 if __name__ == "__main__":
