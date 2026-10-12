@@ -1,7 +1,8 @@
 name: Fetch files
 
-# Downloads a public Google Drive folder (for example partner images) so Claude
-# can look through it: the files come back as a run artifact, nothing is committed.
+# Looks into a public Google Drive folder (for example partner images) so Claude
+# can pick from it. Without "names", it only lists the folder; with names, it
+# downloads just those files. Files come back as a run artifact, nothing is committed.
 
 on:
   workflow_dispatch:
@@ -9,6 +10,10 @@ on:
       url:
         description: "Public Google Drive folder link"
         required: true
+      names:
+        description: "Optional: words to match in file paths, separated by |, to download only those"
+        required: false
+        default: ""
 
 permissions:
   contents: read
@@ -17,30 +22,36 @@ jobs:
   fetch:
     runs-on: ubuntu-latest
     steps:
-      - name: Download the folder
+      - name: List, and download the matching files
         env:
           URL: ${{ inputs.url }}
+          NAMES: ${{ inputs.names }}
         run: |
           python3 -m pip install --quiet "gdown>=5" pillow
-          mkdir -p files
-          gdown --folder -O files "$URL"
-          find files -type f | sort
-      - name: Contact sheet and sizes
-        run: |
           python3 - <<'PY'
-          import pathlib
+          import os, pathlib, gdown
           from PIL import Image
-          for p in sorted(pathlib.Path("files").rglob("*")):
-              if p.is_file():
+          files = gdown.download_folder(os.environ["URL"], skip_download=True, quiet=True)
+          names = [n.strip().lower() for n in os.environ["NAMES"].split("|") if n.strip()]
+          for f in files:
+              print("FILE", f.path)
+          out = pathlib.Path("files")
+          for f in files:
+              if names and any(n in f.path.lower() for n in names):
+                  target = out / f.path
+                  target.parent.mkdir(parents=True, exist_ok=True)
+                  gdown.download(id=f.id, output=str(target), quiet=True)
                   try:
-                      im = Image.open(p)
+                      im = Image.open(target)
                       alpha = im.mode in ("RGBA", "LA") or "transparency" in im.info
-                      print(f"{p}  {im.size[0]}x{im.size[1]}  {im.mode}  transparent={alpha}")
+                      print(f"GOT {f.path}  {im.size[0]}x{im.size[1]}  transparent={alpha}")
                   except Exception:
-                      print(f"{p}  (not an image)")
+                      print(f"GOT {f.path}  (not an image)")
           PY
+          mkdir -p files
       - uses: actions/upload-artifact@v4
         with:
           name: files
           path: files
           retention-days: 3
+          if-no-files-found: ignore
