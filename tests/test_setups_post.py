@@ -33,15 +33,15 @@ class Messages(unittest.TestCase):
         texts = json.dumps(msg["components"], ensure_ascii=False)
         self.assertIn("🇯🇵 Japan", texts)
         self.assertIn("Suzuka", texts)
-        self.assertIn("**Dry race** · Used in the race", texts)
-        self.assertIn("**Wet** · no setup yet", texts)
+        self.assertIn("**Dry race** ─ 📅 2 Oct 2026", texts)
+        self.assertIn("**Wet** ─ ⏳ no setup yet", texts)
         self.assertEqual(msg["flags"], sp.COMPONENTS_V2)
         self.assertTrue(name.startswith("setup-japan-overview-"))
 
     def test_quali_same_as_race(self):
         cards = [TRACK["cards"][1], TRACK["cards"][3]]
         _, msg = sp.opening(TRACK, TRACK["cards"][0], cards)
-        self.assertIn("same as dry race", json.dumps(msg["components"]))
+        self.assertIn("same as the dry race setup", json.dumps(msg["components"], ensure_ascii=False))
 
     def test_placeholder_card_is_gray(self):
         _, msg = sp.card_message(TRACK["cards"][3])

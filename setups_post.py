@@ -23,11 +23,11 @@ COMPONENTS_V2 = 1 << 15
 CONTAINER, TEXT, GALLERY, SEPARATOR, ROW, BUTTON = 17, 10, 12, 14, 1, 2
 
 RED, VIOLET, SKY, GRAY = 0xE10600, 0x8B5CF6, 0x0EA5E9, 0x3F3F46
-KINDS = {  # kind: (title, dot, colour)
-    "race": ("Dry race", "🔴", RED),
-    "dry": ("Dry", "🔴", RED),
-    "quali": ("Dry quali", "🟣", VIOLET),
-    "wet": ("Wet", "🔵", SKY),
+KINDS = {  # kind: (title, emoji, colour)
+    "race": ("Dry race", "☀️", RED),
+    "dry": ("Dry", "☀️", RED),
+    "quali": ("Dry quali", "⏱️", VIOLET),
+    "wet": ("Wet", "🌧️", SKY),
 }
 FLAGS = {
     "Australia": "🇦🇺", "China": "🇨🇳", "Japan": "🇯🇵", "Bahrain": "🇧🇭", "Saudi Arabia": "🇸🇦",
@@ -51,23 +51,28 @@ def text(content):
     return {"type": TEXT, "content": content}
 
 
+def short_date(card):
+    """"2 Oct 2026" out of "Used in the race on 2 Oct 2026"."""
+    return (card.get("date") or "").rsplit(" on ", 1)[-1]
+
+
 def opening(track, overview, cards):
     """The post's opening message: the overview picture and what's in the post."""
     lines = []
     real = {c["kind"]: c for c in cards if not c.get("placeholder")}
     dry = real.get("race") or real.get("quali") or real.get("dry")
     for kind in ("race", "quali", "wet"):
-        title, dot, _ = KINDS[kind]
+        title, emoji, _ = KINDS[kind]
         card = real.get(kind) or (dry if kind == "race" else None)
         if card:
-            lines.append(f"{dot} **{title}** · {card.get('date') or 'saved'}")
+            lines.append(f"{emoji} **{title}** ─ 📅 {short_date(card) or 'saved'}")
         elif kind == "quali" and dry:
-            lines.append(f"{dot} **{title}** · same as dry race")
+            lines.append(f"{emoji} **{title}** ─ 🔁 same as the dry race setup")
         else:
-            lines.append(f"{dot} **{title}** · no setup yet")
+            lines.append(f"{emoji} **{title}** ─ ⏳ no setup yet")
     summary = "\n".join(lines)
     head = (f"# {FLAGS.get(track['post'], '🏁')} {track['post']}\n"
-            f"-# {overview.get('circuit') or track['post']} · GreMi_Gaming's setups")
+            f"📍 **{overview.get('circuit') or track['post']}** · 🏎️ GreMi_Gaming's setups")
     name = file_name(overview, head + summary)
     return name, {
         "flags": COMPONENTS_V2,
@@ -75,9 +80,10 @@ def opening(track, overview, cards):
             {"type": CONTAINER, "accent_color": RED, "components": [
                 text(head),
                 {"type": GALLERY, "items": [{"media": {"url": f"attachment://{name}"}}]},
-                {"type": SEPARATOR, "divider": True, "spacing": 1},
+                {"type": SEPARATOR, "divider": True, "spacing": 2},
                 text(summary),
-                text("-# Full setups below · updates by itself after every race"),
+                {"type": SEPARATOR, "divider": True, "spacing": 1},
+                text("-# 🔄 Updates by itself after every race · 👇 full setups below"),
             ]},
             {"type": ROW, "components": [
                 {"type": BUTTON, "style": 5, "label": "Race stats", "emoji": {"name": "📊"},
@@ -90,14 +96,16 @@ def opening(track, overview, cards):
 
 def card_message(card):
     """One full setup card, in its own coloured box."""
-    title, dot, colour = KINDS.get(card["kind"], (card["kind"], "⚪", GRAY))
+    title, emoji, colour = KINDS.get(card["kind"], (card["kind"], "🏁", GRAY))
     if card.get("placeholder"):
-        note = ("Shows up here after GreMi's next wet race on this track" if card["kind"] == "wet"
-                else "Shows up here after GreMi's next race on this track")
-        head = f"### {dot} {title} setup\n-# No setup yet · {note}"
+        note = ("shows up here after GreMi's next wet race on this track" if card["kind"] == "wet"
+                else "shows up here after GreMi's next race on this track")
+        head = f"## {emoji} {title} setup\n-# ⏳ No setup yet · {note}"
         colour = GRAY
     else:
-        head = f"### {dot} {card.get('label') or title} setup\n-# {card.get('date') or ''}"
+        date = card.get("date") or ""
+        head = (f"## {emoji} {card.get('label') or title} setup\n"
+                f"-# 🏁 {date}{' · ' if date else ''}🏎️ GreMi_Gaming")
     name = file_name(card, head)
     return name, {
         "flags": COMPONENTS_V2,
