@@ -185,7 +185,7 @@ def sync_track(stats, me, track, post, tags):
         return
     msgs = [m for m in stats.discord("GET", f"/channels/{post['id']}/messages?limit=50")
             if m["author"]["id"] == me]
-    by_kind = {kind_of(m): m for m in reversed(msgs)}
+    by_kind = {kind_of(m): m for m in reversed(msgs) if kind_of(m)}
     wanted = [("overview", name, message, overview)] + [
         (c["kind"], *card_message(c), c) for c in cards]
     todo = [w for w in wanted
