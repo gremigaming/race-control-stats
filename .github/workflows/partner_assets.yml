@@ -1,0 +1,48 @@
+name: Partner assets
+
+# Builds see-through images for a partner's stream overlay (scripts/partner_assets.py)
+# and commits them to overlay-assets/<partner>/ so they can go on the overlay page.
+
+on:
+  workflow_dispatch:
+    inputs:
+      partner:
+        description: "Short name, e.g. simgasm"
+        required: true
+      drive:
+        description: "Public Google Drive folder with product photos"
+        required: true
+      site:
+        description: "Partner website (for the logo)"
+        required: true
+      names:
+        description: "Exact photo file names, separated by |"
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Make the images
+        env:
+          PARTNER: ${{ inputs.partner }}
+          DRIVE: ${{ inputs.drive }}
+          SITE: ${{ inputs.site }}
+          NAMES: ${{ inputs.names }}
+        run: |
+          python3 -m pip install --quiet "gdown>=5" pillow "rembg[cpu]>=2.0.50"
+          python3 scripts/partner_assets.py "$DRIVE" "$SITE" "overlay-assets/$PARTNER" "$NAMES"
+      - name: Commit them
+        env:
+          PARTNER: ${{ inputs.partner }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add "overlay-assets/$PARTNER"
+          git commit -qm "Overlay images for $PARTNER" || exit 0
+          for i in 1 2 3; do git pull -q --rebase origin main && git push -q origin HEAD:main && exit 0; sleep 5; done
+          exit 1
