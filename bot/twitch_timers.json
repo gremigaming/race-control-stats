@@ -1,0 +1,10 @@
+{
+  "channel": "gremi_gaming",
+  "only_live": true,
+  "gap": 10,
+  "timers": [
+    {"first": 15, "every": 45, "text": "🏁 Join the GreMi Gang on Discord for league races, signups and race stats: https://discord.gg/bDga7v97Qq"},
+    {"first": 30, "every": 60, "text": "📊 Every league race with lap times, the leaderboard and head to heads: https://gremigaming.github.io/race-stats/"},
+    {"first": 45, "every": 60, "text": "💜 Enjoying the race? Hit follow so you don't miss the next one!"}
+  ]
+}

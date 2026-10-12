@@ -30,6 +30,7 @@ import discord
 from bot.brain import Brain, HandOff
 from bot.members import GUILD_ID, Members
 from bot.profiles import write_profiles
+from bot import twitch_chat
 
 from bot.replies import (CHANGE_REQUESTS_ID, FIRE_HEADERS, FIRE_URL, Cooldown, approval_body,
                          change_request, is_approval, is_staff, load_staff, needs_restart,
@@ -81,6 +82,7 @@ async def on_ready():
         bot.saving = True
         asyncio.create_task(save_members())
         asyncio.create_task(follow_updates())
+        asyncio.create_task(twitch_chat.run(os.environ["DISCORD_BOT_TOKEN"]))
 
 
 REPO_DIR = pathlib.Path(__file__).resolve().parents[1]

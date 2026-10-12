@@ -96,6 +96,8 @@ class ChangeRequestTests(unittest.TestCase):
         self.assertTrue(replies.needs_restart(["bot/brain.py"]))
         self.assertTrue(replies.needs_restart(["staff/app.py"]))
         self.assertTrue(replies.needs_restart(["follower_history.json", "bot/requirements.txt"]))
+        self.assertTrue(replies.needs_restart(["bot/twitch_chat.sealed"]))
+        self.assertTrue(replies.needs_restart(["bot/twitch_timers.json"]))
         self.assertFalse(replies.needs_restart(["bot/briefing.md", "bot/racing.md",
                                                 "follower_history.json"]))
 

@@ -34,7 +34,7 @@ LOGIN = os.environ.get("TWITCH_LOGIN", "")
 REFRESH_TOKEN = os.environ.get("TWITCH_REFRESH_TOKEN", "")
 OUT = os.environ.get("TWITCH_REFRESH_TOKEN_OUT", "")
 GITHUB_OUTPUT = os.environ.get("GITHUB_OUTPUT", "")
-SCOPE = "channel:manage:schedule"
+SCOPE = os.environ.get("TWITCH_SCOPES") or "channel:manage:schedule"
 HELIX = "https://api.twitch.tv/helix"
 DEFAULT_TZ = "Europe/Amsterdam"
 

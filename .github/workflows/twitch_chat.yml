@@ -1,0 +1,68 @@
+name: Twitch chat
+
+# Logs Race Control into Twitch chat. Run it, open the login-code job log, and
+# enter the code at twitch.tv/activate while logged in to the account the chat
+# messages should come from. The login is sealed (see bot/twitch_chat.py) and
+# committed as bot/twitch_chat.sealed; the bot on the server picks it up by itself.
+
+on:
+  workflow_dispatch:
+    inputs:
+      command:
+        description: "login"
+        required: true
+        default: login
+
+permissions:
+  contents: write
+
+concurrency:
+  group: twitch-chat
+  cancel-in-progress: false
+
+env:
+  TWITCH_CLIENT_ID: ${{ secrets.TWITCH_CLIENT_ID }}
+  TWITCH_CLIENT_SECRET: ${{ secrets.TWITCH_CLIENT_SECRET }}
+  TWITCH_SCOPES: "user:read:chat user:write:chat"
+
+jobs:
+  # Login, step 1: shows the code to enter at twitch.tv/activate (this job's log)
+  login-code:
+    if: inputs.command == 'login'
+    runs-on: ubuntu-latest
+    outputs:
+      device_code: ${{ steps.code.outputs.device_code }}
+      interval: ${{ steps.code.outputs.interval }}
+      expires_in: ${{ steps.code.outputs.expires_in }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: code
+        run: python3 twitch_edit.py login-start
+
+  # Login, step 2: waits for the approval, seals it and commits it for the bot
+  login-wait:
+    needs: login-code
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Wait for the approval
+        env:
+          DEVICE_CODE: ${{ needs.login-code.outputs.device_code }}
+          INTERVAL: ${{ needs.login-code.outputs.interval }}
+          EXPIRES_IN: ${{ needs.login-code.outputs.expires_in }}
+          TWITCH_REFRESH_TOKEN_OUT: ${{ runner.temp }}/twitch_chat_token
+        run: python3 twitch_edit.py login-finish "$DEVICE_CODE" "$INTERVAL" "$EXPIRES_IN"
+      - name: Seal the login and hand it to the bot
+        env:
+          DISCORD_BOT_TOKEN: ${{ secrets.DISCORD_BOT_TOKEN }}
+          FILE: ${{ runner.temp }}/twitch_chat_token
+        run: |
+          python3 -m pip install --quiet "cryptography>=41"
+          python3 -m bot.twitch_chat seal "$FILE"
+          rm -f "$FILE"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add bot/twitch_chat.sealed
+          git commit -m "Twitch chat login for Race Control"
+          for i in 1 2 3; do git pull -q --rebase origin main && git push -q origin HEAD:main && exit 0; sleep 5; done
+          exit 1
