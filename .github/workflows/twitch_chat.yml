@@ -1,16 +1,20 @@
 name: Twitch chat
 
-# Logs Race Control into Twitch chat. Run it, open the login-code job log, and
-# enter the code at twitch.tv/activate while logged in to the account the chat
-# messages should come from. The login is sealed (see bot/twitch_chat.py) and
-# committed as bot/twitch_chat.sealed; the bot on the server picks it up by itself.
-# Any other input is sent in chat once, right away.
+# Inputs (see bot/twitch_chat.py):
+#   login        log in the chat account (gremi_bot)
+#   login-owner  log in GreMi_Gaming, for ads only
+#   ad / ad 120  run an ad now (only while live)
+#   ads          when Twitch's next scheduled ad is due
+#   anything else is sent in chat once, right away
+# For a login, open the login-code job log and enter the code at twitch.tv/activate
+# while logged in to that account. The login is sealed and committed as
+# bot/twitch_chat.sealed or bot/twitch_owner.sealed; the bot picks it up by itself.
 
 on:
   workflow_dispatch:
     inputs:
       command:
-        description: "login, or a message to send in chat now"
+        description: "login, login-owner, ad, ad 120, ads, or a message to send in chat now"
         required: true
         default: login
 
@@ -24,12 +28,13 @@ concurrency:
 env:
   TWITCH_CLIENT_ID: ${{ secrets.TWITCH_CLIENT_ID }}
   TWITCH_CLIENT_SECRET: ${{ secrets.TWITCH_CLIENT_SECRET }}
-  TWITCH_SCOPES: "user:read:chat user:write:chat"
+  TWITCH_SCOPES: ${{ inputs.command == 'login-owner' && 'channel:edit:commercial channel:read:ads channel:manage:ads' || 'user:read:chat user:write:chat' }}
+  KIND: ${{ inputs.command == 'login-owner' && 'owner' || 'chat' }}
 
 jobs:
   # Login, step 1: shows the code to enter at twitch.tv/activate (this job's log)
   login-code:
-    if: inputs.command == 'login'
+    if: inputs.command == 'login' || inputs.command == 'login-owner'
     runs-on: ubuntu-latest
     outputs:
       device_code: ${{ steps.code.outputs.device_code }}
@@ -59,17 +64,17 @@ jobs:
           FILE: ${{ runner.temp }}/twitch_chat_token
         run: |
           python3 -m pip install --quiet "cryptography>=41"
-          python3 -m bot.twitch_chat seal "$FILE"
+          python3 -m bot.twitch_chat seal "$KIND" "$FILE"
           rm -f "$FILE"
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add bot/twitch_chat.sealed
-          git commit -m "Twitch chat login for Race Control"
+          git add bot/twitch_$KIND.sealed
+          git commit -m "Twitch $KIND login for Race Control"
           for i in 1 2 3; do git pull -q --rebase origin main && git push -q origin HEAD:main && exit 0; sleep 5; done
           exit 1
 
   say:
-    if: inputs.command != 'login'
+    if: inputs.command != 'login' && inputs.command != 'login-owner'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -80,12 +85,16 @@ jobs:
           MESSAGE: ${{ inputs.command }}
         run: |
           python3 -m pip install --quiet "cryptography>=41" "aiohttp>=3.9"
-          python3 -m bot.twitch_chat say "$MESSAGE"
+          case "$MESSAGE" in
+            ad|"ad "[0-9]*|ads) python3 -m bot.twitch_chat $MESSAGE ;;
+            *) python3 -m bot.twitch_chat say "$MESSAGE" ;;
+          esac
       - name: Hand a renewed login to the bot
         run: |
-          if git diff --quiet bot/twitch_chat.sealed; then exit 0; fi
+          if git diff --quiet bot/; then exit 0; fi
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git commit -qm "Twitch chat login renewed" bot/twitch_chat.sealed
+          git add bot/twitch_*.sealed
+          git commit -qm "Twitch login renewed"
           for i in 1 2 3; do git pull -q --rebase origin main && git push -q origin HEAD:main && exit 0; sleep 5; done
           exit 1
