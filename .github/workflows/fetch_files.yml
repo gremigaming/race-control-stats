@@ -23,7 +23,7 @@ jobs:
         run: |
           python3 -m pip install --quiet "gdown>=5" pillow
           mkdir -p files
-          gdown --folder --remaining-ok -O files "$URL"
+          gdown --folder -O files "$URL"
           find files -type f | sort
       - name: Contact sheet and sizes
         run: |
