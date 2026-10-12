@@ -4,16 +4,35 @@
   "gap": 8,
   "min_chat": 3,
   "timers": [
-    {"first": 10, "every": 30, "text": "🏁 Join the GreMi Gang on Discord: a racing community where we help each other get faster, plus all the news about GreMi and the streams. https://discord.gg/bDga7v97Qq"},
-    {"first": 20, "every": 30, "text": "📊 Lap times, results and head to heads from the races on stream: https://gremigaming.github.io/race-stats/"},
-    {"first": 30, "every": 30, "text": "💜 Enjoying the racing? Hit follow so you don't miss the next stream!"}
+    {
+      "first": 10,
+      "every": 30,
+      "text": "🏁 Join the GreMi Gang on Discord: a racing community where we help each other get faster, plus all the news about GreMi and the streams. https://discord.gg/bDga7v97Qq"
+    },
+    {
+      "first": 20,
+      "every": 30,
+      "text": "📊 Lap times, results and head to heads from the races on stream: https://gremigaming.github.io/race-stats/"
+    },
+    {
+      "first": 30,
+      "every": 30,
+      "text": "💜 Enjoying the racing? Hit follow so you don't miss the next stream!"
+    }
   ],
   "ads": {
-    "auto": false,
-    "length": 90,
-    "min_gap": 20,
-    "notice": "📺 Quick ad break while we line up for the next race, back in {length} seconds!",
-    "snooze_while_driving": false,
-    "command": true
+    "auto": true,
+    "target_per_hour": 180,
+    "race_length": 30,
+    "first": 10,
+    "quiet_minutes": 3,
+    "quiet_max": 1,
+    "min_gap": 10,
+    "lobby_after": 30,
+    "notice_race": "",
+    "notice_lobby": "📺 Quick ad break while we line up for the next race, back in {length} seconds!",
+    "snooze_when_busy": true,
+    "command": true,
+    "length": 90
   }
 }

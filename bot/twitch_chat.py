@@ -13,20 +13,25 @@ one is kept on the server in STATE (never in this public repo).
 The bot listens to chat (EventSub over a websocket) so it knows how busy chat is:
   - timed messages go out only when people are chatting (min_chat messages
     since the last one), so they don't talk into an empty room
-  - ads go where they hurt least: right after a race ends (a new race file from
-    the uploader on the racing PC lands in race-stats) or when GreMi or a mod
-    types !ad in chat. When Twitch's own scheduled ad is about to hit and no
-    race just ended (so GreMi is probably driving), it is snoozed.
+  - ads: GreMi wants 3 minutes of ads per stream hour. Short ads run during a
+    race when chat is quiet (fewest people watching then); if the hour is
+    still short later on, one longer ad tops it up in the lobby right after a
+    race (a race has ended when the uploader on the racing PC sends a new race
+    file to race-stats). Twitch's own scheduled ads count toward the hour, and
+    one about to hit while chat is busy is snoozed. GreMi or a mod can type !ad.
 
 Everything is set in bot/twitch_timers.json:
   only_live   send only while the channel is live
   gap         minutes between any two timed messages
   min_chat    chat messages from viewers needed since the last timed message
   timers      [{"text", "every" (minutes), "first" (minutes after going live)}]
-  ads         {"auto": run an ad after each race, "length": seconds (30-180),
-               "min_gap": minutes between our ads, "notice": chat text first
-               ({length} is filled in), "snooze_while_driving": true/false,
-               "command": true to allow !ad from GreMi and mods}
+  ads         auto (on/off), target_per_hour (seconds), race_length (seconds),
+              quiet_minutes + quiet_max (chat counts as quiet with at most
+              quiet_max messages in quiet_minutes), min_gap (minutes between
+              race ads), first (minutes after going live), lobby_after (minutes
+              into the hour before a lobby top-up), notice_race / notice_lobby
+              (chat text before the ad, {length} filled in, "" for none),
+              snooze_when_busy, command (allow !ad), length (seconds for !ad)
 
 Usage from the workflow (DISCORD_BOT_TOKEN in the environment):
   python3 -m bot.twitch_chat seal <chat|owner> <refresh token file>
@@ -92,13 +97,13 @@ def load_timers(path=TIMERS):
     for t in data.get("timers", []):
         t.setdefault("first", 0)
     ads = data.setdefault("ads", {})
-    ads.setdefault("auto", False)
-    ads.setdefault("length", 90)
-    ads.setdefault("min_gap", 20)
-    ads.setdefault("notice", "")
-    ads.setdefault("snooze_while_driving", False)
-    ads.setdefault("command", True)
-    ads["length"] = min(180, max(30, int(ads["length"])))
+    for key, value in {"auto": False, "length": 90, "race_length": 30, "target_per_hour": 180,
+                       "first": 10, "quiet_minutes": 3, "quiet_max": 1, "min_gap": 10,
+                       "lobby_after": 30, "notice_lobby": "", "notice_race": "",
+                       "snooze_when_busy": False, "command": True}.items():
+        ads.setdefault(key, value)
+    for key in ("length", "race_length"):
+        ads[key] = min(180, max(30, int(ads[key])))
     return data
 
 
@@ -127,29 +132,55 @@ def next_timer(config, live_minutes, sent, last_any, now, chatted=None):
     return None if best is None else best[1]
 
 
-def ad_now(ads, live, now, last_ad, race_ended, asked):
-    """Why to run an ad now ('asked' or 'race'), or None.
-    race_ended: when the last race ended (0 if none this stream)
-    asked: GreMi or a mod typed !ad."""
-    if not live:
+def plan_ad(ads, now, live_minutes, last_race_ad, race_ended, lobby_done, asked,
+            recent_chat, hour_seconds, hour_minutes):
+    """(why, seconds) for an ad to run now, or None.
+    live_minutes: minutes since the stream started (None when offline)
+    last_race_ad: when our last ad during a race ran
+    race_ended: when the last race ended (0 if none yet this stream)
+    lobby_done: race_ended of the last race we already checked for a lobby ad
+    asked: GreMi or a mod typed !ad
+    recent_chat: viewer messages in the last quiet_minutes
+    hour_seconds / hour_minutes: ad seconds so far and minutes into this stream hour."""
+    if live_minutes is None:
         return None
     if asked:
-        return "asked"
-    if ads["auto"] and race_ended > last_ad and now - race_ended < RACE_FRESH \
-            and now - last_ad >= ads["min_gap"] * 60:
-        return "race"
+        return "asked", ads["length"]
+    if not ads["auto"] or live_minutes < ads["first"]:
+        return None
+    missing = ads["target_per_hour"] - hour_seconds
+    if missing <= 0:
+        return None
+    in_lobby = race_ended and now - race_ended < RACE_FRESH
+    if in_lobby:
+        if race_ended != lobby_done and hour_minutes >= ads["lobby_after"]:
+            return "lobby", min(180, -(-missing // 30) * 30)  # rounded up to 30 s steps
+        return None
+    if recent_chat <= ads["quiet_max"] and now - last_race_ad >= ads["min_gap"] * 60:
+        return "race", ads["race_length"]
     return None
 
 
-def snooze_now(ads, schedule, now, race_ended):
-    """True when Twitch's own ad is about to hit while GreMi is probably driving."""
-    if not ads["snooze_while_driving"] or not schedule:
+def stamp(value):
+    """Twitch ad times (RFC3339, or Unix seconds) -> Unix seconds, 0 for none."""
+    if not value:
+        return 0
+    if str(value).isdigit():
+        return int(value)
+    try:
+        return dt.datetime.fromisoformat(str(value).replace("Z", "+00:00")).timestamp()
+    except ValueError:
+        return 0
+
+
+def snooze_now(ads, schedule, now, recent_chat):
+    """True when Twitch's own scheduled ad is about to hit while chat is busy."""
+    if not ads["snooze_when_busy"] or not schedule:
         return False
-    due = schedule.get("next_ad_at") or 0
-    due = int(due) if str(due).isdigit() else 0
+    due = stamp(schedule.get("next_ad_at"))
     if not due or due - now > 120 or due < now:
         return False
-    if now - race_ended < RACE_FRESH:  # between races: let it run
+    if recent_chat <= ads["quiet_max"]:
         return False
     return int(schedule.get("snooze_count") or 0) > 0
 
@@ -368,7 +399,8 @@ async def run(discord_token):
         return
     room = Room()
     sent, last_any, was_live, since = {}, 0.0, None, None
-    last_ad, schedule, checked_live, checked_ads = 0.0, None, 0.0, 0.0
+    last_race_ad, lobby_done, schedule, checked_live, checked_ads = 0.0, 0.0, None, 0.0, 0.0
+    spent, counted = collections.Counter(), set()  # ad seconds per stream hour
     async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=20)) as session:
         bot = Twitch("chat", logins["chat"], session)
         owner = Twitch("owner", logins["owner"], session) if "owner" in logins else None
@@ -390,7 +422,8 @@ async def run(discord_token):
                     since, checked_live = await bot.live_since(), now
                 if since != was_live:  # stream started or ended: start fresh
                     sent, last_any, was_live = {}, 0.0, since
-                    last_ad, room.race_ended, room.asked = 0.0, 0.0, False
+                    last_race_ad, lobby_done, room.race_ended, room.asked = 0.0, 0.0, 0.0, False
+                    spent, counted, schedule = collections.Counter(), set(), None
                 minutes = None if since is None else (now - since) / 60
 
                 i = next_timer(config, minutes, sent, last_any, now,
@@ -401,19 +434,36 @@ async def run(discord_token):
                     log.info("Twitch chat: sent timer %d", i)
 
                 if owner:
-                    why = ad_now(ads, since is not None, now, last_ad, room.race_ended, room.asked)
-                    room.asked = False
-                    if why:
-                        last_ad = now
-                        if ads["notice"]:
-                            await bot.say(ads["notice"].format(length=ads["length"]))
-                        res = await owner.run_ad(ads["length"])
-                        log.info("Twitch: ad (%s) %s s", why, res.get("length"))
+                    recent = room.since(now - ads["quiet_minutes"] * 60)
                     if since is not None and now - checked_ads >= ADS_EVERY:
                         schedule, checked_ads = await owner.ad_schedule(), now
-                        if snooze_now(ads, schedule, now, room.race_ended):
-                            schedule = await owner.snooze()
-                            log.info("Twitch: snoozed the scheduled ad (driving)")
+                        seen = stamp(schedule.get("last_ad_at"))
+                        # Twitch's own scheduled ads count toward the hour too
+                        if seen > since and all(abs(seen - t) > 60 for t in counted):
+                            counted.add(seen)
+                            spent[int((seen - since) // 3600)] += int(schedule.get("duration") or 0)
+                        if snooze_now(ads, schedule, now, recent):
+                            await owner.snooze()
+                            log.info("Twitch: snoozed the scheduled ad (chat is busy)")
+                    hour = 0 if since is None else int((now - since) // 3600)
+                    plan = plan_ad(ads, now, minutes, last_race_ad, room.race_ended, lobby_done,
+                                   room.asked, recent, spent[hour],
+                                   0 if since is None else (now - since) % 3600 / 60)
+                    room.asked = False
+                    if plan:
+                        why, length = plan
+                        # marked first, so a refused ad isn't retried every few seconds
+                        if why == "race":
+                            last_race_ad = now
+                        elif why == "lobby":
+                            lobby_done = room.race_ended
+                        counted.add(now)
+                        notice = ads["notice_race"] if why == "race" else ads["notice_lobby"]
+                        if notice:
+                            await bot.say(notice.format(length=length))
+                        res = await owner.run_ad(length)
+                        spent[hour] += int(res.get("length") or length)
+                        log.info("Twitch: ad (%s) %s s, %s s this hour", why, length, spent[hour])
             except Exception as e:
                 log.warning("Twitch: %s", e)
             await asyncio.sleep(TICK)
@@ -435,9 +485,9 @@ async def once(kind, discord_token, action):
 
 
 def when(value):
-    if not value or not str(value).isdigit() or int(value) == 0:
+    if not stamp(value):
         return "none"
-    t = dt.datetime.fromtimestamp(int(value), dt.timezone.utc)
+    t = dt.datetime.fromtimestamp(stamp(value), dt.timezone.utc)
     from zoneinfo import ZoneInfo
     return f"{t.astimezone(ZoneInfo('Europe/Amsterdam')):%a %d %b %H:%M:%S}"
 

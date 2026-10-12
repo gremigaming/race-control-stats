@@ -6,7 +6,9 @@ CONFIG = {"only_live": True, "gap": 10, "min_chat": 0, "timers": [
     {"text": "discord", "first": 15, "every": 45},
     {"text": "site", "first": 30, "every": 60},
 ]}
-ADS = {"auto": True, "length": 90, "min_gap": 20, "snooze_while_driving": True}
+ADS = {"auto": True, "length": 90, "race_length": 30, "target_per_hour": 180, "first": 10,
+       "quiet_minutes": 3, "quiet_max": 1, "min_gap": 10, "lobby_after": 30,
+       "snooze_when_busy": True}
 
 
 class SealTests(unittest.TestCase):
@@ -47,7 +49,7 @@ class TimerTests(unittest.TestCase):
     def test_real_timers_file_loads(self):
         config = tc.load_timers()
         self.assertTrue(config["timers"])
-        self.assertIn("{length}", config["ads"]["notice"])
+        self.assertIn("{length}", config["ads"]["notice_lobby"])
         for t in config["timers"]:
             self.assertLessEqual(len(t["text"]), 500)
             self.assertGreater(t["every"], 0)
@@ -56,25 +58,46 @@ class TimerTests(unittest.TestCase):
 class AdTests(unittest.TestCase):
     now = 100_000
 
+    def plan(self, **kw):
+        args = dict(ads=ADS, now=self.now, live_minutes=60, last_race_ad=0, race_ended=0,
+                    lobby_done=0, asked=False, recent_chat=0, hour_seconds=0, hour_minutes=15)
+        args.update(kw)
+        return tc.plan_ad(**args)
+
     def test_asked_runs_while_live_only(self):
-        self.assertEqual(tc.ad_now(ADS, True, self.now, self.now - 60, 0, True), "asked")
-        self.assertIsNone(tc.ad_now(ADS, False, self.now, 0, 0, True))
+        self.assertEqual(self.plan(asked=True, recent_chat=20), ("asked", 90))
+        self.assertIsNone(self.plan(asked=True, live_minutes=None))
 
-    def test_after_a_race(self):
-        self.assertEqual(tc.ad_now(ADS, True, self.now, 0, self.now - 30, False), "race")
-        # not twice for the same race, not too soon after the last ad, not when auto is off
-        self.assertIsNone(tc.ad_now(ADS, True, self.now, self.now - 10, self.now - 30, False))
-        self.assertIsNone(tc.ad_now(ADS, True, self.now, self.now - 600, self.now - 30, False))
-        self.assertIsNone(tc.ad_now(dict(ADS, auto=False), True, self.now, 0, self.now - 30, False))
-        self.assertIsNone(tc.ad_now(ADS, True, self.now, 0, self.now - 600, False))
+    def test_race_ad_when_chat_is_quiet(self):
+        self.assertEqual(self.plan(), ("race", 30))
+        self.assertIsNone(self.plan(recent_chat=2))                      # chat busy
+        self.assertIsNone(self.plan(last_race_ad=self.now - 300))        # too soon
+        self.assertIsNone(self.plan(hour_seconds=180))                   # hour is full
+        self.assertIsNone(self.plan(live_minutes=5))                     # just went live
+        self.assertIsNone(self.plan(ads=dict(ADS, auto=False)))
 
-    def test_snooze_while_driving(self):
+    def test_lobby_top_up(self):
+        lobby = dict(race_ended=self.now - 30, hour_minutes=40)
+        self.assertEqual(self.plan(hour_seconds=60, **lobby), ("lobby", 120))
+        self.assertEqual(self.plan(hour_seconds=100, **lobby), ("lobby", 90))   # rounded up
+        self.assertIsNone(self.plan(hour_seconds=60, lobby_done=self.now - 30,
+                                    race_ended=self.now - 30, hour_minutes=40))
+        self.assertIsNone(self.plan(hour_seconds=60, race_ended=self.now - 30, hour_minutes=20))
+        # no race ads in the lobby, even with quiet chat
+        self.assertIsNone(self.plan(race_ended=self.now - 30, hour_minutes=20))
+
+    def test_snooze_when_chat_is_busy(self):
         due = {"next_ad_at": str(self.now + 60), "snooze_count": 2}
-        self.assertTrue(tc.snooze_now(ADS, due, self.now, 0))
-        self.assertFalse(tc.snooze_now(ADS, due, self.now, self.now - 30))   # between races
-        self.assertFalse(tc.snooze_now(ADS, dict(due, snooze_count=0), self.now, 0))
-        self.assertFalse(tc.snooze_now(ADS, dict(due, next_ad_at=self.now + 900), self.now, 0))
-        self.assertFalse(tc.snooze_now(dict(ADS, snooze_while_driving=False), due, self.now, 0))
+        self.assertTrue(tc.snooze_now(ADS, due, self.now, 5))
+        self.assertFalse(tc.snooze_now(ADS, due, self.now, 0))           # quiet: let it run
+        self.assertFalse(tc.snooze_now(ADS, dict(due, snooze_count=0), self.now, 5))
+        self.assertFalse(tc.snooze_now(ADS, dict(due, next_ad_at=self.now + 900), self.now, 5))
+        self.assertFalse(tc.snooze_now(dict(ADS, snooze_when_busy=False), due, self.now, 5))
+
+    def test_ad_times(self):
+        self.assertEqual(tc.stamp("2026-10-12T20:00:00+00:00"), 1791835200)
+        self.assertEqual(tc.stamp("1791835200"), 1791835200)
+        self.assertEqual(tc.stamp(""), 0)
 
 
 if __name__ == "__main__":
