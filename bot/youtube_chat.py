@@ -1,6 +1,7 @@
 """Race Control in GreMi's YouTube live chat, next to Twitch (see twitch_chat.py).
 
-While GreMi is live on YouTube the bot reads the live chat, counts it toward
+While GreMi is live on YouTube the bot reads the live chat (every live stream at
+once: GreMi often runs a horizontal and a vertical stream side by side), counts it toward
 chat activity, and posts the same timed messages as on Twitch. GreMi or a
 YouTube mod can type a timer's command (like !simgasm): the message goes out
 on YouTube and Twitch both, so the stream popups fire too.
@@ -11,8 +12,9 @@ like the Twitch ones (bot/youtube.sealed) and the bot picks it up by itself.
 Needs YOUTUBE_CLIENT_ID and YOUTUBE_CLIENT_SECRET (a Google OAuth client of type
 "TVs and Limited Input devices", YouTube Data API v3 enabled).
 
-Quota: YouTube allows 10,000 units a day. Reading chat costs 5 per call (every
-POLL_MIN seconds or slower while live), the live check 1 per call, a message 50.
+Quota: YouTube allows 10,000 units a day. Reading chat costs 5 per call (each chat
+every POLL_MIN seconds per live stream, so two streams read each every 16 s), the
+live check 1 per call, a message 50 per stream.
 
 Usage:
   python3 -m bot.youtube_chat login-start            prints the code (workflow step 1)
@@ -52,7 +54,7 @@ class YouTube:
         self.session = session
         self.keep = keep  # write renewed logins to the server state (on the server only)
         self.access, self.expires = "", 0
-        self.chat_id = None
+        self.chats = {}  # live chat id -> next page token (None until the first read)
         self.sent = collections.deque(maxlen=20)
 
     async def token(self):
@@ -77,23 +79,29 @@ class YouTube:
                 raise RuntimeError(f"YouTube {path}: {r.status} {err}")
             return res
 
-    async def live_chat(self):
-        """The live chat id of the broadcast that is live now, else None."""
+    async def broadcasts(self, status):
         res = await self.call("GET", "/liveBroadcasts", params={
-            "part": "snippet", "broadcastStatus": "active", "broadcastType": "all"})
-        for item in res.get("items", []):
+            "part": "snippet,status", "broadcastStatus": status, "broadcastType": "all",
+            "maxResults": 50})
+        return res.get("items", [])
+
+    async def live_chats(self):
+        """The live chat ids of every broadcast that is live now (one per stream)."""
+        chats = []
+        for item in await self.broadcasts("active"):
             chat = item["snippet"].get("liveChatId")
-            if chat:
-                return chat
-        return None
+            if chat and chat not in chats:
+                chats.append(chat)
+        return chats
 
     async def say(self, text):
-        if not self.chat_id:
+        if not self.chats:
             return
         self.sent.append(text[:200].strip())
-        await self.call("POST", "/liveChat/messages", params={"part": "snippet"}, body={
-            "snippet": {"liveChatId": self.chat_id, "type": "textMessageEvent",
-                        "textMessageDetails": {"messageText": text[:200]}}})
+        for chat in list(self.chats):
+            await self.call("POST", "/liveChat/messages", params={"part": "snippet"}, body={
+                "snippet": {"liveChatId": chat, "type": "textMessageEvent",
+                            "textMessageDetails": {"messageText": text[:200]}}})
 
 
 async def run(discord_token):
@@ -111,32 +119,34 @@ async def run(discord_token):
         yt = YouTube(login, session)
         twitch_chat.MIRRORS.append(yt.say)
         await twitch_chat.report("YouTube login loaded")
-        page, checked = None, 0.0
+        checked = 0.0
         while True:
             wait = LIVE_EVERY
             try:
                 now = time.time()
-                if not yt.chat_id or now - checked >= LIVE_EVERY:
-                    chat, checked = await yt.live_chat(), now
-                    if chat != yt.chat_id:
-                        yt.chat_id, page = chat, None
-                        if chat:
-                            await twitch_chat.report("YouTube: live, reading chat")
-                if yt.chat_id:
+                if not yt.chats or now - checked >= LIVE_EVERY:
+                    chats, checked = await yt.live_chats(), now
+                    if set(chats) != set(yt.chats):
+                        yt.chats = {c: yt.chats.get(c) for c in chats}
+                        if chats:
+                            await twitch_chat.report(
+                                f"YouTube: live, reading chat of {len(chats)} stream(s)")
+                for chat in list(yt.chats):
+                    page = yt.chats[chat]
                     res = await yt.call("GET", "/liveChat/messages", params=dict(
-                        {"liveChatId": yt.chat_id, "part": "snippet,authorDetails",
+                        {"liveChatId": chat, "part": "snippet,authorDetails",
                          "maxResults": 200}, **({"pageToken": page} if page else {})))
-                    first = page is None  # the first page is old messages: skip them
-                    page = res.get("nextPageToken")
-                    wait = max(POLL_MIN, int(res.get("pollingIntervalMillis", 0)) / 1000)
-                    if not first:
+                    yt.chats[chat] = res.get("nextPageToken")
+                    wait = min(LIVE_EVERY, max(POLL_MIN * len(yt.chats),
+                                               int(res.get("pollingIntervalMillis", 0)) / 1000))
+                    if page is not None:  # the first page is old messages: skip them
                         await handle(yt, res.get("items", []), answered)
                     if res.get("offlineAt"):
-                        yt.chat_id = None
+                        yt.chats.pop(chat, None)
             except Exception as e:
                 await twitch_chat.report(f"YouTube problem: {e}")
                 if "liveChat" in str(e):
-                    yt.chat_id = None
+                    yt.chats = {}
             await asyncio.sleep(wait)
 
 
@@ -220,15 +230,19 @@ async def say_once(text, discord_token):
         yt = YouTube(login, session, keep=False)
         me = (await yt.call("GET", "/channels", params={"part": "snippet", "mine": "true"}))
         print("Logged in as:", ", ".join(i["snippet"]["title"] for i in me.get("items", [])) or "?")
-        yt.chat_id = await yt.live_chat()
-        if not yt.chat_id:
-            res = await yt.call("GET", "/liveBroadcasts", params={
-                "part": "snippet", "broadcastStatus": "upcoming", "broadcastType": "all"})
-            for item in res.get("items", []):
-                print("Upcoming stream:", item["snippet"].get("title"),
-                      item["snippet"].get("scheduledStartTime"))
-                yt.chat_id = yt.chat_id or item["snippet"].get("liveChatId")
-        if not yt.chat_id:
+        for status in ("active", "upcoming"):
+            for item in await yt.broadcasts(status):
+                print(f"{status.title()} stream:", item["snippet"].get("title"),
+                      item["snippet"].get("actualStartTime")
+                      or item["snippet"].get("scheduledStartTime"),
+                      (item.get("status") or {}).get("lifeCycleStatus"),
+                      "chat" if item["snippet"].get("liveChatId") else "no chat")
+        chats = await yt.live_chats()
+        if not chats:
+            chats = [i["snippet"]["liveChatId"] for i in await yt.broadcasts("upcoming")
+                     if i["snippet"].get("liveChatId")][:1]
+        yt.chats = dict.fromkeys(chats)
+        if not yt.chats:
             sys.exit("Not live, and no upcoming stream with a chat to post in.")
         if text:
             await yt.say(text)
