@@ -1,7 +1,7 @@
-Updated 2026-10-08.
-F1 latest: Bahrain GP held in Malaysia (Sepang), 4 Oct. Rain. Verstappen won from pole, Red Bull's first 2026 win; Antonelli 2nd, Hamilton 3rd, Russell retired late.
-Before: Azerbaijan, late Sep. Russell won, Verstappen 0.196 s behind, Hadjar 3rd; McLaren scored nothing.
-Standings: Antonelli leads Russell (66 pts before Malaysia, more now).
-F1 next: Singapore 11 Oct 12:00 UTC, Austin 25 Oct, Mexico 1 Nov.
+Updated 2026-10-12.
+F1 latest: Singapore, 11 Oct. Verstappen won from pole by 7.3 s, his first Marina Bay win and second in a row; Leclerc 2nd, Antonelli 3rd. He also won the sprint; Russell crashed out of it.
+Before: Bahrain GP held in Malaysia, 4 Oct. Verstappen won in the rain, Antonelli 2nd, Hamilton 3rd.
+Standings: Antonelli leads Russell (320 to 236 before Singapore).
+F1 next: Austin 25 Oct, Mexico 1 Nov, Brazil 8 Nov.
 WEC: Fuji 27 Sep won by #8 Toyota; next Qatar 24 Oct.
-LMU: v1.4.2 (22 Sep), Road Atlanta and Long Beach DLC; Road Atlanta 10h event 9-11 Oct, Le Mans 24h 20 Oct.
+LMU: v1.4.2 out; Le Mans 24h special event 20 Oct; v1.5 planned before year end.
