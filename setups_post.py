@@ -25,7 +25,6 @@ CONTAINER, TEXT, GALLERY, SEPARATOR, ROW, BUTTON = 17, 10, 12, 14, 1, 2
 RED, VIOLET, SKY, GRAY = 0xE10600, 0x8B5CF6, 0x0EA5E9, 0x3F3F46
 KINDS = {  # kind: (title, emoji, colour)
     "race": ("Dry race", "☀️", RED),
-    "dry": ("Dry", "☀️", RED),
     "quali": ("Dry quali", "⏱️", VIOLET),
     "wet": ("Wet", "🌧️", SKY),
 }
@@ -60,10 +59,10 @@ def opening(track, overview, cards):
     """The post's opening message: the overview picture and what's in the post."""
     lines = []
     real = {c["kind"]: c for c in cards if not c.get("placeholder")}
-    dry = real.get("race") or real.get("quali") or real.get("dry")
-    for kind in ("race", "quali", "wet"):
+    dry = real.get("race")
+    for kind in ("quali", "race", "wet"):
         title, emoji, _ = KINDS[kind]
-        card = real.get(kind) or (dry if kind == "race" else None)
+        card = real.get(kind)
         if card:
             lines.append(f"{emoji} **{title}** ─ 📅 {short_date(card) or 'saved'}")
         elif kind == "quali" and dry:
@@ -98,8 +97,9 @@ def card_message(card):
     """One full setup card, in its own coloured box."""
     title, emoji, colour = KINDS.get(card["kind"], (card["kind"], "🏁", GRAY))
     if card.get("placeholder"):
-        note = ("shows up here after GreMi's next wet race on this track" if card["kind"] == "wet"
-                else "shows up here after GreMi's next race on this track")
+        note = {"wet": "shows up here after GreMi's next wet race on this track",
+                "quali": "until there's one, GreMi qualifies with the dry race setup",
+                }.get(card["kind"], "shows up here after GreMi's next race on this track")
         head = f"## {emoji} {title} setup\n-# ⏳ No setup yet · {note}"
         colour = GRAY
     else:
@@ -156,7 +156,7 @@ def picture_name(message):
 def kind_of(message):
     """The card kind a message of ours holds, from its picture's file name."""
     name = picture_name(message)
-    for kind in ("overview", "race", "quali", "wet", "dry"):
+    for kind in ("overview", "race", "quali", "wet"):
         if f"-{kind}-" in name:
             return kind
     return None
@@ -185,33 +185,33 @@ def sync_track(stats, me, track, post, tags):
         return
     msgs = [m for m in stats.discord("GET", f"/channels/{post['id']}/messages?limit=50")
             if m["author"]["id"] == me]
-    by_kind = {kind_of(m): m for m in reversed(msgs) if kind_of(m)}
-    wanted = [("overview", name, message, overview)] + [
-        (c["kind"], *card_message(c), c) for c in cards]
-    todo = [w for w in wanted
-            if not by_kind.get(w[0]) or picture_name(by_kind[w[0]]) != w[1]]
-    gone = [m for k, m in by_kind.items() if k not in {w[0] for w in wanted} and m["id"] != post["id"]]
-    if not todo and not gone:
+    starter = next((m for m in msgs if m["id"] == post["id"]), {"id": post["id"]})
+    # the card messages, oldest first (Discord lists newest first)
+    shown = [m for m in reversed(msgs) if m["id"] != post["id"] and kind_of(m)]
+    wanted = [(c, *card_message(c)) for c in cards]
+    new_order = [kind_of(m) for m in shown] != [c["kind"] for c in cards]
+    edits = [] if new_order else [
+        (m, c, n, msg) for m, (c, n, msg) in zip(shown, wanted) if picture_name(m) != n]
+    if picture_name(starter) == name and not new_order and not edits:
         print(f"unchanged: {track['post']} setups")
         return
     archived = (post.get("thread_metadata") or {}).get("archived")
     if archived:
         # an archived post takes no edits; reopening it doesn't move it
         stats.discord("PATCH", f"/channels/{post['id']}", {"archived": False})
-    for kind, n, m, card in todo:
-        old = by_kind.get(kind) or (by_kind.get("race") if kind == "dry" else None) \
-            or (by_kind.get("dry") if kind == "race" else None)
-        if kind == "overview":
-            old = old or {"id": post["id"]}
-        if old:
-            socials_board.send(stats, "PATCH", f"/channels/{post['id']}/messages/{old['id']}",
-                               m, [(n, picture(stats, card))])
-        else:
-            socials_board.send(stats, "POST", f"/channels/{post['id']}/messages", m,
-                               [(n, picture(stats, card))])
-    for m in gone:
-        if not (kind_of(m) in ("race", "dry") and {"race", "dry"} & {w[0] for w in wanted}):
+    if picture_name(starter) != name:
+        socials_board.send(stats, "PATCH", f"/channels/{post['id']}/messages/{post['id']}",
+                           message, [(name, picture(stats, overview))])
+    for m, c, n, msg in edits:
+        socials_board.send(stats, "PATCH", f"/channels/{post['id']}/messages/{m['id']}",
+                           msg, [(n, picture(stats, c))])
+    if new_order:
+        # a card added or moved: post them all again, in order
+        for m in shown:
             stats.discord("DELETE", f"/channels/{post['id']}/messages/{m['id']}")
+        for c, n, msg in wanted:
+            socials_board.send(stats, "POST", f"/channels/{post['id']}/messages", msg,
+                               [(n, picture(stats, c))])
     print(f"updated:   {track['post']} setups")
     if archived:
         stats.discord("PATCH", f"/channels/{post['id']}", {"archived": True})

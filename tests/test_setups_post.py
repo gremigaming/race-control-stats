@@ -21,8 +21,8 @@ def card(kind, h, **extra):
 
 TRACK = {"post": "Japan", "cards": [
     card("overview", "o1", circuit="Suzuka"),
-    card("race", "r1", label="Dry race", date="Used in the race on 2 Oct 2026"),
     card("quali", "q1", label="Dry quali", date="Used in the qualifying on 2 Oct 2026"),
+    card("race", "r1", label="Dry race", date="Used in the race on 2 Oct 2026"),
     card("wet", "w1", label="Wet", placeholder=True),
 ]}
 
@@ -39,7 +39,7 @@ class Messages(unittest.TestCase):
         self.assertTrue(name.startswith("setup-japan-overview-"))
 
     def test_quali_same_as_race(self):
-        cards = [TRACK["cards"][1], TRACK["cards"][3]]
+        cards = [TRACK["cards"][2], TRACK["cards"][3]]
         _, msg = sp.opening(TRACK, TRACK["cards"][0], cards)
         self.assertIn("same as the dry race setup", json.dumps(msg["components"], ensure_ascii=False))
 
@@ -101,7 +101,7 @@ class Update(unittest.TestCase):
             url = f"https://cdn.discordapp.com/attachments/1/2/{name}?ex=1"
             msgs.append({"id": mid, "author": {"id": ME}, "attachments": [], "components": [
                 {"type": 17, "components": [{"type": 12, "items": [{"media": {"url": url}}]}]}]})
-        return msgs
+        return list(reversed(msgs))  # newest first, like Discord
 
     def test_unchanged_sends_nothing(self):
         _, sent = self.run_update([{"id": "55", "name": "Japan", "owner_id": ME}], self.existing())
@@ -109,9 +109,18 @@ class Update(unittest.TestCase):
 
     def test_changed_card_edits_only_that_message(self):
         msgs = self.existing()
-        msgs[1]["components"][0]["components"][0]["items"][0]["media"]["url"] = "x/setup-japan-race-old.png"
+        race = next(m for m in msgs if m["id"] == "m-race")
+        race["components"][0]["components"][0]["items"][0]["media"]["url"] = "x/setup-japan-race-old.png"
         _, sent = self.run_update([{"id": "55", "name": "Japan", "owner_id": ME}], msgs)
         self.assertEqual([s[:2] for s in sent], [("PATCH", "/channels/55/messages/m-race")])
+
+    def test_new_order_posts_cards_again(self):
+        msgs = self.existing()
+        msgs = [m for m in msgs if m["id"] != "m-quali"]  # an old post without the quali card
+        calls, sent = self.run_update([{"id": "55", "name": "Japan", "owner_id": ME}], msgs)
+        deleted = [c[1] for c in calls if c[0] == "DELETE"]
+        self.assertEqual(deleted, ["/channels/55/messages/m-race", "/channels/55/messages/m-wet"])
+        self.assertEqual([s[3][0][0].split("-")[2] for s in sent], ["quali", "race", "wet"])
 
     def test_off_without_forum_id(self):
         with mock.patch.object(sp, "SETUPS_FORUM_ID", ""):
