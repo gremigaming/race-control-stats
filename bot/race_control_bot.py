@@ -82,7 +82,16 @@ async def on_ready():
         bot.saving = True
         asyncio.create_task(save_members())
         asyncio.create_task(follow_updates())
+        twitch_chat.REPORTER = report_twitch
         asyncio.create_task(twitch_chat.run(os.environ["DISCORD_BOT_TOKEN"]))
+
+
+LOGS_CHANNEL_ID = 1091494080741122148  # staff-only logs
+
+
+async def report_twitch(text):
+    channel = bot.get_channel(LOGS_CHANNEL_ID) or await bot.fetch_channel(LOGS_CHANNEL_ID)
+    await channel.send(f"🟣 Twitch: {text}", allowed_mentions=discord.AllowedMentions.none())
 
 
 REPO_DIR = pathlib.Path(__file__).resolve().parents[1]

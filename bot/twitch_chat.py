@@ -279,8 +279,8 @@ class Twitch:
         them = (await self.call("GET", "/users", params={"login": channel}))["data"]
         if not them:
             raise RuntimeError(f"Twitch channel {channel} not found")
-        self.broadcaster = them[0]["id"]
-        log.info("Twitch %s: %s in %s", self.kind, self.me["login"], channel)
+        self.broadcaster, self.channel = them[0]["id"], channel
+        await report(f"{self.kind} login works ({self.me['login']})")
 
     async def live_since(self):
         data = (await self.call("GET", "/streams", params={"user_id": self.broadcaster}))["data"]
@@ -325,6 +325,21 @@ def chat_command(config, text, badges):
     return None
 
 
+REPORTER = None   # async fn(text): the Discord bot posts Twitch status in the staff LOGS channel
+_reported = set()
+
+
+async def report(text):
+    """Logs a status line and, once per distinct line, hands it to REPORTER."""
+    log.info("Twitch: %s", text)
+    if REPORTER and text not in _reported:
+        _reported.add(text)
+        try:
+            await REPORTER(text)
+        except Exception as e:
+            log.warning("Twitch report: %s", e)
+
+
 class Room:
     """What the listeners saw: chat messages and finished races."""
     def __init__(self):
@@ -354,7 +369,7 @@ async def listen_chat(bot, room, ads_command):
                                           "user_id": bot.me["id"]},
                             "transport": {"method": "websocket",
                                           "session_id": data["payload"]["session"]["id"]}})
-                        log.info("Twitch chat: listening")
+                        await report(f"listening to #{bot.channel} chat as {bot.me['login']}")
                     elif kind == "session_reconnect":
                         url = data["payload"]["session"]["reconnect_url"]
                         break
@@ -379,7 +394,7 @@ async def listen_chat(bot, room, ads_command):
                             continue
                         room.chat.append(time.time())
         except Exception as e:
-            log.warning("Twitch chat listener: %s", e)
+            await report(f"chat listener problem: {e}")
         await asyncio.sleep(5 if url == EVENTSUB else 0)
 
 
@@ -408,7 +423,7 @@ async def watch_races(session, room, live):
 async def run(discord_token):
     """Runs next to the Discord bot; never raises."""
     if not SEALED["chat"].exists():
-        log.info("Twitch chat: no login yet")
+        await report("no chat login yet")
         return
     import aiohttp
     logins = {}
@@ -417,7 +432,8 @@ async def run(discord_token):
             try:
                 logins[kind] = current_login(kind, discord_token)
             except Exception as e:
-                log.warning("Twitch %s: can't open the login (%s)", kind, type(e).__name__)
+                await report(f"can't open the {kind} login ({type(e).__name__}); "
+                             "it may be sealed with a different Discord bot token")
     if "chat" not in logins:
         return
     room = Room()
@@ -491,7 +507,7 @@ async def run(discord_token):
                         spent[hour] += int(res.get("length") or length)
                         log.info("Twitch: ad (%s) %s s, %s s this hour", why, length, spent[hour])
             except Exception as e:
-                log.warning("Twitch: %s", e)
+                await report(f"problem: {e}")
             await asyncio.sleep(TICK)
 
 
