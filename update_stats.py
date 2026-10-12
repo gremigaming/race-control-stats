@@ -352,12 +352,18 @@ def update_leaderboard(stat):
     leaderboard_post.update(sys.modules[__name__])
 
 
+def update_setups(stat):
+    import setups_post
+    import sys
+    setups_post.update(sys.modules[__name__])
+
+
 def main():
     stat = find_stat_channels()
     failed = False
     for task in (update_members, update_status, update_live_role, update_twitch,
                  update_youtube, update_tiktok, update_socials_board,
-                 update_stream_schedule, update_leaderboard):
+                 update_stream_schedule, update_leaderboard, update_setups):
         try:
             task(stat)
         except Exception as e:
