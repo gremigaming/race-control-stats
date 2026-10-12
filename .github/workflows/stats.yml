@@ -39,6 +39,8 @@ jobs:
           # F1-CHAMPIONSHIP and SAFETY-RATING channels: pictures of the site (leaderboard_post.py)
           LEADERBOARD_CHANNEL_ID: "1558730259585826836"
           SAFETY_CHANNEL_ID: "1558730261036802088"
+          # F1-SETUPS forum: GreMi's setup per track, one Race Control post each (setups_post.py)
+          SETUPS_FORUM_ID: "1477423394118041630"
           SOCIALS_BOARD_POST: ${{ inputs.post_socials_board && 'true' || '' }}
           TWITCH_CLIENT_ID: ${{ secrets.TWITCH_CLIENT_ID }}
           TWITCH_CLIENT_SECRET: ${{ secrets.TWITCH_CLIENT_SECRET }}
