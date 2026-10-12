@@ -637,13 +637,31 @@ def find_item(item_id):
     return None
 
 
-def linked_driver(uid):
+def member_link(uid):
+    """The member's link {driver, how, at}, or None."""
     try:
         from bot import links as L
-        v = L.Links().get(uid)
-        return v["driver"] if v else None
+        return L.Links().get(uid)
     except Exception:
         return None
+
+
+def other_in(text):
+    """The other driver of a contact, from "..., with NAME: ..."."""
+    m = re.search(r"\bwith (.+?):", text or "")
+    return m.group(1) if m else None
+
+
+def involved(driver, it):
+    return [d for d in (driver, other_in(it.get("text"))) if d]
+
+
+def is_involved(link, driver, it):
+    return bool(link) and link["driver"].lower() in {d.lower() for d in involved(driver, it)}
+
+
+KINDS = ["Contact", "Divebomb or late lunge", "Pushed off track", "Unsafe rejoin", "Blocking or moving under braking",
+         "Track limits or corner cutting", "Lag or netcode", "Game penalty was wrong", "Other"]
 
 
 ANSWER = {"open": "Waiting for the stewards", "accepted": "Accepted", "rejected": "Not accepted"}
@@ -657,8 +675,10 @@ def protest_card(p, staff=None):
     if staff:
         linked = p.get("linked")
         who = ("from the site, name not checked" if p.get("site")
-               else "their linked Discord account" if linked and linked.lower() == p["driver"].lower()
-               else f"linked to {linked}, not this driver" if linked else "not linked to a driver")
+               else "the penalised driver" if linked and linked.lower() == p["driver"].lower()
+               else f"the other driver, {linked}" if linked else "not linked to a driver")
+        if p.get("linked_now"):
+            who += ", linked their name just before this protest"
         out += f"<div class=muted style='margin-top:8px'>Sent by {e(p['by_name'])} ({e(who)}) · {e(p['at'][:16].replace('T', ' '))} UTC</div>"
     said = " · ".join(x for x in (p.get("kind") and f"Type: {p['kind']}", p.get("fault") and f"At fault: {p['fault']}") if x)
     if said:
@@ -725,20 +745,22 @@ def protest_answer(form, user):
 
 
 def protest_page(member, q):
-    """What a driver sees: the incident and the protest form, or their protests."""
+    """What a driver sees: the incident and the protest form, or their protests.
+    Only the drivers in an incident can protest it; an unlinked member picks their name first."""
     item = q.get("item", [""])[0]
     if not member:
         nxt = urllib.parse.quote("/protest" + (f"?item={urllib.parse.quote(item)}" if item else ""))
         return page("Protest", f"<div class=login><h1>Protest an incident</h1><p class=muted>Log in with Discord so the stewards "
-                    f"know who you are and can answer you.</p><a class=btn href='/login?next={nxt}'>Log in with Discord</a></div>")
+                    f"know which driver you are and can answer you.</p><a class=btn href='/login?next={nxt}'>Log in with Discord</a></div>")
     mine = [p for p in protests() if p["by"] == member["id"]]
-    top = (f"<p class=muted>Logged in as {e(member['name'])} · <a href='/protest'>Your protests</a> · "
-           f"<a href='{SITE}'>Race stats</a> · <a href='/logout'>log out</a></p>")
+    link = member_link(member["id"])
+    top = (f"<p class=muted>Logged in as {e(member['name'])}{' (driver ' + e(link['driver']) + ')' if link else ''} · "
+           f"<a href='/protest'>Your protests</a> · <a href='{SITE}'>Race stats</a> · <a href='/logout'>log out</a></p>")
     if not item:
         cards = "".join(protest_card(p) for p in sorted(mine, key=lambda p: p["at"], reverse=True))
         return page("Your protests", f"<div class=narrow><h1>Your protests</h1>{top}"
                     + (cards or "<div class=card><span class=muted>You haven't protested anything yet. Open your safety rating on the site "
-                       "and use Protest next to an incident.</span></div>") + "</div>")
+                       "and use the flag next to an incident.</span></div>") + "</div>")
     sent = next((p for p in mine if p["item"] == item), None)
     if sent:
         return page("Protest", f"<div class=narrow><h1>Your protest</h1>{top}{protest_card(sent)}</div>")
@@ -747,44 +769,87 @@ def protest_page(member, q):
         return page("Protest", f"<div class=narrow><h1>Protest</h1>{top}<div class=card>This incident isn't on the site any more. "
                     "It may have been changed already.</div></div>")
     driver, file, it = found
+    card = (f"<div class=card><b>{e(driver)}</b> · {e(label(file))}"
+            f"{' · lap ' + e(it['lap']) if it.get('lap') else ''} · <span class='mono neg'>{signed(it['pts'])}</span>"
+            f"<div class=muted>{e(it['text'])}</div></div>")
     if it["pts"] >= 0 or it.get("staff") is not None:
-        return page("Protest", f"<div class=narrow><h1>Protest</h1>{top}<div class=card>Only penalties the stewards haven't "
+        return page("Protest", f"<div class=narrow><h1>Protest</h1>{top}{card}<div class=card>Only penalties the stewards haven't "
                     "looked at yet can be protested.</div></div>")
-    form = (f'<form method=post action="/protest">{field("csrf", csrf_token(member))}{field("item", item)}'
+    csrf = field("csrf", csrf_token(member)) + field("item", item)
+    if not link:
+        from bot import links as L
+        data = L.Links().read()
+        taken = {v["driver"].lower() for v in data.values() if v["how"] != "auto"}
+        names = sorted((d for d in L.drivers_of(site_json("league/safety.json")) if d.lower() not in taken), key=str.lower)
+        opts = "".join(f"<option{' selected' if d in involved(driver, it) and len(involved(driver, it)) == 1 else ''}>{e(d)}</option>"
+                       for d in names)
+        return page("Protest", f"<div class=narrow><h1>Protest an incident</h1>{top}{card}<div class=card>"
+                    f"<p><b>Your Discord isn't linked to a driver yet.</b> Pick your driver name. It's the same as /link in "
+                    f"LINK-YOUR-NAME on Discord and also gets you your safety rating role.</p>"
+                    f'<form method=post action="/protest-link" class=inline>{csrf}<select name=driver required>'
+                    f'<option value="" selected disabled>Your driver name</option>{opts}</select><button>This is me</button></form>'
+                    f"<p class=muted>Name not in the list? Someone else linked it. Ask a mod.</p></div></div>")
+    if not is_involved(link, driver, it):
+        who = " and ".join(involved(driver, it))
+        return page("Protest", f"<div class=narrow><h1>Protest</h1>{top}{card}<div class=card>Only the drivers in this incident "
+                    f"({e(who)}) can protest it. Your Discord is linked to {e(link['driver'])}. Wrong name? Ask a mod.</div></div>")
+    other = other_in(it["text"])
+    faults = ["Me"] + ([other] if other and other.lower() != link["driver"].lower() else [])
+    if other and other.lower() == link["driver"].lower():
+        faults.append(driver)
+    faults += ["No one, racing incident", "Someone else"]
+    sel = lambda name, opts, ph: (f'<select name={name} required style="width:100%"><option value="" selected disabled>{ph}</option>'
+                                  + "".join(f"<option>{e(o)}</option>" for o in opts) + "</select>")
+    form = (f'<form method=post action="/protest" id=pf>{csrf}'
+            f'<p><b>Who was at fault?</b></p>{sel("fault", faults, "Choose")}'
+            f'<p><b>What kind of incident?</b></p>{sel("kind", KINDS, "Choose")}'
             f'<p><b>What happened?</b></p><textarea name=text required minlength=10 maxlength=1500 '
             f'placeholder="Tell us what happened from your side, and why you don\'t agree."></textarea>'
-            f'<p><input name=clip type=url maxlength=300 placeholder="Video clip link (optional)" style="width:100%"></p>'
-            f'<button>Send to the stewards</button></form>')
-    return page("Protest", f"<div class=narrow><h1>Protest an incident</h1>{top}<div class=card><b>{e(driver)}</b> · {e(label(file))}"
-                f"{' · lap ' + e(it['lap']) if it.get('lap') else ''} · <span class='mono neg'>{signed(it['pts'])}</span>"
-                f"<div class=muted>{e(it['text'])}</div></div><div class=card>{form}</div></div>")
+            f'<p><b>Video clip</b> <span class=muted>(optional, up to {CLIP_MAX // 1024 ** 2} MB)</span></p>'
+            f'<p><input type=file id=clip accept="video/mp4,video/webm,video/quicktime,video/x-matroska"></p>'
+            f'<p id=pmsg class=muted></p><button id=pbtn>Send to the stewards</button></form>' + PROTEST_JS)
+    return page("Protest", f"<div class=narrow><h1>Protest an incident</h1>{top}{card}<div class=card>{form}</div></div>")
 
 
-SITE_ORIGIN = "https://gremigaming.github.io"
-_sent_by_ip = {}  # ip -> [times], against spam from the open site form
+# Sends the form, then the clip with a progress count. Without a clip the form posts as usual.
+PROTEST_JS = """<script>
+document.getElementById('pf').addEventListener('submit', async function (ev) {
+  var f = document.getElementById('clip').files[0];
+  if (!f) return;
+  ev.preventDefault();
+  var msg = document.getElementById('pmsg'), btn = document.getElementById('pbtn');
+  if (f.size > %d) { msg.textContent = 'That clip is too big. Trim it, or put a link in the description.'; return; }
+  btn.disabled = true; btn.textContent = 'Sending...';
+  var r = await fetch('/protest', {method: 'POST', headers: {'Accept': 'application/json'}, body: new URLSearchParams(new FormData(this))});
+  var d = await r.json();
+  if (!d.ok) { msg.textContent = d.message; btn.disabled = false; btn.textContent = 'Send to the stewards'; return; }
+  var x = new XMLHttpRequest();
+  x.open('POST', '/api/protest-clip?id=' + d.id + '&token=' + d.token);
+  x.setRequestHeader('Content-Type', f.type);
+  x.upload.onprogress = function (e) { if (e.lengthComputable) btn.textContent = 'Uploading clip ' + Math.round(e.loaded / e.total * 100) + '%%'; };
+  var done = function (t) { location.href = location.pathname + location.search + '&ok=' + encodeURIComponent(t); };
+  x.onload = function () { var j = {}; try { j = JSON.parse(x.responseText); } catch (e) {}
+    done(j.ok ? 'Sent with your clip. The stewards get a notice and will answer here.' : 'Sent, but the clip did not upload' + (j.message ? ' (' + j.message + ')' : '') + '. Share it with a mod on Discord.'); };
+  x.onerror = function () { done('Sent, but the clip did not upload. Share it with a mod on Discord.'); };
+  x.send(f);
+});
+</script>""" % CLIP_MAX
 
 
-def site_protest(body, ip):
-    """A protest from the form on the site: {item, fault, kind, text, clip, name}.
-    Returns the protest id and a token to upload a clip for it."""
-    now = time.time()
-    with _protest_lock:
-        times = [t for t in _sent_by_ip.get(ip, []) if now - t < 3600]
-        _sent_by_ip[ip] = times
-        if len(times) >= 5:
-            raise ValueError("You sent 5 protests in the last hour. Try again later.")
-    name = (body.get("name") or "").strip()[:40]
-    if not name:
-        raise ValueError("Please give your Discord name, so the stewards can answer you.")
-    member = {"id": None, "name": name}
-    pid = protest_send({k: str(body.get(k) or "") for k in ("item", "fault", "kind", "text", "clip")}, member, site=True)
-    with _protest_lock:
-        _sent_by_ip.setdefault(ip, []).append(now)
-    return pid, sign(f"clip:{pid}".encode())
+def protest_link(form, member):
+    """An unlinked member picks their driver name on the protest page (a self link, like /link)."""
+    from bot import links as L
+    driver = form.get("driver", "")
+    if driver not in L.drivers_of(site_json("league/safety.json")):
+        raise ValueError("Pick your driver name from the list.")
+    ok, msg = L.Links().link(int(member["id"]), driver, "self")
+    if not ok:
+        raise ValueError(msg)
+    return msg
 
 
 def clip_upload(pid, token, ctype, length, stream):
-    """Stores the video clip of a protest sent from the site, once, shortly after it was sent."""
+    """Stores the video clip of a protest, once, shortly after it was sent."""
     ext = CLIP_TYPES.get(ctype.split(";")[0].strip().lower())
     if not ext:
         raise ValueError("Only mp4, webm, mov or mkv videos.")
@@ -822,33 +887,35 @@ def clip_upload(pid, token, ctype, length, stream):
     save_protests(edit)
 
 
-def protest_send(form, member, site=False):
+def protest_send(form, member):
+    """Saves a protest from a logged-in driver who was in the incident. Returns its id."""
     item = form.get("item", "")
     text = (form.get("text") or "").strip()[:1500]
-    clip = (form.get("clip") or "").strip()[:300]
     fault = (form.get("fault") or "").strip()[:60]
     kind = (form.get("kind") or "").strip()[:60]
     if len(text) < 10:
         raise ValueError("Please tell us a bit more.")
-    if clip and not re.match(r"^https://[^\s\"'<>]+$", clip):
-        raise ValueError("The clip link must start with https://")
     found = find_item(item)
     if not found or found[2]["pts"] >= 0:
         raise ValueError("That incident isn't on the site any more.")
     driver, file, it = found
-
+    link = member_link(member["id"])
+    if not is_involved(link, driver, it):
+        raise ValueError("Only the drivers in this incident can protest it.")
     pid = secrets.token_hex(6)
+    now = datetime.datetime.now(datetime.timezone.utc)
 
     def edit(data):
-        mine = [p for p in data if p["by"] == member["id"] and (not site or p["by_name"].lower() == member["name"].lower())]
+        mine = [p for p in data if p["by"] == member["id"]]
         if any(p["item"] == item for p in mine):
             raise ValueError("You already protested this incident.")
         if sum(p["status"] == "open" for p in mine) >= 10:
             raise ValueError("You have 10 open protests. Wait for the stewards to answer those first.")
         data.append({"id": pid, "item": item, "driver": driver, "file": file, "lap": it.get("lap"),
                      "pts": it["pts"], "what": it["text"], "by": member["id"], "by_name": member["name"],
-                     "linked": linked_driver(int(member["id"])) if member["id"] else None, "site": site, "fault": fault, "kind": kind, "text": text, "clip": clip, "status": "open",
-                     "at": datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")})
+                     "linked": link["driver"], "linked_now": link.get("how") == "self" and now.timestamp() - link.get("at", 0) < 3600,
+                     "fault": fault, "kind": kind, "text": text, "clip": "", "status": "open",
+                     "at": now.strftime("%Y-%m-%dT%H:%M:%SZ")})
     save_protests(edit)
     return pid
 
@@ -1014,26 +1081,8 @@ class Handler(BaseHTTPRequestHandler):
         except Exception as ex:  # keep the page up and say what went wrong
             self.send(500, page("Error", f"<p class='flash err'>Something went wrong: {e(explain(ex))}</p>", self.user()))
 
-    def do_OPTIONS(self):
-        self.send(204, "", {"Access-Control-Allow-Origin": SITE_ORIGIN, "Access-Control-Allow-Methods": "POST",
-                            "Access-Control-Allow-Headers": "Content-Type", "Access-Control-Max-Age": "86400"})
-
-    def api_protest(self, raw):
-        cors = {"Access-Control-Allow-Origin": SITE_ORIGIN, "Content-Type": "application/json"}
-        ip = (self.headers.get("X-Forwarded-For") or self.client_address[0]).split(",")[0].strip()
-        try:
-            body = json.loads(raw or "{}")
-            if not isinstance(body, dict):
-                raise ValueError("Bad request.")
-            pid, token = site_protest(body, ip)
-            return self.send(200, json.dumps({"ok": True, "message": "Sent to the stewards.", "id": pid, "token": token}), cors)
-        except ValueError as ex:
-            return self.send(400, json.dumps({"ok": False, "message": str(ex) or "Bad request."}), cors)
-        except Exception as ex:
-            return self.send(500, json.dumps({"ok": False, "message": "The stewards' page had a problem. Try again later."}), cors)
-
     def api_clip(self, q):
-        cors = {"Access-Control-Allow-Origin": SITE_ORIGIN, "Content-Type": "application/json"}
+        cors = {"Content-Type": "application/json"}
         length = int(self.headers.get("Content-Length") or 0)
         try:
             clip_upload(q.get("id", [""])[0], q.get("token", [""])[0], self.headers.get("Content-Type", ""), length, self.rfile)
@@ -1086,8 +1135,6 @@ class Handler(BaseHTTPRequestHandler):
         if url.path == "/api/protest-clip":
             return self.api_clip(urllib.parse.parse_qs(url.query))
         length = min(int(self.headers.get("Content-Length") or 0), 20000)
-        if self.path == "/api/protest":
-            return self.api_protest(self.rfile.read(length).decode(errors="replace"))
         multi = urllib.parse.parse_qs(self.rfile.read(length).decode())
         form = {k: v[0] for k, v in multi.items()}
         form["cars"] = "\n".join(multi.get("cars", []))
@@ -1096,13 +1143,27 @@ class Handler(BaseHTTPRequestHandler):
             back = "/protest?item=" + urllib.parse.quote(form.get("item", ""))
             if not member or not hmac.compare_digest(form.get("csrf", ""), csrf_token(member)):
                 return self.redirect(back)
+            wants_json = "application/json" in self.headers.get("Accept", "")
             try:
-                protest_send(form, member)
+                pid = protest_send(form, member)
+                if wants_json:  # the page uploads the clip next
+                    return self.send(200, json.dumps({"ok": True, "id": pid, "token": sign(f"clip:{pid}".encode())}),
+                                     {"Content-Type": "application/json"})
                 msg = "Sent. The stewards get a notice and will answer here."
-            except ValueError as ex:
-                msg = f"Not sent: {ex}"
             except Exception as ex:
-                msg = f"Not sent: {explain(ex)}"
+                msg = f"Not sent: {ex if isinstance(ex, ValueError) else explain(ex)}"
+                if wants_json:
+                    return self.send(200, json.dumps({"ok": False, "message": msg}), {"Content-Type": "application/json"})
+            return self.redirect(f"{back}&ok={urllib.parse.quote(msg)}")
+        if self.path == "/protest-link":
+            member = self.member()
+            back = "/protest?item=" + urllib.parse.quote(form.get("item", ""))
+            if not member or not hmac.compare_digest(form.get("csrf", ""), csrf_token(member)):
+                return self.redirect(back)
+            try:
+                msg = protest_link(form, member) + " You can protest now."
+            except Exception as ex:
+                msg = f"Not linked: {ex if isinstance(ex, ValueError) else explain(ex)}"
             return self.redirect(f"{back}&ok={urllib.parse.quote(msg)}")
         user = self.user()
         if not user or not hmac.compare_digest(form.get("csrf", ""), csrf_token(user)):
