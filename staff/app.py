@@ -1051,7 +1051,9 @@ class Handler(BaseHTTPRequestHandler):
         q = urllib.parse.parse_qs(url.query)
         try:
             if url.path in ("/giveaway", "/giveaway.json"):
+                import importlib
                 from bot import giveaway
+                giveaway = importlib.reload(giveaway)  # the bot's code may be newer than this page
             if url.path == "/giveaway":  # OBS browser source, public
                 return self.send(200, giveaway.OVERLAY.read_text(encoding="utf-8"),
                                  {"X-Frame-Options": "SAMEORIGIN"})

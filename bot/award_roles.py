@@ -58,6 +58,13 @@ def choose(state, ranking, linked, present, owner_id, now, hold_days=HOLD_DAYS):
     return best if best else (None, None)
 
 
+NOTIFY_ME = 1117766461147070554  # GreMi: only ping members who have Notify Me
+
+
+def wants_pings(member):
+    return member is not None and any(r.id == NOTIFY_ME for r in member.roles)
+
+
 def vip_matches(vips, members):
     """{member id} whose name matches a Twitch VIP. vips: [(login, display)],
     members: [(id, [names])]."""
@@ -123,7 +130,8 @@ async def sync_awards(guild, owner_id, state):
         await channel.send("\n".join(news) + "\n-# Over the last 5 streams, checked every day. "
                            "Link your driver name in "
                            "<#1558730257593409628> to compete.",
-                           allowed_mentions=discord.AllowedMentions(users=[discord.Object(u) for u in winners]))
+                           allowed_mentions=discord.AllowedMentions(users=[
+                               discord.Object(u) for u in winners if wants_pings(guild.get_member(u))]))
 
 
 async def sync_vips(guild, state, report):
