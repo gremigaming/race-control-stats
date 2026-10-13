@@ -118,7 +118,8 @@ async def sync_awards(guild, owner_id, state):
             was = f", taking over from <@{old['uid']}>" if old.get("uid") else ""
             news.append(f"🏆 **{role.name}**: <@{uid}> ({row['text']}){was}")
             winners.append(uid)
-    if news and channel:
+    if news:
+        channel = channel or await guild.fetch_channel(F1_CHAT_ID)
         await channel.send("\n".join(news) + "\n-# Over the last 5 streams. A new holder keeps the "
                            "role for at least a week. Link your driver name in "
                            "<#1558730257593409628> to compete.",
