@@ -2,15 +2,20 @@ name: Post clip
 
 # Sends a finished clip from clip-studio (clips-ready/<clip>) to GreMi's TikTok drafts.
 # Nothing goes public: GreMi gets the caption in a Discord DM, adds a sound in TikTok and posts.
+# Every morning (08:00 Dutch summer time, 07:00 winter time) it sends the oldest
+# clip in clip-studio's queue that hasn't been sent yet.
 on:
+  schedule:
+    - cron: "0 6 * * *"
   workflow_dispatch:
     inputs:
       clip:
-        description: "Clip folder name in clips-ready, e.g. singapore-ferrari (or stats for your latest TikTok numbers)"
+        description: "Clip folder name in clips-ready, e.g. singapore-ferrari (next = oldest unsent clip, stats = your latest TikTok numbers)"
         required: true
+        default: next
 
 permissions:
-  contents: read
+  contents: write
 
 # Shares the TikTok login with the stats run, so they never refresh it at the same time
 concurrency:
@@ -31,7 +36,7 @@ jobs:
           TIKTOK_CLIENT_SECRET: ${{ secrets.TIKTOK_CLIENT_SECRET }}
           TIKTOK_REFRESH_TOKEN: ${{ secrets.TIKTOK_REFRESH_TOKEN }}
           TIKTOK_REFRESH_TOKEN_OUT: ${{ runner.temp }}/tiktok_refresh_token
-          CLIP: ${{ inputs.clip }}
+          CLIP: ${{ inputs.clip || 'next' }}
         run: python3 post_clip.py "$CLIP"
 
       # TikTok can hand out a new login token on each use; store it or the next run fails
@@ -45,3 +50,15 @@ jobs:
           gh secret set TIKTOK_REFRESH_TOKEN --repo "${{ github.repository }}" < "$FILE"
           rm -f "$FILE"
           echo "Saved the new TikTok login."
+
+      # Remember which clips were sent, so the morning run picks a new one
+      - name: Save sent clips
+        if: always()
+        run: |
+          git config user.name "github-actions"
+          git config user.email "github-actions@users.noreply.github.com"
+          git add clips_sent.json 2>/dev/null || exit 0
+          git diff --cached --quiet && exit 0
+          git commit -m "Clip sent to TikTok drafts"
+          for i in 1 2 3 4; do git pull --rebase -q origin main && git push -q && exit 0; sleep $((i * 3)); done
+          exit 1

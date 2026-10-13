@@ -7,6 +7,10 @@ video to the TikTok inbox (drafts), DMs GreMi the caption on Discord (one messag
 he can copy straight into TikTok) and puts post.md in the run summary. Nothing
 goes public: GreMi opens TikTok, adds a sound and the caption, and posts.
 
+    python3 post_clip.py next
+sends the oldest clip in clip-studio's queue.json that isn't in clips_sent.json yet
+(the daily morning run). Every clip sent is added to clips_sent.json.
+
     python3 post_clip.py stats
 lists GreMi's latest TikTok videos with views, likes, comments and shares.
 """
@@ -31,6 +35,7 @@ SUMMARY = os.environ.get("GITHUB_STEP_SUMMARY", "")
 DISCORD_TOKEN = os.environ.get("DISCORD_BOT_TOKEN", "")
 DISCORD_API = "https://discord.com/api/v10"
 GUILD_ID = "1079917337165172876"
+SENT_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "clips_sent.json")
 
 
 def http(method, url, headers=None, data=None, form=False):
@@ -56,7 +61,11 @@ def http(method, url, headers=None, data=None, form=False):
 
 def clip_file(clip, name):
     """One file of a finished clip, straight from the private clip-studio repo."""
-    url = f"https://api.github.com/repos/{CLIPS_REPO}/contents/clips-ready/{clip}/{name}"
+    return repo_file(f"clips-ready/{clip}/{name}")
+
+
+def repo_file(path):
+    url = f"https://api.github.com/repos/{CLIPS_REPO}/contents/{path}"
     req = urllib.request.Request(url, headers={
         "Accept": "application/vnd.github.raw",
         "Authorization": f"Bearer {GH_TOKEN}",
@@ -66,7 +75,7 @@ def clip_file(clip, name):
         with urllib.request.urlopen(req, timeout=120) as resp:
             return resp.read()
     except urllib.error.HTTPError as e:
-        raise RuntimeError(f"Could not read clips-ready/{clip}/{name} from clip-studio ({e.code})")
+        raise RuntimeError(f"Could not read {path} from clip-studio ({e.code})")
 
 
 def tiktok_access():
@@ -172,16 +181,46 @@ def dm_caption(clip, caption):
     if not (DISCORD_TOKEN and caption):
         return False
     try:
-        owner = discord("GET", f"/guilds/{GUILD_ID}")["owner_id"]
-        channel = discord("POST", "/users/@me/channels", {"recipient_id": owner})["id"]
-        discord("POST", f"/channels/{channel}/messages", {
-            "content": f"🎬 **{clip}** is in your TikTok drafts. Hold the next message, "
-                       "tap Copy Text and paste it as the caption. Then add a sound at 0% and post."})
-        discord("POST", f"/channels/{channel}/messages", {"content": caption})
+        dm(f"🎬 **{clip}** is in your TikTok drafts. Hold the next message, "
+           "tap Copy Text and paste it as the caption. Then add a sound at 0% and post.")
+        dm(caption)
         return True
     except (urllib.error.URLError, KeyError) as e:
         print(f"Could not send the caption on Discord ({getattr(e, 'code', e)})")
         return False
+
+
+def sent_clips():
+    try:
+        with open(SENT_FILE, encoding="utf-8") as f:
+            return json.load(f)
+    except FileNotFoundError:
+        return []
+
+
+def mark_sent(clip):
+    sent = sent_clips()
+    if clip not in sent:
+        sent.append(clip)
+        with open(SENT_FILE, "w", encoding="utf-8") as f:
+            json.dump(sent, f, indent=1)
+            f.write("\n")
+
+
+def next_clip():
+    """Oldest recorded clip in the queue that hasn't been sent yet, or None."""
+    queue = json.loads(repo_file("queue.json"))
+    sent = set(sent_clips())
+    for item in sorted(queue, key=lambda q: q["source"]):
+        if item["slug"] not in sent:
+            return item["slug"]
+    return None
+
+
+def dm(text):
+    owner = discord("GET", f"/guilds/{GUILD_ID}")["owner_id"]
+    channel = discord("POST", "/users/@me/channels", {"recipient_id": owner})["id"]
+    discord("POST", f"/channels/{channel}/messages", {"content": text})
 
 
 def main(argv):
@@ -198,10 +237,18 @@ def main(argv):
         return show_stats()
     if not GH_TOKEN:
         raise SystemExit("GH_SECRETS_TOKEN is missing")
+    if clip == "next":
+        clip = next_clip()
+        if not clip:
+            print("No new clips in the queue.")
+            if DISCORD_TOKEN:
+                dm("📭 No new clips ready for today's TikTok. Record some racing and I'll edit the best bits!")
+            return
     video = clip_file(clip, "video.mp4")
     post = clip_file(clip, "post.md").decode("utf-8")
     print(f"Sending {clip} ({len(video) / 1e6:.1f} MB) to TikTok drafts", flush=True)
     tiktok_draft(video)
+    mark_sent(clip)
     sent = dm_caption(clip, caption_from(post))
     print("Done: open TikTok, tap the inbox notification, add a sound and the caption, and post."
           + (" The caption is in your Discord DMs." if sent else ""))

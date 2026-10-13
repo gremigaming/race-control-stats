@@ -36,9 +36,7 @@ def main():
     time.sleep(wait)
     if not post_clip.DISCORD_TOKEN:
         sys.exit("DISCORD_BOT_TOKEN is missing")
-    owner = post_clip.discord("GET", f"/guilds/{post_clip.GUILD_ID}")["owner_id"]
-    channel = post_clip.discord("POST", "/users/@me/channels", {"recipient_id": owner})["id"]
-    post_clip.discord("POST", f"/channels/{channel}/messages", {"content": MESSAGE})
+    post_clip.dm(MESSAGE)
     print("Reminder sent.")
 
 
