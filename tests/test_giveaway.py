@@ -56,9 +56,11 @@ class GiveawayTests(unittest.TestCase):
 
     def test_panel_and_table(self):
         text = g.entries_text(CONFIG)
-        self.assertIn("Prize Hunter role: **10**", text)
-        self.assertIn("Tier 3 **+30**", text)
-        self.assertIn("S+ +30", text)
+        self.assertIn("<@&1556963755043192862> starts with **10 entries**", text)
+        self.assertIn("<@&1080519811219595377> **+30**", text)
+        self.assertIn("<@&1558583801813270581> **+30**", text)
+        self.assertEqual(g.entrants_text([("1", 10), ("2", 45)]), "<@2> 🎟️45 · <@1> 🎟️10")
+        self.assertIn("and 2 more", g.entrants_text([(str(i), 10) for i in range(5)], limit=3))
         body = g.panel(g.fresh(3, 0), CONFIG, 0)
         self.assertEqual(body["flags"], 1 << 15)
         self.assertIn("ROUND 3", str(body))
@@ -73,10 +75,10 @@ class AwardTests(unittest.TestCase):
         uid, row = ar.choose({}, self.RANK, self.LINKED, {1, 2, 3}, 1, 0)
         self.assertEqual((uid, row["name"]), (2, "Shw1ks"))
 
-    def test_holder_keeps_it_for_a_week(self):
+    def test_holder_keeps_it_for_a_day(self):
         state = {"uid": 3, "since": 0}
-        self.assertEqual(ar.choose(state, self.RANK, self.LINKED, {1, 2, 3}, 1, 6 * 86400)[0], 3)
-        self.assertEqual(ar.choose(state, self.RANK, self.LINKED, {1, 2, 3}, 1, 7 * 86400)[0], 2)
+        self.assertEqual(ar.choose(state, self.RANK, self.LINKED, {1, 2, 3}, 1, 20 * 3600)[0], 3)
+        self.assertEqual(ar.choose(state, self.RANK, self.LINKED, {1, 2, 3}, 1, 86400)[0], 2)
 
     def test_holder_who_left_is_replaced(self):
         self.assertEqual(ar.choose({"uid": 3, "since": 0}, self.RANK, self.LINKED, {1, 2}, 1, 10)[0], 2)

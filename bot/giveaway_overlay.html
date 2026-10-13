@@ -18,7 +18,9 @@
   .gift { font-size: 46px; line-height: 1; filter: drop-shadow(0 0 10px rgba(145,70,255,.6)); }
   .label { white-space: nowrap; font-weight: 600; font-size: 17px; letter-spacing: .14em; color: var(--dim); text-transform: uppercase; }
   .big { font-weight: 800; font-size: 40px; line-height: 1; text-transform: uppercase; letter-spacing: .02em; }
-  .pips { display: flex; gap: 6px; margin-top: 8px; }
+  .row { display: flex; align-items: center; gap: 14px; margin-top: 8px; }
+  .pips { display: flex; gap: 6px; }
+  .who { white-space: nowrap; font-weight: 600; font-size: 17px; letter-spacing: .06em; color: var(--dim); }
   .pip { width: 30px; height: 7px; border-radius: 4px; background: rgba(255,255,255,.16); transition: background .4s; }
   .pip.on { background: linear-gradient(90deg, var(--red), var(--purple)); box-shadow: 0 0 8px rgba(145,70,255,.7); }
   .hidden { opacity: 0; }
@@ -31,7 +33,7 @@
   <div>
     <div class="label" id="label">Weekly giveaway</div>
     <div class="big" id="big">…</div>
-    <div class="pips" id="pips"></div>
+    <div class="row"><div class="pips" id="pips"></div><div class="who" id="who"></div></div>
   </div>
 </div>
 <script>
@@ -58,6 +60,8 @@ function show() {
   }
   $("label").textContent = label;
   $("big").textContent = big;
+  const n = data.entered || 0;
+  $("who").textContent = data.status === "closed" ? "" : "👥 " + n + (n === 1 ? " entered" : " entered");
   const pips = $("pips");
   if (pips.children.length !== data.need) {
     pips.innerHTML = "";
@@ -72,7 +76,7 @@ async function poll() {
     const r = await fetch("giveaway.json", { cache: "no-store" });
     const d = await r.json();
     offset = d.now - Date.now() / 1000;
-    const key = d.status + d.subs;
+    const key = d.status + d.subs + "/" + d.entered;
     if (last !== null && key !== last) { $("card").classList.remove("pop"); void $("card").offsetWidth; $("card").classList.add("pop"); }
     last = key; data = d; show();
   } catch (e) { /* keep showing the last value */ }

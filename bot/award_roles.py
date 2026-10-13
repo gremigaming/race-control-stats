@@ -4,7 +4,7 @@ Award roles: race-stats ranks the drivers over the last 5 streams
 (league/awards.json, scripts/awards.py there). Each role goes to the best
 driver who has linked their Discord (bot/links.py), never GreMi (then the next
 one). A holder keeps the role for at least HOLD_DAYS; after that the best
-driver takes it over, and Race Control says so in F1-CHAT. A driver can hold
+driver takes it over, and Race Control says so in F1-CHAT (old ➜ new). A driver can hold
 several. The roles always have a holder while anyone linked qualifies.
 
 VIP: members whose name matches one of the Twitch channel's VIPs get the VIP
@@ -27,7 +27,7 @@ AWARDS_URL = "https://gremigaming.github.io/race-stats/league/awards.json"
 STATE = pathlib.Path(os.environ.get("RACE_CONTROL_AWARDS", "/var/lib/race-control/awards.json"))
 F1_CHAT_ID = 1556941705322692608
 VIP_ROLE = 1100007755332452472
-HOLD_DAYS = 7
+HOLD_DAYS = 1  # GreMi 2026-10-13: may switch every day
 EVERY = 1800  # seconds between checks
 AWARDS = {  # key in awards.json -> role id
     "wins": 1472160002243428487,
@@ -115,13 +115,13 @@ async def sync_awards(guild, owner_id, state):
         if member and role not in member.roles:
             await member.add_roles(role, reason="Best over the last 5 streams")
         if uid != old.get("uid") and row:
-            was = f", taking over from <@{old['uid']}>" if old.get("uid") else ""
-            news.append(f"🏆 **{role.name}**: <@{uid}> ({row['text']}){was}")
+            was = f"<@{old['uid']}> ➜ " if old.get("uid") else "➜ "
+            news.append(f"🏆 **{role.name}**: {was}<@{uid}> ({row['text']})")
             winners.append(uid)
     if news:
         channel = channel or await guild.fetch_channel(F1_CHAT_ID)
-        await channel.send("\n".join(news) + "\n-# Over the last 5 streams. A new holder keeps the "
-                           "role for at least a week. Link your driver name in "
+        await channel.send("\n".join(news) + "\n-# Over the last 5 streams, checked every day. "
+                           "Link your driver name in "
                            "<#1558730257593409628> to compete.",
                            allowed_mentions=discord.AllowedMentions(users=[discord.Object(u) for u in winners]))
 

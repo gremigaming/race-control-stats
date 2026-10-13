@@ -113,25 +113,43 @@ def public(state, config, now):
     """What the OBS counter shows (no names)."""
     return {"status": state["status"], "round": state["round"], "need": config["need"],
             "subs": min(len(state["subs"]), config["need"]), "left": subs_left(state, config),
-            "draw_at": state.get("draw_at"), "reopen_at": state.get("reopen_at"), "now": now}
+            "draw_at": state.get("draw_at"), "reopen_at": state.get("reopen_at"),
+            "entered": len(state["entrants"]), "now": now}
 
 
 def entries_text(config):
-    """The entries table on the panel."""
-    by = {b["label"]: b["entries"] for b in config["bonus"]}
-    sr = " · ".join(f"{k[3:]} +{by[k]}" for k in ("SR S+", "SR S", "SR A", "SR B", "SR C") if k in by)
-    awards = [k for k in ("Most Wins", "Most FL", "Most DOTD", "Most Overtakes", "Cleanest Driver") if k in by]
-    lines = [f"Everyone with the Prize Hunter role: **{config['base']}**"]
-    tiers = [by.get(f"Twitch sub Tier {i}") for i in (1, 2, 3)]
-    if all(tiers):
-        lines.append(f"Twitch sub: Tier 1 **+{tiers[0]}** · Tier 2 **+{tiers[1]}** · Tier 3 **+{tiers[2]}**")
-    simple = [k for k in ("Server Booster", "Simgasm Buyer", "VIP", "OG") if k in by]
-    lines.append(" · ".join(f"{k} **+{by[k]}**" for k in simple))
+    """The entries table on the panel. Role mentions show in the role's colour
+    (the panel pings nobody)."""
+    role = {b["label"]: (b["role"], b["entries"]) for b in config["bonus"]}
+
+    def one(label):
+        rid, n = role[label]
+        return f"<@&{rid}> **+{n}**"
+
+    def row(labels):
+        return " · ".join(one(k) for k in labels if k in role)
+
+    awards = [k for k in ("Most Wins", "Most FL", "Most DOTD", "Most Overtakes", "Cleanest Driver") if k in role]
+    lines = [f"🏁 Everyone with <@&{config['entry_role']}> starts with **{config['base']} entries**", "",
+             "💜 **Supporters**", row(["Twitch sub Tier 1", "Twitch sub Tier 2", "Twitch sub Tier 3"]),
+             row(["Server Booster", "Simgasm Buyer"]), "",
+             "⭐ **Community**", row(["VIP", "OG"]), ""]
     if awards:
-        lines.append(f"Each award role ({', '.join(awards)}): **+{by[awards[0]]}**")
-    if sr:
-        lines.append(f"Safety rating: {sr} (D, E and F +0)")
+        lines += [f"🏆 **Award roles** (+{role[awards[0]][1]} each)", " ".join(f"<@&{role[k][0]}>" for k in awards), ""]
+    lines += ["🛡️ **Safety rating**", row(["SR S+", "SR S", "SR A", "SR B", "SR C"]),
+              "-# SR D, E and F give no extra entries."]
     return "\n".join(lines)
+
+
+def entrants_text(entered, limit=40):
+    """entered: [(uid, entries)] -> who's in, most entries first."""
+    if not entered:
+        return "Nobody yet. Be the first!"
+    rows = sorted(entered, key=lambda x: -x[1])
+    out = " · ".join(f"<@{uid}> 🎟️{n}" for uid, n in rows[:limit])
+    if len(rows) > limit:
+        out += f" · and {len(rows) - limit} more"
+    return out
 
 
 # ---------------------------------------------------------------- state on disk
@@ -179,14 +197,16 @@ async def on_sub(sub):
     _wake.set()
 
 
-def panel(state, config, now):
-    """The giveaway panel (Components V2 JSON)."""
+def panel(state, config, now, entered=None):
+    """The giveaway panel (Components V2 JSON). entered: [(uid, entries now)]."""
     status = state["status"]
     need, have = config["need"], min(len(state["subs"]), config["need"])
+    if entered is None:
+        entered = [(uid, config["base"]) for uid in state["entrants"]]
     if status == "open":
         dots = "🟣" * have + "⚫" * (need - have)
         head = (f"## {dots}  {have} / {need} new subs\n"
-                f"The draw starts {config['delay_minutes']} minutes after the {need}th new Twitch sub "
+                f"⏱️ The draw starts **{config['delay_minutes']} minutes after the {need}th new Twitch sub** "
                 "since this round opened. New, Prime and gifted subs count.")
     elif status == "drawing":
         head = (f"## 🥁 Draw <t:{int(state['draw_at'])}:R>\n"
@@ -197,16 +217,20 @@ def panel(state, config, now):
         who = f"<@{last['uid']}>" if last.get("uid") else "nobody (no entries)"
         head = (f"## 🏆 Round {state['round']} winner: {who}\n"
                 f"The next giveaway opens <t:{int(state['reopen_at'])}:R>.")
-    entered = len(state["entrants"])
+    total = sum(n for _, n in entered)
     body = [
         {"type": 10, "content": f"-# WEEKLY GIVEAWAY · ROUND {state['round']}\n"
-                                f"# 🎁 {config['prize']}\n{config['prize_choice']}."},
+                                f"# 🎁 {config['prize']}\n🎮 {config['prize_choice']}."},
         {"type": 14, "divider": True, "spacing": 1},
-        {"type": 10, "content": head + f"\n-# {entered} driver{'' if entered == 1 else 's'} entered"},
-        {"type": 14, "divider": True, "spacing": 1},
-        {"type": 10, "content": "## 🎟️ Entries\n" + entries_text(config) + "\n-# Entries are counted "
-                                "at the draw from your roles at that moment, so they can go up or down while "
-                                "you're entered. Drop an SR rank and you lose those extra entries."},
+        {"type": 10, "content": head},
+        {"type": 14, "divider": True, "spacing": 2},
+        {"type": 10, "content": "## 🎟️ How many entries do you get?\n" + entries_text(config)},
+        {"type": 14, "divider": True, "spacing": 2},
+        {"type": 10, "content": f"## 👥 Entered: {len(entered)}" + (f" · {total} entries" if entered else "")
+                                + "\n" + entrants_text(entered)
+                                + "\n-# Entries are counted again at the draw from your roles at that moment, "
+                                  "so they go up or down with your roles. Drop an SR rank and you lose "
+                                  "those extra entries."},
         {"type": 1, "components": [
             {"type": 2, "style": 3, "label": "Enter", "emoji": {"name": "🎟️"}, "custom_id": ENTER,
              "disabled": status == "closed"},
@@ -232,7 +256,7 @@ class Runner:
                        json={"content": text, "allowed_mentions": {"parse": [], "users": [str(u) for u in users]}})
 
     async def keep_panel(self, state, config, now, force=False):
-        body = panel(state, config, now)
+        body = panel(state, config, now, self.entered(state, config))
         if body == self.shown and not force:
             return
         if not force and now - self.edited < PANEL_EVERY:
@@ -251,6 +275,16 @@ class Runner:
         state["panel"] = msg["id"]
         save_state(state)
         self.shown = body
+
+    def entered(self, state, config):
+        """[(uid, entries right now)] of the members who entered."""
+        guild = self.bot.get_guild(self.guild_id)
+        out = []
+        for uid in state["entrants"]:
+            m = guild.get_member(int(uid)) if guild else None
+            if m is not None:
+                out.append((uid, entries([r.id for r in m.roles], config)[0]))
+        return out
 
     async def say(self, text):
         if ANNOUNCE:
