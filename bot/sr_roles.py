@@ -26,6 +26,7 @@ PICK = "srlink:pick:"
 UNLINK = "srlink:unlink"
 
 store = L.Links()
+CLICKS = []  # more async fn(interaction) for buttons elsewhere (bot/giveaway.py)
 safety = {"data": None, "at": 0}
 
 
@@ -319,6 +320,11 @@ def setup(bot, guild_id):
             await on_panel(interaction)
         except Exception as e:  # never let a click take the bot down
             log.warning("link panel click failed: %s", e)
+        for handler in CLICKS:  # other panels (the giveaway)
+            try:
+                await handler(interaction)
+            except Exception as e:
+                log.warning("click failed: %s", e)
 
 
 async def setup_ready(bot, guild_id):

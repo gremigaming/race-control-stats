@@ -168,6 +168,8 @@ async def handle(yt, items, answered):
         if twitch_chat.ROOM is not None:
             twitch_chat.ROOM.commands[i] = time.time()
         message = config["timers"][i]["text"]
+        if twitch_chat.FILL:
+            message = twitch_chat.FILL(message)
         await yt.say(message)
         if twitch_chat.SAY is not None:  # Twitch too, so the stream popups fire
             await twitch_chat.SAY(message)

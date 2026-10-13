@@ -3,7 +3,7 @@
 Two Twitch logins, both from the "Twitch chat" workflow:
   login        the bot account (gremi_bot) that reads and writes chat
                -> bot/twitch_chat.sealed
-  login-owner  GreMi's own account, only for ads (Twitch lets only the channel
+  login-owner  GreMi's own account, for ads, new subs (giveaway) and VIPs (Twitch lets only the channel
                owner run them) -> bot/twitch_owner.sealed
 The workflow seals each login with a key made from the Discord bot token, which
 the workflow and this server both have, and commits it; the bot restarts on that
@@ -306,6 +306,19 @@ class Twitch:
         res = await self.call("GET", "/channels/ads", params={"broadcaster_id": self.me["id"]})
         return (res.get("data") or [{}])[0]
 
+    async def vips(self):
+        """Twitch logins of the channel's VIPs (owner login with channel:read:vips)."""
+        out, after = [], None
+        while True:
+            params = {"broadcaster_id": self.me["id"], "first": 100}
+            if after:
+                params["after"] = after
+            res = await self.call("GET", "/channels/vips", params=params)
+            out += [(v["user_login"], v["user_name"]) for v in res.get("data", [])]
+            after = (res.get("pagination") or {}).get("cursor")
+            if not after:
+                return out
+
     async def snooze(self):
         res = await self.call("POST", "/channels/ads/schedule/snooze",
                               params={"broadcaster_id": self.me["id"]})
@@ -326,6 +339,10 @@ def chat_command(config, text, badges):
 
 
 REPORTER = None   # async fn(text): the Discord bot posts Twitch status in the staff LOGS channel
+FILL = None       # fn(text) -> text: fills {giveaway} in timer texts (bot/giveaway.py)
+ON_SUB = None     # async fn({"user", "gift"}): a new sub came in (bot/giveaway.py)
+ANNOUNCE = None   # async fn(text): set while running, for messages from the Discord side
+OWNER = None      # GreMi's own Twitch login while running (subs, VIPs)
 MIRRORS = []      # async fn(text) per other chat (YouTube) that gets the timers and commands too
 SAY = None        # async fn(text): post in Twitch chat (set while running)
 ROOM = None       # the running Room, so other chats can add their activity and commands
@@ -344,6 +361,8 @@ async def report(text):
 
 
 async def say_everywhere(bot, text):
+    if FILL:
+        text = FILL(text)
     await bot.say(text)
     for say in MIRRORS:
         try:
@@ -410,6 +429,42 @@ async def listen_chat(bot, room, ads_command):
         await asyncio.sleep(5 if url == EVENTSUB else 0)
 
 
+async def listen_subs(owner):
+    """New subs (new, Prime and gifted; not resubs) on GreMi's channel, for the
+    giveaway. Needs the owner login with channel:read:subscriptions."""
+    url = EVENTSUB
+    while True:
+        try:
+            async with owner.session.ws_connect(url, heartbeat=None) as ws:
+                url = EVENTSUB
+                async for msg in ws:
+                    data = json.loads(msg.data)
+                    kind = data["metadata"]["message_type"]
+                    if kind == "session_welcome":
+                        try:
+                            await owner.call("POST", "/eventsub/subscriptions", json={
+                                "type": "channel.subscribe", "version": "1",
+                                "condition": {"broadcaster_user_id": owner.me["id"]},
+                                "transport": {"method": "websocket",
+                                              "session_id": data["payload"]["session"]["id"]}})
+                        except RuntimeError as e:
+                            await report(f"can't count subs for the giveaway ({e}); run the Twitch chat "
+                                         "workflow with 'login-owner' again")
+                            return
+                        await report("counting new subs for the giveaway")
+                    elif kind == "session_reconnect":
+                        url = data["payload"]["session"]["reconnect_url"]
+                        break
+                    elif kind == "notification":
+                        ev = data["payload"]["event"]
+                        log.info("Twitch: new sub (%s)", "gift" if ev.get("is_gift") else "sub")
+                        if ON_SUB:
+                            await ON_SUB({"user": ev.get("user_login", ""), "gift": bool(ev.get("is_gift"))})
+        except Exception as e:
+            await report(f"sub listener problem: {e}")
+        await asyncio.sleep(5 if url == EVENTSUB else 0)
+
+
 async def watch_races(session, room, live):
     """Notices a new race file in race-stats (the uploader sends it right after a race)."""
     etag, last = None, None
@@ -448,7 +503,7 @@ async def run(discord_token):
                              "it may be sealed with a different Discord bot token")
     if "chat" not in logins:
         return
-    global ROOM, SAY
+    global ROOM, SAY, ANNOUNCE, OWNER
     room = ROOM = Room()
     sent, last_any, was_live, since = {}, 0.0, None, None
     last_race_ad, lobby_done, schedule, checked_live, checked_ads = 0.0, 0.0, None, 0.0, 0.0
@@ -456,7 +511,8 @@ async def run(discord_token):
     async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=20)) as session:
         bot = Twitch("chat", logins["chat"], session)
         SAY = bot.say
-        owner = Twitch("owner", logins["owner"], session) if "owner" in logins else None
+        owner = OWNER = Twitch("owner", logins["owner"], session) if "owner" in logins else None
+        ANNOUNCE = lambda text: say_everywhere(bot, text)
         tasks = []
         while True:
             try:
@@ -470,6 +526,7 @@ async def run(discord_token):
                                                              lambda: was_live is not None))]
                 if owner and owner.me is None:
                     await owner.setup(config["channel"])
+                    tasks.append(asyncio.create_task(listen_subs(owner)))
                 now = time.time()
                 if now - checked_live >= LIVE_EVERY:
                     since, checked_live = await bot.live_since(), now

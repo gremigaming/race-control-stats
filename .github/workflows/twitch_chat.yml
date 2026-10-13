@@ -2,7 +2,7 @@ name: Twitch chat
 
 # Inputs (see bot/twitch_chat.py):
 #   login        log in the chat account (gremi_bot)
-#   login-owner  log in GreMi_Gaming, for ads only
+#   login-owner  log in GreMi_Gaming, for ads, giveaway subs and VIPs
 #   ad / ad 120  run an ad now (only while live)
 #   ads          when Twitch's next scheduled ad is due
 #   anything else is sent in chat once, right away
@@ -28,7 +28,7 @@ concurrency:
 env:
   TWITCH_CLIENT_ID: ${{ secrets.TWITCH_CLIENT_ID }}
   TWITCH_CLIENT_SECRET: ${{ secrets.TWITCH_CLIENT_SECRET }}
-  TWITCH_SCOPES: ${{ inputs.command == 'login-owner' && 'channel:edit:commercial channel:read:ads channel:manage:ads' || 'user:read:chat user:write:chat' }}
+  TWITCH_SCOPES: ${{ inputs.command == 'login-owner' && 'channel:edit:commercial channel:read:ads channel:manage:ads channel:read:subscriptions channel:read:vips' || 'user:read:chat user:write:chat' }}
   KIND: ${{ inputs.command == 'login-owner' && 'owner' || 'chat' }}
 
 jobs:

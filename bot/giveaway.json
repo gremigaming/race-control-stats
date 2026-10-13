@@ -1,0 +1,32 @@
+{
+  "_about": "Weekly giveaway (GreMi 2026-10-13). Read live by bot/giveaway.py, no restart needed. Role ids are from the real server.",
+  "channel": 1082967543142162522,
+  "need": 5,
+  "delay_minutes": 10,
+  "prize": "€10 gift card",
+  "prize_choice": "Steam, EA, Xbox or PlayStation, the winner picks",
+  "invite": "https://discord.gg/bDga7v97Qq",
+  "entry_role": 1556963755043192862,
+  "winner_role": 1091493626829348924,
+  "base": 10,
+  "bonus": [
+    {"label": "Server Booster", "role": 1086959872731512942, "entries": 10},
+    {"label": "Twitch sub Tier 1", "role": 1080519811219595375, "entries": 10},
+    {"label": "Twitch sub Tier 2", "role": 1080519811219595376, "entries": 20},
+    {"label": "Twitch sub Tier 3", "role": 1080519811219595377, "entries": 30},
+    {"label": "Simgasm Buyer", "role": 1559540316644704320, "entries": 10},
+    {"label": "VIP", "role": 1100007755332452472, "entries": 5},
+    {"label": "OG", "role": 1080809887195467787, "entries": 5},
+    {"label": "SR S+", "role": 1558583801813270581, "entries": 30},
+    {"label": "SR S", "role": 1558583803117707284, "entries": 20},
+    {"label": "SR A", "role": 1558583804170600478, "entries": 15},
+    {"label": "SR B", "role": 1558583808830345306, "entries": 10},
+    {"label": "SR C", "role": 1558583809455161524, "entries": 5},
+    {"label": "Most Wins", "role": 1472160002243428487, "entries": 5},
+    {"label": "Most FL", "role": 1472160757742571675, "entries": 5},
+    {"label": "Most DOTD", "role": 1472161256155775026, "entries": 5},
+    {"label": "Most Overtakes", "role": 1472162111588270151, "entries": 5},
+    {"label": "Cleanest Driver", "role": 1472162335224238144, "entries": 5}
+  ],
+  "port": 80
+}

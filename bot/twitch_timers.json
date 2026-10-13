@@ -22,8 +22,14 @@
     {
       "first": 25,
       "every": 30,
-      "text": "🏎️ Looking for a sim rig? GreMi partners with Simgasm: great cockpits at a fair price. Get 10% off with code GREMI10 at https://simgasm.com/gremi_gaming",
+      "text": "🏎️ Looking for a sim rig? GreMi partners with Simgasm: great cockpits at a fair price. Get 10% off with code GREMI10 at https://simgasm.com/gremi_gaming . Bought one? Show GreMi your order for a free sub and the Simgasm Buyer role on Discord!",
       "command": "!simgasm"
+    },
+    {
+      "first": 15,
+      "every": 30,
+      "text": "🎁 Weekly giveaway: a €10 gift card (Steam, EA, Xbox or PlayStation)! It's drawn 10 minutes after the 5th new sub. {giveaway} Join the Discord, get the Prize Hunter role and press Enter in #giveaways: https://discord.gg/bDga7v97Qq",
+      "command": "!giveaway"
     }
   ],
   "ads": {

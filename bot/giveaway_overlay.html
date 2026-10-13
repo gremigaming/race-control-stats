@@ -1,0 +1,82 @@
+<!doctype html>
+<!-- OBS browser source for GreMi's weekly giveaway, served by Race Control at /giveaway.
+     Size 520 x 150. ?hide=closed hides it between a draw and the next round. -->
+<html><head><meta charset="utf-8"><title>Giveaway</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Saira+Condensed:wght@600;800&display=swap">
+<style>
+  :root { --red: #e10600; --purple: #9146ff; --ink: #fff; --dim: rgba(255,255,255,.62); }
+  html, body { margin: 0; background: transparent; overflow: hidden; }
+  body { font-family: "Saira Condensed", "Arial Narrow", sans-serif; color: var(--ink); }
+  .card { position: relative; display: flex; align-items: center; gap: 18px; width: 488px; margin: 8px;
+          padding: 14px 20px; border-radius: 14px; box-sizing: border-box;
+          background: linear-gradient(115deg, #2a0a12 0%, #1d0b2e 100%);
+          box-shadow: 0 6px 24px rgba(0,0,0,.45); transition: opacity .4s; }
+  .card::before { content: ""; position: absolute; inset: 0; border-radius: 14px; padding: 2px;
+          background: linear-gradient(90deg, var(--red), var(--purple));
+          -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+          -webkit-mask-composite: xor; mask-composite: exclude; }
+  .gift { font-size: 46px; line-height: 1; filter: drop-shadow(0 0 10px rgba(145,70,255,.6)); }
+  .label { font-weight: 600; font-size: 17px; letter-spacing: .14em; color: var(--dim); text-transform: uppercase; }
+  .big { font-weight: 800; font-size: 40px; line-height: 1; text-transform: uppercase; letter-spacing: .02em; }
+  .pips { display: flex; gap: 6px; margin-top: 8px; }
+  .pip { width: 30px; height: 7px; border-radius: 4px; background: rgba(255,255,255,.16); transition: background .4s; }
+  .pip.on { background: linear-gradient(90deg, var(--red), var(--purple)); box-shadow: 0 0 8px rgba(145,70,255,.7); }
+  .hidden { opacity: 0; }
+  .pop { animation: pop .6s ease; }
+  @keyframes pop { 40% { transform: scale(1.06); } }
+</style></head>
+<body>
+<div class="card hidden" id="card">
+  <div class="gift">🎁</div>
+  <div>
+    <div class="label" id="label">Weekly giveaway</div>
+    <div class="big" id="big">…</div>
+    <div class="pips" id="pips"></div>
+  </div>
+</div>
+<script>
+const q = new URLSearchParams(location.search);
+const hideClosed = q.get("hide") === "closed";
+let last = null, data = null, offset = 0;
+const $ = (id) => document.getElementById(id);
+
+function mmss(s) { s = Math.max(0, Math.round(s)); return Math.floor(s / 60) + ":" + String(s % 60).padStart(2, "0"); }
+
+function show() {
+  if (!data || !data.status) return;
+  const now = Date.now() / 1000 + offset;
+  const card = $("card");
+  let label = "Weekly giveaway · €10 gift card", big = "";
+  if (data.status === "open") {
+    big = data.left === 1 ? "1 sub to go" : data.left + " subs to go";
+  } else if (data.status === "drawing") {
+    label = "Giveaway draw";
+    big = "Draw in " + mmss(data.draw_at - now);
+  } else {
+    label = "Giveaway";
+    big = "Next one tomorrow";
+  }
+  $("label").textContent = label;
+  $("big").textContent = big;
+  const pips = $("pips");
+  if (pips.children.length !== data.need) {
+    pips.innerHTML = "";
+    for (let i = 0; i < data.need; i++) { const p = document.createElement("div"); p.className = "pip"; pips.appendChild(p); }
+  }
+  [...pips.children].forEach((p, i) => p.classList.toggle("on", data.status !== "open" || i < data.subs));
+  card.classList.toggle("hidden", hideClosed && data.status === "closed");
+}
+
+async function poll() {
+  try {
+    const r = await fetch("giveaway.json", { cache: "no-store" });
+    const d = await r.json();
+    offset = d.now - Date.now() / 1000;
+    const key = d.status + d.subs;
+    if (last !== null && key !== last) { $("card").classList.remove("pop"); void $("card").offsetWidth; $("card").classList.add("pop"); }
+    last = key; data = d; show();
+  } catch (e) { /* keep showing the last value */ }
+}
+poll(); setInterval(poll, 3000); setInterval(show, 1000);
+</script>
+</body></html>
