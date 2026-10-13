@@ -1,0 +1,23 @@
+name: Post reminder
+
+# Discord DM to GreMi every day at 16:20 Dutch time to post the day's TikTok.
+# Two UTC start times cover summer and winter time; post_reminder.py waits for
+# 16:20 and only one of the two runs sends.
+on:
+  schedule:
+    - cron: "50 13,14 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  remind:
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+    steps:
+      - uses: actions/checkout@v4
+      - name: Send the reminder at 16:20
+        env:
+          DISCORD_BOT_TOKEN: ${{ secrets.DISCORD_BOT_TOKEN }}
+        run: python3 post_reminder.py
