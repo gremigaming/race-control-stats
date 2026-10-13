@@ -1,0 +1,46 @@
+name: Post clip
+
+# Sends a finished clip from clip-studio (clips-ready/<clip>) to GreMi's TikTok drafts.
+# Nothing goes public: GreMi adds a sound and the caption in TikTok and posts.
+on:
+  workflow_dispatch:
+    inputs:
+      clip:
+        description: "Clip folder name in clips-ready, e.g. singapore-ferrari"
+        required: true
+
+permissions:
+  contents: read
+
+# Shares the TikTok login with the stats run, so they never refresh it at the same time
+concurrency:
+  group: stats
+  cancel-in-progress: false
+
+jobs:
+  post:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Send to TikTok drafts
+        env:
+          GH_TOKEN: ${{ secrets.GH_SECRETS_TOKEN }}
+          TIKTOK_CLIENT_KEY: ${{ vars.TIKTOK_CLIENT_KEY || secrets.TIKTOK_CLIENT_KEY }}
+          TIKTOK_CLIENT_SECRET: ${{ secrets.TIKTOK_CLIENT_SECRET }}
+          TIKTOK_REFRESH_TOKEN: ${{ secrets.TIKTOK_REFRESH_TOKEN }}
+          TIKTOK_REFRESH_TOKEN_OUT: ${{ runner.temp }}/tiktok_refresh_token
+          CLIP: ${{ inputs.clip }}
+        run: python3 post_clip.py "$CLIP"
+
+      # TikTok can hand out a new login token on each use; store it or the next run fails
+      - name: Save new TikTok login
+        if: always()
+        env:
+          GH_TOKEN: ${{ secrets.GH_SECRETS_TOKEN }}
+          FILE: ${{ runner.temp }}/tiktok_refresh_token
+        run: |
+          if [ ! -s "$FILE" ]; then exit 0; fi
+          gh secret set TIKTOK_REFRESH_TOKEN --repo "${{ github.repository }}" < "$FILE"
+          rm -f "$FILE"
+          echo "Saved the new TikTok login."
