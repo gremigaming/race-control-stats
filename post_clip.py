@@ -3,10 +3,14 @@
 Run by the "Post clip" workflow with the clip's folder name, e.g.
     python3 post_clip.py singapore-ferrari
 It reads clips-ready/<clip>/video.mp4 and post.md from clip-studio, uploads the
-video to the TikTok inbox (drafts), and puts the caption from post.md in the run
-summary. Nothing goes public: GreMi opens TikTok, adds a sound and the caption,
-and posts.
+video to the TikTok inbox (drafts), DMs GreMi the caption on Discord (one message
+he can copy straight into TikTok) and puts post.md in the run summary. Nothing
+goes public: GreMi opens TikTok, adds a sound and the caption, and posts.
+
+    python3 post_clip.py stats
+lists GreMi's latest TikTok videos with views, likes, comments and shares.
 """
+import re
 import json
 import os
 import sys
@@ -24,6 +28,9 @@ REFRESH_TOKEN = os.environ.get("TIKTOK_REFRESH_TOKEN", "")
 # Where to write TikTok's new refresh token when it changes, so the workflow can save it
 REFRESH_TOKEN_OUT = os.environ.get("TIKTOK_REFRESH_TOKEN_OUT", "")
 SUMMARY = os.environ.get("GITHUB_STEP_SUMMARY", "")
+DISCORD_TOKEN = os.environ.get("DISCORD_BOT_TOKEN", "")
+DISCORD_API = "https://discord.com/api/v10"
+GUILD_ID = "1079917337165172876"
 
 
 def http(method, url, headers=None, data=None, form=False):
@@ -118,21 +125,86 @@ def tiktok_draft(video):
     raise RuntimeError(f"TikTok was still on {state} after 10 minutes; check the TikTok inbox before running again")
 
 
+def tiktok_videos(count=10):
+    """GreMi's latest TikTok videos with their numbers (needs the video.list scope)."""
+    auth = {"Authorization": f"Bearer {tiktok_access()}"}
+    fields = "id,title,create_time,duration,view_count,like_count,comment_count,share_count,share_url"
+    data = check(http("POST", f"{TIKTOK_API}/video/list/?fields={fields}", auth,
+                      {"max_count": count}), "video list")
+    return data.get("videos") or []
+
+
+def show_stats():
+    rows = ["| Posted (UTC) | Views | Likes | Comments | Shares | Video |", "|---|---|---|---|---|---|"]
+    for v in tiktok_videos():
+        when = time.strftime("%Y-%m-%d %H:%M", time.gmtime(v.get("create_time", 0)))
+        title = (v.get("title") or "").replace("|", "/").replace("\n", " ")[:60]
+        rows.append(f"| {when} | {v.get('view_count', 0)} | {v.get('like_count', 0)} | "
+                    f"{v.get('comment_count', 0)} | {v.get('share_count', 0)} | "
+                    f"[{title or 'video'}]({v.get('share_url', '')}) |")
+    table = "\n".join(rows)
+    print(table)
+    if SUMMARY:
+        with open(SUMMARY, "a", encoding="utf-8") as f:
+            f.write("## Latest TikTok videos\n\n" + table + "\n")
+
+
+def caption_from(post):
+    """TikTok caption + hashtags from post.md, ready to paste."""
+    caption = re.search(r"## TikTok.*?\*\*Caption:\*\*\n(.+?)\n\n", post, re.S)
+    tags = re.search(r"## TikTok.*?\*\*Hashtags:\*\* (.+?)\n", post, re.S)
+    if not caption:
+        return ""
+    return caption.group(1).strip() + ("\n\n" + tags.group(1).strip() if tags else "")
+
+
+def discord(method, path, data=None):
+    req = urllib.request.Request(DISCORD_API + path, method=method,
+                                 data=json.dumps(data).encode() if data is not None else None, headers={
+        "Authorization": f"Bot {DISCORD_TOKEN}", "Content-Type": "application/json",
+        "User-Agent": "DiscordBot (race-control, 1)"})
+    with urllib.request.urlopen(req, timeout=30) as resp:
+        return json.loads(resp.read() or b"{}")
+
+
+def dm_caption(clip, caption):
+    """DMs the server owner (GreMi): a heads-up, then the caption on its own to copy."""
+    if not (DISCORD_TOKEN and caption):
+        return False
+    try:
+        owner = discord("GET", f"/guilds/{GUILD_ID}")["owner_id"]
+        channel = discord("POST", "/users/@me/channels", {"recipient_id": owner})["id"]
+        discord("POST", f"/channels/{channel}/messages", {
+            "content": f"🎬 **{clip}** is in your TikTok drafts. Hold the next message, "
+                       "tap Copy Text and paste it as the caption. Then add a sound at 0% and post."})
+        discord("POST", f"/channels/{channel}/messages", {"content": caption})
+        return True
+    except (urllib.error.URLError, KeyError) as e:
+        print(f"Could not send the caption on Discord ({getattr(e, 'code', e)})")
+        return False
+
+
 def main(argv):
     if len(argv) < 2 or not argv[1].strip():
         raise SystemExit("Give the clip's folder name, e.g. singapore-ferrari")
     clip = argv[1].strip().strip("/")
     if "/" in clip or clip.startswith("."):
         raise SystemExit("The clip name is just the folder name inside clips-ready")
-    for name, value in (("GH_SECRETS_TOKEN", GH_TOKEN), ("TIKTOK_CLIENT_KEY", CLIENT_KEY),
+    for name, value in (("TIKTOK_CLIENT_KEY", CLIENT_KEY),
                         ("TIKTOK_CLIENT_SECRET", CLIENT_SECRET), ("TIKTOK_REFRESH_TOKEN", REFRESH_TOKEN)):
         if not value:
             raise SystemExit(f"{name} is missing")
+    if clip == "stats":
+        return show_stats()
+    if not GH_TOKEN:
+        raise SystemExit("GH_SECRETS_TOKEN is missing")
     video = clip_file(clip, "video.mp4")
     post = clip_file(clip, "post.md").decode("utf-8")
     print(f"Sending {clip} ({len(video) / 1e6:.1f} MB) to TikTok drafts", flush=True)
     tiktok_draft(video)
-    print("Done: open TikTok, tap the inbox notification, add a sound and the caption, and post.")
+    sent = dm_caption(clip, caption_from(post))
+    print("Done: open TikTok, tap the inbox notification, add a sound and the caption, and post."
+          + (" The caption is in your Discord DMs." if sent else ""))
     if SUMMARY:
         with open(SUMMARY, "a", encoding="utf-8") as f:
             f.write(f"## {clip} is in your TikTok drafts\n\nOpen TikTok, tap the notification, "

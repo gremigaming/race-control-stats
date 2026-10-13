@@ -1,12 +1,12 @@
 name: Post clip
 
 # Sends a finished clip from clip-studio (clips-ready/<clip>) to GreMi's TikTok drafts.
-# Nothing goes public: GreMi adds a sound and the caption in TikTok and posts.
+# Nothing goes public: GreMi gets the caption in a Discord DM, adds a sound in TikTok and posts.
 on:
   workflow_dispatch:
     inputs:
       clip:
-        description: "Clip folder name in clips-ready, e.g. singapore-ferrari"
+        description: "Clip folder name in clips-ready, e.g. singapore-ferrari (or stats for your latest TikTok numbers)"
         required: true
 
 permissions:
@@ -26,6 +26,7 @@ jobs:
       - name: Send to TikTok drafts
         env:
           GH_TOKEN: ${{ secrets.GH_SECRETS_TOKEN }}
+          DISCORD_BOT_TOKEN: ${{ secrets.DISCORD_BOT_TOKEN }}
           TIKTOK_CLIENT_KEY: ${{ vars.TIKTOK_CLIENT_KEY || secrets.TIKTOK_CLIENT_KEY }}
           TIKTOK_CLIENT_SECRET: ${{ secrets.TIKTOK_CLIENT_SECRET }}
           TIKTOK_REFRESH_TOKEN: ${{ secrets.TIKTOK_REFRESH_TOKEN }}
