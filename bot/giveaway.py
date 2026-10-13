@@ -12,8 +12,8 @@ How a round goes:
            (bot/giveaway.json), so they can go up or down while entered.
            The next round opens at midnight (Amsterdam) the day after.
 
-The OBS browser source (subs left until the draw) is served by this bot at
-http://<server>/giveaway; the address is posted in the staff LOGS channel.
+The OBS browser source (subs left until the draw) is served by the staff page at
+https://<server>.sslip.io/giveaway; the address is posted in the staff LOGS channel.
 State lives on the server only (STATE), never in this public repo.
 The decisions at the top have no Discord code, so they can be tested on their own.
 """
@@ -330,7 +330,9 @@ class Runner:
         STATE_NOW = read_state()
         save_state(STATE_NOW)
         await self.bot.wait_until_ready()
-        asyncio.create_task(serve(load_config().get("port", 80), self.report))
+        url = await overlay_url()
+        if url:
+            await self.report(f"OBS giveaway counter: {url}")
         while True:
             try:
                 await self.step()
@@ -389,32 +391,12 @@ class Runner:
 
 
 # ---------------------------------------------------------------- OBS counter
+# The staff page (staff/app.py, behind Caddy with HTTPS) serves /giveaway and
+# /giveaway.json from STATE and OVERLAY, so OBS needs no extra open port.
 
-async def serve(port, report):
-    """http://<server>:<port>/giveaway (the OBS page) and /giveaway.json."""
-    from aiohttp import web
-
-    async def page(request):
-        return web.Response(text=OVERLAY.read_text(encoding="utf-8"), content_type="text/html")
-
-    async def data(request):
-        body = public(STATE_NOW, load_config(), time.time()) if STATE_NOW else {}
-        return web.json_response(body, headers={"Access-Control-Allow-Origin": "*",
-                                                 "Cache-Control": "no-store"})
-
-    app = web.Application()
-    app.router.add_get("/giveaway", page)
-    app.router.add_get("/giveaway.json", data)
-    runner = web.AppRunner(app, access_log=None)
-    await runner.setup()
-    try:
-        await web.TCPSite(runner, "0.0.0.0", port).start()
-    except OSError as e:
-        await report(f"OBS counter could not start on port {port}: {e}")
-        return
+async def overlay_url():
     ip = await public_ip()
-    where = f"http://{ip}{'' if port == 80 else f':{port}'}/giveaway" if ip else f"port {port}, /giveaway"
-    await report(f"OBS giveaway counter: {where}")
+    return f"https://{ip.replace('.', '-')}.sslip.io/giveaway" if ip else None
 
 
 async def public_ip():

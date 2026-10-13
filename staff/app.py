@@ -1050,6 +1050,15 @@ class Handler(BaseHTTPRequestHandler):
         url = urllib.parse.urlparse(self.path)
         q = urllib.parse.parse_qs(url.query)
         try:
+            if url.path in ("/giveaway", "/giveaway.json"):
+                from bot import giveaway
+            if url.path == "/giveaway":  # OBS browser source, public
+                return self.send(200, giveaway.OVERLAY.read_text(encoding="utf-8"),
+                                 {"X-Frame-Options": "SAMEORIGIN"})
+            if url.path == "/giveaway.json":
+                body = giveaway.public(giveaway.read_state(), giveaway.load_config(), time.time())
+                return self.send(200, json.dumps(body), {"Content-Type": "application/json",
+                                                         "Access-Control-Allow-Origin": "*"})
             if url.path == "/login":
                 return self.login()
             if url.path == "/callback":

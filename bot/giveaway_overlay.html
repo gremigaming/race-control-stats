@@ -16,7 +16,7 @@
           -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
           -webkit-mask-composite: xor; mask-composite: exclude; }
   .gift { font-size: 46px; line-height: 1; filter: drop-shadow(0 0 10px rgba(145,70,255,.6)); }
-  .label { font-weight: 600; font-size: 17px; letter-spacing: .14em; color: var(--dim); text-transform: uppercase; }
+  .label { white-space: nowrap; font-weight: 600; font-size: 17px; letter-spacing: .14em; color: var(--dim); text-transform: uppercase; }
   .big { font-weight: 800; font-size: 40px; line-height: 1; text-transform: uppercase; letter-spacing: .02em; }
   .pips { display: flex; gap: 6px; margin-top: 8px; }
   .pip { width: 30px; height: 7px; border-radius: 4px; background: rgba(255,255,255,.16); transition: background .4s; }
@@ -46,7 +46,7 @@ function show() {
   if (!data || !data.status) return;
   const now = Date.now() / 1000 + offset;
   const card = $("card");
-  let label = "Weekly giveaway · €10 gift card", big = "";
+  let label = "Giveaway · €10 gift card", big = "";
   if (data.status === "open") {
     big = data.left === 1 ? "1 sub to go" : data.left + " subs to go";
   } else if (data.status === "drawing") {
