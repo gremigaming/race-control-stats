@@ -103,16 +103,19 @@ def tiktok_draft(video):
     })
     with urllib.request.urlopen(req, timeout=300) as resp:
         resp.read()
-    for _ in range(30):
+    state = ""
+    for _ in range(120):
         time.sleep(5)
         status = check(http("POST", TIKTOK_API + "/post/publish/status/fetch/", auth,
                             {"publish_id": init["publish_id"]}), "status check")
-        state = status.get("status", "")
+        if status.get("status", "") != state:
+            state = status.get("status", "")
+            print(f"TikTok status: {state}", flush=True)
         if state in ("SEND_TO_USER_INBOX", "PUBLISH_COMPLETE"):
             return state
         if state == "FAILED":
             raise RuntimeError(f"TikTok could not process the clip ({status.get('fail_reason', 'no reason given')})")
-    raise RuntimeError("TikTok did not finish processing the clip in time")
+    raise RuntimeError(f"TikTok was still on {state} after 10 minutes; check the TikTok inbox before running again")
 
 
 def main(argv):
@@ -127,7 +130,7 @@ def main(argv):
             raise SystemExit(f"{name} is missing")
     video = clip_file(clip, "video.mp4")
     post = clip_file(clip, "post.md").decode("utf-8")
-    print(f"Sending {clip} ({len(video) / 1e6:.1f} MB) to TikTok drafts")
+    print(f"Sending {clip} ({len(video) / 1e6:.1f} MB) to TikTok drafts", flush=True)
     tiktok_draft(video)
     print("Done: open TikTok, tap the inbox notification, add a sound and the caption, and post.")
     if SUMMARY:
