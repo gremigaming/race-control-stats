@@ -171,7 +171,6 @@ def save_state(state):
 # ---------------------------------------------------------------- Discord
 
 ENTER, MINE, LEAVE = "giveaway:enter", "giveaway:mine", "giveaway:leave"
-NOTIFY_ME = 1117766461147070554  # GreMi: only ping members who have Notify Me
 STATE_NOW = None   # the running state, for the Twitch chat timer and the OBS counter
 ANNOUNCE = None    # async fn(text): Twitch (and YouTube) chat, set by bot/twitch_chat.py
 _wake = asyncio.Event()
@@ -323,8 +322,7 @@ class Runner:
                             f"(round {state['round']}) with {weights[winner]} of {total} entries from "
                             f"{len(weights)} drivers.\nSend GreMi a DM with the card you want: "
                             f"{config['prize_choice'].split(', the winner')[0]}.\n"
-                            f"-# The next giveaway opens <t:{int(state['reopen_at'])}:R>.",
-                        users=[winner] if NOTIFY_ME in {r.id for r in m.roles} else [])
+                            f"-# The next giveaway opens <t:{int(state['reopen_at'])}:R>.", users=[winner])
         await self.say(f"🏆 {m.display_name} won the weekly giveaway ({config['prize']})! "
                        f"Congrats! The next one opens tomorrow on the Discord: {config['invite']}")
         try:
