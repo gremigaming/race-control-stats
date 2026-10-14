@@ -333,6 +333,8 @@ def describe(c):
         return f"Linked name “{c['from']}” to {c['to']}"
     if t == "split":
         return f"Unlinked name “{c['from']}”"
+    if t == "unmerge":
+        return f"Split hidden sessions from {who} ({c.get('merge', '').split('|')[0]} stream)"
     if t == "kick":
         n = len(c.get("cars", []))
         return f"Kicked {who} from the {c.get('day', '')} stream ({n} session{'s' if n != 1 else ''})"
@@ -469,10 +471,27 @@ def names_page(user, q):
     add = change_form(user, "/names", {"type": "alias"},
                       f'<input name=from placeholder="Old name, exactly as in the race" required maxlength=60>'
                       f'<input name=to list=known placeholder="Current name" required maxlength=60><datalist id=known>{dl}</datalist>', "Link")
+    merged = ""
+    try:
+        merges = site_json("league/merges.json").get("merges", [])
+    except Exception:  # the site hasn't published the list yet
+        merges = []
+    for m in reversed(merges):
+        hidden = ", ".join(m.get("hidden", []))
+        n = len(m.get("files", []))
+        what = f"{e(hidden)} ({e(m['car'])}, {n} session{'s' if n != 1 else ''}) → <b>{e(m['name'])}</b>"
+        if m.get("off"):
+            btn = "<span class=muted>Split</span>"
+        else:
+            btn = change_form(user, "/names", {"type": "unmerge", "merge": m["id"], "from": m["name"]}, "", "Split", "red")
+        merged += f"<tr><td>{e(m['day'])}</td><td>{what}</td><td style='width:45%'>{btn}</td></tr>"
     return page("Names", f"""<h1>Names</h1>
 <p class=muted>When a driver changes their online name, link the old name to the new one so all their races, stats and safety rating land on one profile.</p>
 <div class=card><h2 style='margin-top:0'>Link a name</h2>{add}</div>
-<h2>Linked names</h2><div class=card><table>{rows or '<tr><td class=muted>None yet.</td></tr>'}</table></div>""", user, "names")
+<h2>Linked names</h2><div class=card><table>{rows or '<tr><td class=muted>None yet.</td></tr>'}</table></div>
+<h2>Hidden names merged</h2>
+<p class=muted>A hidden car that stopped showing up in a stream, followed by a named driver with the same race number, nationality and platform, is counted as that driver. Split one if it was someone else.</p>
+<div class=card><table>{merged or '<tr><td class=muted>None yet.</td></tr>'}</table></div>""", user, "names")
 
 
 def log_page(user, q):
@@ -528,6 +547,10 @@ def build_change(form, user):
             raise ValueError("Give two different names.")
     elif t == "split":
         c["from"] = form["from"].strip()[:60]
+    elif t == "unmerge":
+        c.update(merge=form["merge"].strip()[:100], driver=form.get("from", "").strip()[:60])
+        if not c["merge"]:
+            raise ValueError
     elif t == "kick":
         day = form.get("day", "")
         if not re.fullmatch(r"\d{4}-\d\d-\d\d", day):
