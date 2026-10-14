@@ -507,6 +507,7 @@ OWNER = None      # GreMi's own Twitch login while running (subs, VIPs)
 MIRRORS = []      # async fn(text) per other chat (YouTube) that gets the timers and commands too
 SAY = None        # async fn(text): post in Twitch chat (set while running)
 ROOM = None       # the running Room, so other chats can add their activity and commands
+BOT = None        # the Race Control Twitch login while running (stats overlay: followers, viewers)
 _reported = set()
 
 
@@ -751,14 +752,14 @@ async def run(discord_token):
                              "it may be sealed with a different Discord bot token")
     if "chat" not in logins:
         return
-    global ROOM, SAY, ANNOUNCE, OWNER
+    global ROOM, SAY, ANNOUNCE, OWNER, BOT
     room = ROOM = Room()
     sent, last_any, was_live, since = {}, 0.0, None, None
     last_race_ad, lobby_done, schedule, checked_live, checked_ads = 0.0, 0.0, None, 0.0, 0.0
     checked_title = 0.0
     spent, counted = collections.Counter(), set()  # ad seconds per stream hour
     async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=20)) as session:
-        bot = Twitch("chat", logins["chat"], session)
+        bot = BOT = Twitch("chat", logins["chat"], session)
         SAY = bot.say
         owner = OWNER = Twitch("owner", logins["owner"], session) if "owner" in logins else None
         ANNOUNCE = lambda text: say_everywhere(bot, text)

@@ -1084,6 +1084,16 @@ class Handler(BaseHTTPRequestHandler):
                 body = giveaway.public(giveaway.read_state(), giveaway.load_config(), time.time())
                 return self.send(200, json.dumps(body), {"Content-Type": "application/json",
                                                          "Access-Control-Allow-Origin": "*"})
+            if url.path in ("/socials", "/socials.json"):  # OBS stats overlay, public
+                import importlib
+                from bot import socials_live
+                socials_live = importlib.reload(socials_live)
+                if url.path == "/socials":
+                    return self.send(200, socials_live.OVERLAY.read_text(encoding="utf-8"),
+                                     {"X-Frame-Options": "SAMEORIGIN"})
+                body = socials_live.public(socials_live.read_state(), time.time())
+                return self.send(200, json.dumps(body), {"Content-Type": "application/json",
+                                                         "Access-Control-Allow-Origin": "*"})
             if url.path == "/login":
                 return self.login()
             if url.path == "/callback":

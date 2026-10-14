@@ -46,6 +46,7 @@ LIVE_EVERY = 120   # seconds between "is GreMi live on YouTube?" checks
 POLL_MIN = 8       # seconds between chat reads at the fastest
 
 log = logging.getLogger("race_control.youtube")
+YT = None  # the running login (stats overlay: subscribers, viewers)
 
 
 class YouTube:
@@ -56,6 +57,7 @@ class YouTube:
         self.access, self.expires = "", 0
         self.chats = {}  # live chat id -> next page token (None until the first read)
         self.sent = collections.deque(maxlen=20)
+        self.live_ids = []  # broadcasts live now (stats overlay viewers)
 
     async def token(self):
         if time.time() < self.expires - 60:
@@ -87,11 +89,13 @@ class YouTube:
 
     async def live_chats(self):
         """The live chat ids of every broadcast that is live now (one per stream)."""
-        chats = []
+        chats, ids = [], []
         for item in await self.broadcasts("active"):
+            ids.append(item["id"])
             chat = item["snippet"].get("liveChatId")
             if chat and chat not in chats:
                 chats.append(chat)
+        self.live_ids = ids
         return chats
 
     async def say(self, text):
@@ -116,7 +120,8 @@ async def run(discord_token):
         return
     answered = {}
     async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=20)) as session:
-        yt = YouTube(login, session)
+        global YT
+        yt = YT = YouTube(login, session)
         twitch_chat.MIRRORS.append(yt.say)
         log.info("YouTube login loaded")
         checked = 0.0
