@@ -134,8 +134,8 @@ class FakeStats:
 
 
 class UpdatePicture(unittest.TestCase):
-    def run_update(self, messages):
-        stats = FakeStats(messages)
+    def run_update(self, messages, stats=None):
+        stats = stats or FakeStats(messages)
         sent = []
         with mock.patch.object(ss, "SCHEDULE_CHANNEL_ID", "55"), \
                 mock.patch.object(ss, "NOTIFY_ROLE_ID", "77"), \
@@ -158,11 +158,23 @@ class UpdatePicture(unittest.TestCase):
         self.assertIn("<@&77>", sent[0][2]["content"])
         self.assertEqual(sent[0][2]["allowed_mentions"], {"roles": ["77"]})
 
+    def test_new_week_deletes_old_posts(self):
+        old = {"id": "3", "author": {"id": ME}, "content": "x",
+               "attachments": [{"filename": "stream-schedule-2026-09-28-abc.png"}]}
+        stats = FakeStats([old])
+        self.run_update([old], stats)
+        self.assertIn(("DELETE", "/channels/55/messages/3"), stats.calls)
+
     def test_changed_week_is_edited_and_unchanged_is_left(self):
         post = {"id": "4", "author": {"id": ME}, "content": "kept",
                 "attachments": [{"filename": "stream-schedule-2026-10-05-old.png"}]}
-        sent = self.run_update([post])
+        old = {"id": "2", "author": {"id": ME}, "content": "x",
+               "attachments": [{"filename": "stream-schedule-2026-09-28-abc.png"}]}
+        stats = FakeStats([post, old])
+        sent = self.run_update(None, stats)
         self.assertEqual(sent[0][:2], ("PATCH", "/channels/55/messages/4"))
+        self.assertIn(("DELETE", "/channels/55/messages/2"), stats.calls)
+        self.assertNotIn(("DELETE", "/channels/55/messages/4"), stats.calls)
         self.assertEqual(sent[0][2]["content"], "kept")
         name = sent[0][2]["attachments"][0]["filename"]
         post["attachments"] = [{"filename": name}]

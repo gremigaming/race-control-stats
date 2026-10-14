@@ -5,7 +5,8 @@
    Events Signupbot already made are taken over, not doubled.
 2. The schedule picture in the Stream Schedule channel: one post per week
    (Monday to Sunday), edited whenever the schedule changes. A new week's post
-   pings Notify Me; the very first post and all edits are silent.
+   pings Notify Me; the very first post and all edits are silent. Older
+   weeks' posts are deleted, so only the latest schedule stays.
 
 Called by update_stats.main() every run.
 """
@@ -233,6 +234,7 @@ def update_picture(stats, segments, vacation, now):
         for a in m.get("attachments", []))), None)
     if this_week and any(a["filename"] == name for a in this_week["attachments"]):
         print("unchanged: stream schedule picture")
+        delete_old(stats, posts, this_week)
         return
     picture = schedule_image.render(days, today, tz_label(now), CHANNEL_NAME, week)
     content = HEADER.format(week=week.upper())
@@ -245,6 +247,7 @@ def update_picture(stats, segments, vacation, now):
                            f"/channels/{SCHEDULE_CHANNEL_ID}/messages/{this_week['id']}",
                            message, [(name, picture)])
         print("updated:   stream schedule picture")
+        delete_old(stats, posts, this_week)
         return
     if posts and NOTIFY_ROLE_ID:  # a new week, and not the very first post
         message["content"] += f"\n<@&{NOTIFY_ROLE_ID}>"
@@ -252,6 +255,15 @@ def update_picture(stats, segments, vacation, now):
     msg = socials_board.send(stats, "POST", f"/channels/{SCHEDULE_CHANNEL_ID}/messages",
                              message, [(name, picture)])
     print(f"posted:    stream schedule picture {msg.get('id')}")
+    delete_old(stats, posts, msg)
+
+
+def delete_old(stats, posts, keep):
+    """Removes earlier weeks' schedule posts so only the latest one stays."""
+    for m in posts:
+        if m["id"] != keep.get("id"):
+            stats.discord("DELETE", f"/channels/{SCHEDULE_CHANNEL_ID}/messages/{m['id']}")
+            print(f"deleted:   old stream schedule picture {m['id']}")
 
 
 # ---------------------------------------------------------------- entry
