@@ -14,7 +14,7 @@ on:
   workflow_dispatch:
     inputs:
       command:
-        description: "login, login-owner, ad, ad 120, ads, or a message to send in chat now"
+        description: "login, login-owner, ad, ad 120, ads, rewards, or a message to send in chat now"
         required: true
         default: login
 
@@ -28,7 +28,7 @@ concurrency:
 env:
   TWITCH_CLIENT_ID: ${{ secrets.TWITCH_CLIENT_ID }}
   TWITCH_CLIENT_SECRET: ${{ secrets.TWITCH_CLIENT_SECRET }}
-  TWITCH_SCOPES: ${{ inputs.command == 'login-owner' && 'channel:edit:commercial channel:read:ads channel:manage:ads channel:read:subscriptions channel:read:vips channel:manage:broadcast' || 'user:read:chat user:write:chat' }}
+  TWITCH_SCOPES: ${{ inputs.command == 'login-owner' && 'channel:edit:commercial channel:read:ads channel:manage:ads channel:read:subscriptions channel:read:vips channel:manage:broadcast channel:manage:redemptions' || 'user:read:chat user:write:chat' }}
   KIND: ${{ inputs.command == 'login-owner' && 'owner' || 'chat' }}
 
 jobs:
@@ -86,7 +86,7 @@ jobs:
         run: |
           python3 -m pip install --quiet "cryptography>=41" "aiohttp>=3.9"
           case "$MESSAGE" in
-            ad|"ad "[0-9]*|ads) python3 -m bot.twitch_chat $MESSAGE ;;
+            ad|"ad "[0-9]*|ads|rewards) python3 -m bot.twitch_chat $MESSAGE ;;
             *) python3 -m bot.twitch_chat say "$MESSAGE" ;;
           esac
       - name: Hand a renewed login to the bot

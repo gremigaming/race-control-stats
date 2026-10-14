@@ -3,8 +3,9 @@
 Two Twitch logins, both from the "Twitch chat" workflow:
   login        the bot account (gremi_bot) that reads and writes chat
                -> bot/twitch_chat.sealed
-  login-owner  GreMi's own account, for ads, new subs (giveaway), VIPs and the
-               stream title (Twitch lets only the channel owner run them)
+  login-owner  GreMi's own account, for ads, new subs (giveaway), VIPs, the
+               stream title and channel points (Twitch lets only the channel
+               owner run them)
                -> bot/twitch_owner.sealed
 The workflow seals each login with a key made from the Discord bot token, which
 the workflow and this server both have, and commits it; the bot restarts on that
@@ -429,6 +430,17 @@ class Twitch:
             after = (res.get("pagination") or {}).get("cursor")
             if not after:
                 return out
+
+    async def rewards(self):
+        """The channel point rewards (owner login with channel:manage:redemptions).
+        Twitch only lets an app edit rewards it made itself, so each one says
+        whether Race Control can change it."""
+        mine = await self.call("GET", "/channel_points/custom_rewards", params={
+            "broadcaster_id": self.me["id"], "only_manageable_rewards": "true"})
+        ours = {r["id"] for r in mine.get("data", [])}
+        res = await self.call("GET", "/channel_points/custom_rewards",
+                              params={"broadcaster_id": self.me["id"]})
+        return [dict(r, ours=r["id"] in ours) for r in res.get("data", [])]
 
     async def segments(self):
         """The channel's next scheduled streams (empty when there is no schedule)."""
@@ -884,6 +896,21 @@ def main(argv):
         s = asyncio.run(once("owner", token, lambda c: c.ad_schedule()))
         print(f"Next scheduled ad: {when(s.get('next_ad_at'))} ({s.get('duration')} s), "
               f"last ad: {when(s.get('last_ad_at'))}, snoozes left: {s.get('snooze_count')}")
+    elif len(argv) == 2 and argv[1] == "rewards":
+        for r in sorted(asyncio.run(once("owner", token, lambda c: c.rewards())), key=lambda r: r["cost"]):
+            limits = [f"{k} {v}" for k, v in (
+                ("per stream", (r.get("max_per_stream_setting") or {}).get("max_per_stream")
+                 if (r.get("max_per_stream_setting") or {}).get("is_enabled") else None),
+                ("per viewer", (r.get("max_per_user_per_stream_setting") or {}).get("max_per_user_per_stream")
+                 if (r.get("max_per_user_per_stream_setting") or {}).get("is_enabled") else None),
+                ("cooldown s", (r.get("global_cooldown_setting") or {}).get("global_cooldown_seconds")
+                 if (r.get("global_cooldown_setting") or {}).get("is_enabled") else None)) if v]
+            print(f"{r['cost']:>7} | {r['title']} | {'on' if r['is_enabled'] else 'OFF'}"
+                  f"{' paused' if r.get('is_paused') else ''} | "
+                  f"{'needs text' if r.get('is_user_input_required') else 'no text'} | "
+                  f"{'auto-done' if r.get('should_redemptions_skip_request_queue') else 'queue'} | "
+                  f"{', '.join(limits) or 'no limits'} | {'Race Control can edit' if r['ours'] else 'made elsewhere'} | "
+                  f"{(r.get('prompt') or '').replace(chr(10), ' ')}")
     else:
         sys.exit(__doc__)
 
