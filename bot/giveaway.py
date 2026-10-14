@@ -111,11 +111,12 @@ def status_line(state, now, config):
 
 def public(state, config, now):
     """What the OBS counter shows (no names). config "test_sub": [from, to]
-    (unix times) shows one extra sub in that window only, to try the overlay;
+    (unix times) shows one extra sub, 15 s on and 15 s off, in that window only, to try the overlay;
     nothing is counted."""
     subs, left = len(state["subs"]), subs_left(state, config)
     test = config.get("test_sub")
-    if test and test[0] <= now < test[1] and state["status"] == "open" and left > 1:
+    blink = int((now - test[0]) // 15) % 2 == 0 if test else False  # on 15 s, off 15 s
+    if test and test[0] <= now < test[1] and blink and state["status"] == "open" and left > 1:
         subs, left = subs + 1, left - 1
     return {"status": state["status"], "round": state["round"], "need": config["need"],
             "subs": min(subs, config["need"]), "left": left,
