@@ -133,9 +133,8 @@ async def run(discord_token):
                     chats, checked = await yt.live_chats(), now
                     if set(chats) != set(yt.chats):
                         yt.chats = {c: yt.chats.get(c) for c in chats}
-                        if chats:
-                            await twitch_chat.report(
-                                f"YouTube: live, reading chat of {len(chats)} stream(s)")
+                        if chats:  # routine news: the journal, not the staff LOGS channel
+                            log.info("YouTube: live, reading chat of %s stream(s)", len(chats))
                 for chat in list(yt.chats):
                     page = yt.chats[chat]
                     res = await yt.call("GET", "/liveChat/messages", params=dict(

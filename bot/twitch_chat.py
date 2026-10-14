@@ -850,13 +850,22 @@ async def run(discord_token):
                         elif why == "lobby":
                             lobby_done = room.race_ended
                         counted.add(now)
-                        notice = ads["notice_race"] if why == "race" else ads["notice_lobby"]
-                        if notice:
-                            await bot.say(notice.format(length=length))
-                        res = await owner.run_ad(length)
-                        room.event("ad")
-                        spent[hour] += int(res.get("length") or length)
-                        log.info("Twitch: ad (%s) %s s, %s s this hour", why, length, spent[hour])
+                        try:
+                            res = await owner.run_ad(length)
+                        except RuntimeError as e:
+                            if ": 429" not in str(e):
+                                raise
+                            # Twitch's ad cooldown (its own ad or a channel point ad just ran):
+                            # skip this one quietly, and say nothing in chat
+                            log.info("Twitch: ad (%s) skipped, Twitch ad cooldown", why)
+                            res = None
+                        if res is not None:
+                            notice = ads["notice_race"] if why == "race" else ads["notice_lobby"]
+                            if notice:  # only once the ad really runs
+                                await bot.say(notice.format(length=length))
+                            room.event("ad")
+                            spent[hour] += int(res.get("length") or length)
+                            log.info("Twitch: ad (%s) %s s, %s s this hour", why, length, spent[hour])
             except Exception as e:
                 await report(f"problem: {e}")
             await asyncio.sleep(TICK)
