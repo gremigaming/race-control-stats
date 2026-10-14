@@ -31,16 +31,16 @@
   .card > div:last-child { min-width: 0; flex: 1; }
   .row { display: flex; align-items: center; gap: 14px; height: 20px; margin-top: 6px; }
   .pips { display: flex; gap: 6px; }
-  .who { white-space: nowrap; font-weight: 600; font-size: 17px; letter-spacing: .06em; color: var(--dim);
+  .who { text-transform: uppercase; white-space: nowrap; font-weight: 600; font-size: 17px; letter-spacing: .06em; color: var(--dim);
          display: flex; align-items: center; gap: 6px; line-height: 1; }
   .who .emo { width: 20px; height: 20px; fill: #5865f2; flex: none; }
   .pip { width: 30px; height: 7px; border-radius: 4px; background: rgba(255,255,255,.16); transition: background .4s; }
   .bar { display: none; width: 174px; height: 7px; border-radius: 4px; background: rgba(255,255,255,.16); overflow: visible; }
   .bar b { display: block; height: 100%; width: 100%; border-radius: 4px; transition: width 1s linear;
-           background: linear-gradient(90deg, #ff4a4a, #ff4fc8, #a77bff);  /* neon: red, pink, purple with a wide glow */
-           box-shadow: -4px 0 10px rgba(255,60,70,.8), 4px 0 10px rgba(167,123,255,.85), 0 0 22px rgba(255,79,200,.45), 0 0 40px rgba(255,79,200,.18); }
-  .pip.on { background: linear-gradient(90deg, #ff4a4a, #ff4fc8, #a77bff);  /* neon: red, pink, purple with a wide glow */
-           box-shadow: -4px 0 10px rgba(255,60,70,.8), 4px 0 10px rgba(167,123,255,.85), 0 0 22px rgba(255,79,200,.45), 0 0 40px rgba(255,79,200,.18); }
+           background: linear-gradient(90deg, #d4464a, #c4509f, #8a6cd0);  /* neon: red, pink, purple with a wide glow */
+           box-shadow: -4px 0 10px rgba(212,70,74,.6), 4px 0 10px rgba(138,108,208,.65), 0 0 22px rgba(196,80,159,.32), 0 0 40px rgba(196,80,159,.12); }
+  .pip.on { background: linear-gradient(90deg, #d4464a, #c4509f, #8a6cd0);  /* neon: red, pink, purple with a wide glow */
+           box-shadow: -4px 0 10px rgba(212,70,74,.6), 4px 0 10px rgba(138,108,208,.65), 0 0 22px rgba(196,80,159,.32), 0 0 40px rgba(196,80,159,.12); }
   .hidden { opacity: 0; }
   .pop { animation: pop .6s ease; }
   @keyframes pop { 40% { transform: scale(1.06); } }
