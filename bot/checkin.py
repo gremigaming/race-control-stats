@@ -5,9 +5,11 @@ time get one friendly DM from Race Control with two buttons:
   ✅ I'm still here   sends a welcome back with what's new (config 'welcome')
   ❌ Not anymore      shows a short "before you go" with what's new; only a
                       second no removes them (a kick, so they can rejoin)
-Nobody is asked twice. DMs go out a few per hour inside `hours` (Amsterdam),
+No answer in `remind_days`: one short reminder; still nothing `remind_days`
+later: removed too. Posting or joining voice in the server counts as an answer.
+Members with DMs turned off are never reminded or removed. Nobody is asked twice. DMs go out a few per hour inside `hours` (Amsterdam),
 at most `per_day` a day, so Discord doesn't see it as spam. Every answer, and
-a daily line with who has DMs turned off, goes to MOD-ALERTS.
+every DM sent, goes to LOGS.
 
 bot/checkin.json is read live; "on": false stops sending (buttons keep working).
 State lives on the server only (STATE), never in this public repo.
@@ -27,7 +29,7 @@ CONFIG = HERE / "checkin.json"
 STATE = pathlib.Path(os.environ.get("RACE_CONTROL_CHECKIN", "/var/lib/race-control/checkin.json"))
 TZ = ZoneInfo("Europe/Amsterdam")
 TICK = 60                # seconds between checks
-LOG_CHANNEL = 1559833714819727372  # 🚨┃MOD-ALERTS
+LOG_CHANNEL = 1091494080741122148  # staff LOGS (GreMi 2026-10-14)
 STAFF_ROLES = {1080524470332174437, 1085850009490178100}  # Moderator, Lead Moderator
 YES, NO, SURE, KEEP = "checkin:yes", "checkin:no", "checkin:sure", "checkin:keep"
 log = logging.getLogger("race_control.checkin")
@@ -40,7 +42,7 @@ def load_config(path=CONFIG):
 
 
 def fresh():
-    return {"asked": {}, "answers": {}, "queue": [], "queue_day": None,
+    return {"asked": {}, "answers": {}, "dm": {}, "reminded": {}, "queue": [], "queue_day": None,
             "day": None, "sent_today": 0, "last_sent": 0, "dms_off": [], "done_said": False}
 
 
@@ -56,6 +58,26 @@ def candidates(members, last_post, now, config, owner_id, asked):
              if not m["bot"] and m["id"] != owner_id and not (set(m["roles"]) & STAFF_ROLES)
              and m["joined"] < cut and last_post.get(m["id"], 0) < cut and str(m["id"]) not in asked]
     return [m["id"] for m in sorted(quiet, key=lambda m: m["joined"])]
+
+
+def follow_up(state, now, config, last_seen):
+    """The next (member id, "remind" | "kick") for someone who got the DM and
+    never answered, or None. last_seen(id) is their last message or voice time."""
+    wait = config["remind_days"] * 86400
+    for uid, asked in state["asked"].items():
+        if uid not in state["dm"] or uid in state["answers"] or last_seen(uid) > asked:
+            continue
+        reminded = state["reminded"].get(uid)
+        if reminded is None and now - asked >= wait:
+            return uid, "remind"
+        if reminded is not None and now - reminded >= wait:
+            return uid, "kick"
+    return None
+
+
+def in_hours(now, config):
+    start, end = config["hours"]
+    return start <= dt.datetime.fromtimestamp(now, TZ).hour < end
 
 
 def gap(config):
@@ -76,9 +98,7 @@ def new_day(state, now):
 def may_send(state, now, config):
     if not config.get("on") or not state["queue"]:
         return False
-    hour = dt.datetime.fromtimestamp(now, TZ).hour
-    start, end = config["hours"]
-    return (start <= hour < end and state["sent_today"] < config["per_day"]
+    return (in_hours(now, config) and state["sent_today"] < config["per_day"]
             and now - state["last_sent"] >= gap(config))
 
 
@@ -112,8 +132,9 @@ def save_state(state):
 # ---------------------------------------------------------------- Discord
 
 class Runner:
-    def __init__(self, bot, guild_id, owner_id):
+    def __init__(self, bot, guild_id, owner_id, members=None):
         self.bot, self.guild_id, self.owner_id = bot, guild_id, owner_id
+        self.members = members  # bot/members.py, for "posted or in voice since the DM"
         self.state = read_state()
 
     async def api(self, method, path, **kw):
@@ -179,10 +200,61 @@ class Runner:
             await self.api("POST", "/channels/{channel_id}/messages", params={"channel_id": channel.id},
                            json={"content": text_for(member.display_name, config), "components": ASK,
                                  "allowed_mentions": {"parse": []}})
+            self.state["dm"][str(uid)] = channel.id
             self.state["sent_today"] += 1
+            await self.report(f"📬 Check-in DM sent to {member.display_name} ({member.name}).")
         except discord.Forbidden:
             self.state["dms_off"].append(member.display_name)
+            await self.report(f"📭 Check-in: {member.display_name} ({member.name}) has DMs turned off, not asked.")
         save_state(self.state)
+
+    def last_seen(self, uid):
+        if self.members is None:
+            return 0
+        return (self.members.data.get(str(uid)) or {}).get("last_seen", 0)
+
+    async def follow(self, now, config):
+        """One reminder or removal for someone who never answered."""
+        import discord
+        nxt = follow_up(self.state, now, config, self.last_seen)
+        if not nxt:
+            return
+        uid, what = nxt
+        guild = self.bot.get_guild(self.guild_id)
+        member = guild.get_member(int(uid)) if guild else None
+        if member is None:  # left by themselves
+            self.state["answers"][uid] = "left"
+            save_state(self.state)
+            return
+        if what == "remind":
+            self.state["reminded"][uid] = now
+            save_state(self.state)
+            try:
+                await self.api("POST", "/channels/{channel_id}/messages",
+                               params={"channel_id": self.state["dm"][uid]},
+                               json={"content": text_for(member.display_name, dict(config, text=config["reminder"])),
+                                     "components": ASK, "allowed_mentions": {"parse": []}})
+                await self.report(f"⏰ Check-in reminder sent to {member.display_name} ({member.name}), "
+                                  "no answer for a week.")
+            except discord.DiscordException as e:
+                log.warning("check-in reminder failed: %s", e)
+            return
+        self.state["answers"][uid] = "no answer"
+        save_state(self.state)
+        try:
+            await self.api("POST", "/channels/{channel_id}/messages", params={"channel_id": self.state["dm"][uid]},
+                           json={"content": "\n".join(config["goodbye"]).replace("{invite}", config["invite"]),
+                                 "allowed_mentions": {"parse": []}})
+        except discord.DiscordException:
+            pass
+        try:
+            await member.kick(reason="Check-in DM: no answer after two weeks")
+            await self.report(f"👋 Check-in: {member.display_name} ({member.name}) didn't answer the DM or "
+                              "the reminder in two weeks and was removed from the server.")
+        except Exception as e:
+            log.warning("check-in kick failed: %s", e)
+            await self.report(f"⚠️ Check-in: removing {member.display_name} ({member.name}) after two weeks "
+                              f"without an answer failed ({e}). Please remove them by hand.")
 
     async def step(self):
         config, now = load_config(), time.time()
@@ -195,12 +267,15 @@ class Runner:
         if not config.get("on"):
             return
         await self.refresh_queue(now, config)
-        if not self.state["queue"] and self.state["asked"] and not self.state["done_said"]:
+        if (not self.state["queue"] and self.state["asked"] and not self.state["done_said"]
+                and self.state["queue_day"]):
             self.state["done_said"] = True
             save_state(self.state)
             await self.report(f"📬 Check-in: every quiet member has been asked ({len(self.state['asked'])}).")
         if may_send(self.state, now, config):
             await self.send_next(now, config)
+        if in_hours(now, config):
+            await self.follow(now, config)
 
     async def run(self):
         await self.bot.wait_until_ready()

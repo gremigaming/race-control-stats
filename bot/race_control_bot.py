@@ -87,7 +87,7 @@ async def on_ready():
         twitch_chat.FILL = giveaway.chat_fill
         twitch_chat.ON_SUB = giveaway.on_sub
         giveaway.ANNOUNCE = announce
-        quiet = checkin.Runner(bot, GUILD_ID, OWNER_ID)
+        quiet = checkin.Runner(bot, GUILD_ID, OWNER_ID, members)
         if sr_roles:
             sr_roles.CLICKS.append(runner.on_click)
             sr_roles.CLICKS.append(quiet.on_click)

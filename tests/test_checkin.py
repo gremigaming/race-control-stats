@@ -40,6 +40,24 @@ class CheckinTests(unittest.TestCase):
         self.assertEqual((s["day"], s["sent_today"], s["dms_off"]), ("2026-10-14", 0, []))
         self.assertIsNone(c.new_day(s, NOW))
 
+    def test_reminder_then_removal(self):
+        s = dict(c.fresh(), asked={"1": NOW, "2": NOW, "3": NOW, "4": NOW},
+                 dm={"1": 11, "2": 12, "4": 14}, answers={"2": "yes"})
+        never = lambda uid: 0
+        week = 7 * DAY
+        self.assertIsNone(c.follow_up(s, NOW + week - 60, CONFIG, never))
+        # 2 answered, 3 has DMs off: only 1 and 4
+        self.assertEqual(c.follow_up(s, NOW + week, CONFIG, never), ("1", "remind"))
+        s["reminded"]["1"] = NOW + week
+        self.assertEqual(c.follow_up(s, NOW + week, CONFIG, never), ("4", "remind"))
+        s["reminded"]["4"] = NOW + week
+        self.assertIsNone(c.follow_up(s, NOW + 2 * week - 60, CONFIG, never))
+        # 4 posted in the server after the DM: never removed
+        posted = lambda uid: NOW + DAY if uid == "4" else 0
+        self.assertEqual(c.follow_up(s, NOW + 2 * week, CONFIG, posted), ("1", "kick"))
+        s["answers"]["1"] = "no answer"
+        self.assertIsNone(c.follow_up(s, NOW + 3 * week, CONFIG, posted))
+
     def test_text(self):
         t = c.text_for("Max", CONFIG)
         self.assertTrue(t.startswith("**Remember GreMi_Gaming? 🏎️**"))
