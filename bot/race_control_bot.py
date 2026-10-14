@@ -30,7 +30,7 @@ import discord
 from bot.brain import Brain, HandOff
 from bot.members import GUILD_ID, Members
 from bot.profiles import write_profiles
-from bot import award_roles, giveaway, twitch_chat, youtube_chat
+from bot import award_roles, giveaway, mod_alerts, twitch_chat, youtube_chat
 
 from bot.replies import (CHANGE_REQUESTS_ID, FIRE_HEADERS, FIRE_URL, Cooldown, approval_body,
                          change_request, is_approval, is_staff, load_staff, needs_restart,
@@ -93,6 +93,7 @@ async def on_ready():
         asyncio.create_task(award_roles.run(bot, GUILD_ID, OWNER_ID, report_twitch))
         asyncio.create_task(twitch_chat.run(os.environ["DISCORD_BOT_TOKEN"]))
         asyncio.create_task(youtube_chat.run(os.environ["DISCORD_BOT_TOKEN"]))
+        asyncio.create_task(mod_alerts.run(bot))
 
 
 LOGS_CHANNEL_ID = 1091494080741122148  # staff-only logs
