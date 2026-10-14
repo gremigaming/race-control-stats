@@ -119,3 +119,25 @@ class ScheduleTests(unittest.TestCase):
         self.assertIn("Thu 08 Oct 20:00 Amsterdam time", lines[1])
         self.assertIn(f"<t:{int(soon.timestamp())}:F>", lines[1])
         self.assertTrue(lines[2].endswith("LMU"))
+
+    def test_promise_to_check_hands_off(self):
+        self.assertTrue(replies.promises_check(
+            "Russell crashed out of the sprint, and I don't have the full race DNF list "
+            "from Singapore, need to check that one for you."))
+        self.assertTrue(replies.promises_check("Ik moet dat even nakijken voor je"))
+        self.assertFalse(replies.promises_check("Verstappen won Singapore from pole."))
+
+    def test_briefing_topic_lines(self):
+        briefing = "Joining: rules\nPartner: GREMI10\nWeekly giveaway: €10 card"
+        dnf = replies.briefing_for(briefing, "who dnfed in singapore last weekend?")
+        self.assertEqual(dnf, "Joining: rules")
+        self.assertIn("Weekly giveaway", replies.briefing_for(briefing, "how do I win the giveaway"))
+        self.assertIn("Partner", replies.briefing_for(briefing, "best seat for my rig?"))
+
+    def test_fit_context_keeps_last_chat_lines(self):
+        chat = ["GreMi: who dnfed in singapore?", "you: need to check", "x: hi", "y: yo"]
+        earlier, kept = replies.fit_context(1500, "old answers", chat, len, 1500)
+        self.assertEqual(earlier, "")
+        self.assertEqual(kept, ["x: hi", "y: yo"])
+        earlier, kept = replies.fit_context(0, "old", chat, len, 1500)
+        self.assertEqual((earlier, kept), ("old", chat))

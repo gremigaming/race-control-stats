@@ -14,7 +14,8 @@ import discord
 
 from bot.members import named_members
 from bot.memory import Memory, said
-from bot.replies import ASKS_CHANGE, plain, schedule_lines, split_marker
+from bot.replies import (ASKS_CHANGE, briefing_for, fit_context, plain, promises_check,
+                         schedule_lines, split_marker)
 
 # Small model on purpose: quick chat answers are cheap and fast. Set QUICK_MODEL on the
 # server to try another one.
@@ -52,7 +53,7 @@ log = logging.getLogger("race_control")
 
 SYSTEM = """You are Race Control, the bot of GreMi_Gaming's Discord server, chatting with everyone in it. Reply in 1 to 3 short sentences, in the asker's language. No em dashes, no pings.
 Take facts only from the briefing, race news, stats and chat below; never invent facts (jokes and banter are free). GreMi's stream schedule, when asked about, comes from his Twitch schedule below; use the <t:...> times exactly as given so Discord shows them in each reader's time zone. If no stream is listed, nothing is planned on Twitch in the next 7 days.
-If you'd need anything else (channel contents, research), reply only: RESEARCH: <what to find out>
+If you'd need anything else (channel contents, research, race facts not in the race news), reply only: RESEARCH: <what to find out>. Never promise to check later. A short follow-up ("check it", "and?") continues the chat above it.
 If someone asks for any change (server channels, roles, settings, posts, or how you work, your code, your data or routines), reply only: CHANGE: <the request in one sentence>. Nothing before it. That posts a change request GreMi approves with a checkmark, then Claude carries it out.
 You can't change anything yourself and you can't tell if a change is done: never claim you made, flagged, posted or remembered something, and never say you lack access or can't run routines.
 Be a fun regular of the gang with a backbone: read the vibe and play along. Asked for a joke, a roast or a silly take? Deliver one, never refuse. On GreMi Gaming topics (racing, sim racing, streaming, GreMi's content) hold opinions, back them with reasons, argue, banter. Don't fold to pressure or trolling on opinions; change one only for a real reason and say why. If someone goes too far, tell them off once, calmly and family friendly. Never insult anyone personally. On politics, religion and other real-world debates stay neutral.
@@ -151,8 +152,9 @@ class Brain:
         chat = [f"you: {said(m.clean_content)[:CLIP]}" if m.author.id == me.id
                 else f"{m.author.display_name}: {m.clean_content[:CLIP]}"
                 for m in reversed(history)]
-        system = (f"{SYSTEM}\n<briefing>\n{await self.fetch(BRIEFING_URL)}</briefing>\n"
-                  f"<race_news>\n{await self.fetch(RACING_URL)}</race_news>\n"
+        topic = " ".join([message.clean_content] + [m.clean_content for m in history[:3]])
+        system = (f"{SYSTEM}\n<briefing>\n{briefing_for(await self.fetch(BRIEFING_URL), topic)}"
+                  f"</briefing>\n<race_news>\n{await self.fetch(RACING_URL)}</race_news>\n"
                   f"<stats>{self.stats(message.guild)}</stats>")
         if ASKS_SCHEDULE.search(message.clean_content):
             system += f"\n<twitch_schedule>\n{self.schedule(message.guild)}\n</twitch_schedule>"
@@ -162,16 +164,12 @@ class Brain:
                f"<tagged_message from=\"{a.display_name}\" access=\"{'staff' if staff else 'member'}\">\n"
                f"{message.clean_content[:ASK_CLIP]}\n</tagged_message>")
         earlier = self.memory.recall(RECALL, None if staff else plain(message.channel.name))
-        # Oldest context goes first when the budget is tight
-        while True:
-            user = (f"<your_earlier_replies>\n{earlier or '(none)'}\n</your_earlier_replies>\n"
-                    f"<chat>\n{chr(10).join(chat) or '(none)'}\n</chat>\n{ask}")
-            if estimate_tokens(system + user) <= TOKEN_BUDGET or not (chat or earlier):
-                break
-            if chat:
-                chat.pop(0)
-            else:
-                earlier = ""
+        # Earlier answers go first when the budget is tight, then the oldest chat;
+        # the last chat lines always stay, or follow-ups lose what they follow
+        earlier, chat = fit_context(estimate_tokens(system + ask) + 25, earlier, chat,
+                                    estimate_tokens, TOKEN_BUDGET)
+        user = (f"<your_earlier_replies>\n{earlier or '(none)'}\n</your_earlier_replies>\n"
+                f"<chat>\n{chr(10).join(chat) or '(none)'}\n</chat>\n{ask}")
         response = await self.claude.messages.create(
             model=MODEL, max_tokens=300, system=system,
             messages=[{"role": "user", "content": user}],
@@ -187,6 +185,8 @@ class Brain:
             raise HandOff(rest or message.clean_content[:ASK_CLIP], change=True)
         if not text or kind == RESEARCH:
             raise HandOff(rest or "no answer")
+        if promises_check(text):  # "need to check that one" with nothing to follow
+            raise HandOff(message.clean_content[:ASK_CLIP])
         self.memory.add(plain(message.channel.name), message.author.display_name,
                         message.clean_content, text)
         return text

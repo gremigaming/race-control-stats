@@ -109,6 +109,55 @@ def split_marker(text):
     return m.group(1), text[m.end():].strip()
 
 
+# The quick model sometimes promises to look something up ("need to check that one
+# for you") instead of writing RESEARCH. Nothing would follow, so such a reply is
+# handed to Claude Code like RESEARCH.
+PROMISES_CHECK = re.compile(
+    r"\b(need|have|got) to (check|look|find)|\b(i'?ll|i will|let me|gonna) (check|look|find|dig)"
+    r"|\b(check|look) (that|it|this) (one )?(up|for you)|get back to you|come back to you"
+    r"|\b(moet|ga) .{0,20}(checken|nakijken|opzoeken|uitzoeken)|\bik (zoek|kijk) .{0,20}(op|na)\b"
+    r"|even (checken|kijken|opzoeken)|kom (er )?(op )?terug", re.I)
+
+
+def promises_check(text):
+    return bool(PROMISES_CHECK.search(text))
+
+
+# Briefing lines that only matter for some questions: line start -> words in the
+# question or recent chat that bring the line in. Keeps quick answers under budget.
+TOPIC_LINES = {
+    "Partner:": re.compile(r"simgasm|rig|seat|stoel|cockpit|gear|discount|korting|code|partner"
+                           r"|wheel|stuur|pedal|\bbuy|kopen", re.I),
+    "Weekly giveaway:": re.compile(r"giveaway|\bwin\b|winn|prize|prijs|gift ?card|entr|loot|draw"
+                                   r"|trekking|prize hunter|vip|\bog\b|award|booster|\bsubs?\b", re.I),
+}
+
+
+def briefing_for(briefing, text):
+    """The briefing without topic lines the question and chat don't touch."""
+    keep = []
+    for line in briefing.splitlines():
+        words = next((r for start, r in TOPIC_LINES.items() if line.startswith(start)), None)
+        if words is None or words.search(text):
+            keep.append(line)
+    return "\n".join(keep)
+
+
+def fit_context(fixed_tokens, earlier, chat, estimate, budget, keep_chat=2):
+    """Trims to the token budget: our earlier answers go first, then the oldest
+    chat, but the last `keep_chat` chat lines always stay so a follow-up like
+    "check it" still has the conversation it follows. Returns (earlier, chat)."""
+    chat = list(chat)
+
+    def size():
+        return fixed_tokens + estimate(earlier + "\n".join(chat))
+    if size() > budget:
+        earlier = ""
+    while size() > budget and len(chat) > keep_chat:
+        chat.pop(0)
+    return earlier, chat
+
+
 def change_request(requester_id, channel_id, jump_url, request):
     """The message Race Control posts in the change-requests channel."""
     request = " ".join(request.split())[:700] or "(see the linked message)"
