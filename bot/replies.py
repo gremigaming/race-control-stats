@@ -25,7 +25,7 @@ ASKS_CHANGE = re.compile(
     r"change[- ]?request|wijzigingsverzoek|\brun (a|the|your) routine"
     r"|\b(edit|change|update|aanpassen|wijzig)\w*\b.{0,25}\b(your|je|jouw) (own )?code", re.I)
 # Bot files whose change needs a restart (briefing.md and racing.md are read live)
-RESTART_FILES = re.compile(r"^(bot/(.+\.py|requirements\.txt|twitch_(chat|owner)\.sealed|youtube\.sealed|twitch_timers\.json|giveaway\.json|checkin\.json|giveaway_overlay\.html|socials_overlay\.html)|staff/.+\.py)$")  # staff: the bot pulls, the staff page reloads itself
+RESTART_FILES = re.compile(r"^(bot/(.+\.py|requirements\.txt|twitch_(chat|owner)\.sealed|youtube\.sealed|twitch_timers\.json|giveaway\.json|checkin\.json|welcome\.json|giveaway_overlay\.html|socials_overlay\.html)|staff/.+\.py)$")  # staff: the bot pulls, the staff page reloads itself
 TZ = ZoneInfo("Europe/Amsterdam")
 APPROVE = "✅"
 FIRE_URL = "https://api.anthropic.com/v1/claude_code/routines/{}/fire"

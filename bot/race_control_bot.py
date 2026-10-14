@@ -30,7 +30,8 @@ import discord
 from bot.brain import Brain, HandOff
 from bot.members import GUILD_ID, Members
 from bot.profiles import write_profiles
-from bot import award_roles, checkin, giveaway, mod_alerts, socials_live, twitch_chat, youtube_chat
+from bot import (award_roles, checkin, giveaway, mod_alerts, socials_live, twitch_chat, welcome,
+                 youtube_chat)
 
 from bot.replies import (CHANGE_REQUESTS_ID, FIRE_HEADERS, FIRE_URL, Cooldown, approval_body,
                          change_request, is_approval, is_staff, load_staff, needs_restart,
@@ -55,6 +56,7 @@ try:  # the safety rating commands; a problem there must not stop the bot
 except Exception as e:  # pragma: no cover
     sr_roles = None
     logging.getLogger("race_control").warning("safety rating commands off: %s", e)
+welcomer = welcome.Welcomer(bot, GUILD_ID)
 
 
 def tags_me(message):
@@ -98,6 +100,7 @@ async def on_ready():
         asyncio.create_task(youtube_chat.run(os.environ["DISCORD_BOT_TOKEN"]))
         asyncio.create_task(mod_alerts.run(bot))
         asyncio.create_task(socials_live.run(bot, GUILD_ID))
+        asyncio.create_task(welcomer.run())
 
 
 LOGS_CHANNEL_ID = 1091494080741122148  # staff-only logs
@@ -245,6 +248,7 @@ async def on_message(message):
         members.message(message.author.id, plain(message.channel.name), at)
         members.archive(message.id, message.author.id, plain(message.channel.name),
                         message.clean_content, at)
+        await welcomer.on_message(message)
     ref = message.reference.message_id if message.reference else None
     if message.author == bot.user and ref in waiting:
         waiting[ref].set()  # Claude answered, stop typing
@@ -295,6 +299,16 @@ async def post_change_request(message, request):
         await message.reply(REQUEST_FAILED, mention_author=False)
         return
     await message.reply(REQUEST_NOTE.format(CHANGE_REQUESTS_ID), mention_author=False)
+
+
+@bot.event
+async def on_member_join(member):
+    await welcomer.on_join(member)
+
+
+@bot.event
+async def on_member_remove(member):
+    await welcomer.on_leave(member)
 
 
 @bot.event
