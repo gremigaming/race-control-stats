@@ -3,8 +3,8 @@
 Members who joined more than `months` ago and haven't posted anything in that
 time get one friendly DM from Race Control with two buttons:
   ✅ I'm still here   sends a welcome back with what's new (config 'welcome')
-  ❌ Not anymore      asks "Sure?" first; confirming removes them (a kick, so
-                      they can rejoin with an invite)
+  ❌ Not anymore      shows a short "before you go" with what's new; only a
+                      second no removes them (a kick, so they can rejoin)
 Nobody is asked twice. DMs go out a few per hour inside `hours` (Amsterdam),
 at most `per_day` a day, so Discord doesn't see it as spam. Every answer, and
 a daily line with who has DMs turned off, goes to MOD-ALERTS.
@@ -92,7 +92,7 @@ def buttons(*items):
 
 
 ASK = buttons((3, "I'm still here", "✅", YES), (2, "Not anymore", "❌", NO))
-CONFIRM = buttons((4, "Yes, remove me", "👋", SURE), (2, "No, keep me", "✅", KEEP))
+CONFIRM = buttons((2, "OK, I'll stay", "✅", KEEP), (4, "Yes, remove me", "👋", SURE))
 
 
 def read_state():
@@ -226,8 +226,7 @@ class Runner:
         uid = str(user.id)
         original = interaction.message.content.split("\n\n-# ")[0] if interaction.message else ""
         if cid == NO:
-            await self.update(interaction, original + "\n\n-# Sure? This removes you from the server. "
-                              f"You can always come back with an invite: {config['invite']}", CONFIRM)
+            await self.update(interaction, original + "\n\n-# ⬇️\n" + "\n".join(config["last_chance"]), CONFIRM)
             return
         if cid in (YES, KEEP):
             self.state["answers"][uid] = "yes"

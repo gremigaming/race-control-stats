@@ -1,5 +1,5 @@
 {
-  "_about": "Check-in DMs for quiet members (GreMi 2026-10-14), run by bot/checkin.py and read live. 'on': false stops sending; the buttons keep working. {name} is the member's server name. 'welcome' is sent after ✅.",
+  "_about": "Check-in DMs for quiet members (GreMi 2026-10-14), run by bot/checkin.py and read live. 'on': false stops sending; the buttons keep working. {name} is the member's server name. 'welcome' is sent after ✅. 'last_chance' is shown after the first ❌; only a second ❌ removes them.",
   "on": false,
   "months": 6,
   "per_day": 20,
@@ -20,5 +20,13 @@
     "🤖 Tag @Race Control in the server with any question.",
     "🛒 Code **GREMI10** gets you 10% off at Simgasm.",
     "🔴 GreMi live: <https://twitch.tv/gremi_gaming>"
+  ],
+  "last_chance": [
+    "**Before you go, you might have missed a lot:**",
+    "🎁 Weekly €10 gift card giveaway",
+    "📊 Race stats and leaderboards from every stream",
+    "🎭 New roles that unlock F1, LMU and league chats",
+    "🛒 10% off at Simgasm with code **GREMI10**",
+    "Still want to leave? Then this removes you from the server (you can always come back)."
   ]
 }
