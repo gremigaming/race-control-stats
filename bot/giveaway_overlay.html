@@ -22,13 +22,15 @@
           background: linear-gradient(90deg, var(--red), var(--purple));
           -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
           -webkit-mask-composite: xor; mask-composite: exclude; }
-  .gift { font-size: 46px; line-height: 1; filter: drop-shadow(0 0 10px rgba(145,70,255,.6)); }
+  .gift { width: 56px; text-align: center; font-size: 46px; line-height: 1; filter: drop-shadow(0 0 10px rgba(145,70,255,.6)); }
   .label { white-space: nowrap; font-weight: 600; font-size: 17px; letter-spacing: .14em; color: var(--dim); text-transform: uppercase; }
   .big { font-weight: 800; font-size: 40px; line-height: 1; text-transform: uppercase; letter-spacing: .02em; white-space: nowrap; }
   .card > div:last-child { min-width: 0; flex: 1; }
-  .row { display: flex; align-items: center; gap: 14px; margin-top: 8px; }
+  .row { display: flex; align-items: center; gap: 14px; height: 20px; margin-top: 6px; }
   .pips { display: flex; gap: 6px; }
-  .who { white-space: nowrap; font-weight: 600; font-size: 17px; letter-spacing: .06em; color: var(--dim); }
+  .who { white-space: nowrap; font-weight: 600; font-size: 17px; letter-spacing: .06em; color: var(--dim);
+         display: flex; align-items: center; gap: 6px; line-height: 1; }
+  .who .emo { color: #fff; font-size: 18px; filter: drop-shadow(0 0 1.5px #fff) drop-shadow(0 0 1.5px #fff) drop-shadow(0 0 5px rgba(255,255,255,.6)); }
   .pip { width: 30px; height: 7px; border-radius: 4px; background: rgba(255,255,255,.16); transition: background .4s; }
   .bar { display: none; width: 174px; height: 7px; border-radius: 4px; background: rgba(255,255,255,.16); overflow: hidden; }
   .bar b { display: block; height: 100%; width: 100%; background: linear-gradient(90deg, var(--red), var(--purple));
@@ -41,7 +43,7 @@
 <body>
 <div class="card hidden" id="card">
   <div class="streaks"><i></i><i></i><i></i></div>
-  <div class="gift">🎁</div>
+  <div class="gift" id="gift">🎁</div>
   <div>
     <div class="label" id="label">Weekly giveaway</div>
     <div class="big" id="big">…</div>
@@ -79,7 +81,7 @@ function show() {
     $("fill").style.width = Math.max(0, Math.min(100, 100 * left / (data.delay || 600))) + "%";
   } else if (winner) {
     label = "Giveaway winner · €10 gift card";
-    big = "🏆 " + data.winner;
+    big = data.winner;
     who = "GG! Next one opens tomorrow";
   } else {
     label = "Giveaway";
@@ -91,6 +93,11 @@ function show() {
   fit();
   if (data.status !== "closed") who = "👥 " + n + " entered";
   $("who").textContent = who;
+  if (data.status !== "closed") {  // the emoji at full strength, not dimmed with the text
+    $("who").innerHTML = '<span class="emo">👥</span><span></span>';
+    $("who").lastChild.textContent = n + " entered";
+  }
+  $("gift").textContent = winner ? "🏆" : "🎁";
   $("pips").style.display = timer || data.status === "closed" ? "none" : "flex";
   $("bar").style.display = timer ? "block" : "none";
   const pips = $("pips");
