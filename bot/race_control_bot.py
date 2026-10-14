@@ -30,7 +30,7 @@ import discord
 from bot.brain import Brain, HandOff
 from bot.members import GUILD_ID, Members
 from bot.profiles import write_profiles
-from bot import award_roles, giveaway, mod_alerts, socials_live, twitch_chat, youtube_chat
+from bot import award_roles, checkin, giveaway, mod_alerts, socials_live, twitch_chat, youtube_chat
 
 from bot.replies import (CHANGE_REQUESTS_ID, FIRE_HEADERS, FIRE_URL, Cooldown, approval_body,
                          change_request, is_approval, is_staff, load_staff, needs_restart,
@@ -87,9 +87,12 @@ async def on_ready():
         twitch_chat.FILL = giveaway.chat_fill
         twitch_chat.ON_SUB = giveaway.on_sub
         giveaway.ANNOUNCE = announce
+        quiet = checkin.Runner(bot, GUILD_ID, OWNER_ID)
         if sr_roles:
             sr_roles.CLICKS.append(runner.on_click)
+            sr_roles.CLICKS.append(quiet.on_click)
         asyncio.create_task(runner.run())
+        asyncio.create_task(quiet.run())
         asyncio.create_task(award_roles.run(bot, GUILD_ID, OWNER_ID, report_twitch))
         asyncio.create_task(twitch_chat.run(os.environ["DISCORD_BOT_TOKEN"]))
         asyncio.create_task(youtube_chat.run(os.environ["DISCORD_BOT_TOKEN"]))

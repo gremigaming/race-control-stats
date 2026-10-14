@@ -1,0 +1,22 @@
+{
+  "_about": "Check-in DMs for quiet members (GreMi 2026-10-14), run by bot/checkin.py and read live. 'on': false stops sending; the buttons keep working. {name} is the member's server name.",
+  "on": false,
+  "months": 6,
+  "per_day": 20,
+  "hours": [
+    11,
+    21
+  ],
+  "invite": "https://discord.gg/bDga7v97Qq",
+  "text": [
+    "**Remember GreMi_Gaming? 🏎️**",
+    "Hey {name}! I'm **Race Control**, the bot of GreMi's sim racing server. We haven't heard from you in a while, so I came to check in. 👀",
+    "",
+    "🎁 Weekly €10 gift card giveaway (Prize Hunter role, Enter in GIVEAWAYS)",
+    "📊 Race stats from every stream: <https://gremigaming.github.io/race-stats/>",
+    "🛒 Code **GREMI10** for 10% off at Simgasm",
+    "🔴 GreMi live in EA F1 and LMU: <https://twitch.tv/gremi_gaming>",
+    "",
+    "Still up for being part of the gang? No hard feelings either way."
+  ]
+}
