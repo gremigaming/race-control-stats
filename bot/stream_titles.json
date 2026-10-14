@@ -1,5 +1,5 @@
 {
-  "on": true,
+  "on": false,
   "before_minutes": 60,
   "about": "Twitch stream titles (= the go-live notification text). Race Control sets the next unused one about an hour before each scheduled stream. The race news routine refreshes the F1 ones on Mondays and Thursdays. Max 140 characters each.",
   "titles": [
