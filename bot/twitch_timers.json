@@ -132,7 +132,8 @@
     "notice_lobby": "📺 Quick ad break while we line up for the next race, back in {length} seconds!",
     "snooze_when_busy": true,
     "command": true,
-    "length": 90
+    "length": 30,
+    "max_length": 60
   },
   "_about": "Race Control's chat messages. every = minutes between clock runs (none = only on events, commands or questions); first = not before this minute of the stream; quiet = only after this many minutes without any Race Control message; skip_after = not when that message went out that recently; events = minutes to wait after: new_chatter, stream_end, hidden_driver, ad, sub; cooldown = minutes between event runs of this message; commands = anyone can type them; ask = question pattern ({topic, cue, not}: topic words AND a question or interest word, and NOT words that mean it's about something else); ask_text = the answer to a command or question if it differs; game = only while the stream category contains it."
 }

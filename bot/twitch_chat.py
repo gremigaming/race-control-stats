@@ -34,7 +34,8 @@ Everything is set in bot/twitch_timers.json:
               race ads), first (minutes after going live), lobby_after (minutes
               into the hour before a lobby top-up), notice_race / notice_lobby
               (chat text before the ad, {length} filled in, "" for none),
-              snooze_when_busy, command (allow !ad), length (seconds for !ad)
+              snooze_when_busy, command (allow !ad), length (seconds for !ad),
+              max_length (cap for every ad the bot starts, at most 60)
 
 Usage from the workflow (DISCORD_BOT_TOKEN in the environment):
   python3 -m bot.twitch_chat seal <chat|owner> <refresh token file>
@@ -111,13 +112,15 @@ def load_timers(path=TIMERS):
         cmds = t.get("commands") or ([t["command"]] if t.get("command") else [])
         t["commands"] = [c.lower() for c in cmds]
     ads = data.setdefault("ads", {})
-    for key, value in {"auto": False, "length": 90, "race_length": 30, "target_per_hour": 180,
+    for key, value in {"auto": False, "length": 30, "max_length": 60, "race_length": 30, "target_per_hour": 180,
                        "first": 10, "quiet_minutes": 3, "quiet_max": 1, "min_gap": 10,
                        "lobby_after": 30, "notice_lobby": "", "notice_race": "",
                        "snooze_when_busy": False, "command": True}.items():
         ads.setdefault(key, value)
+    # GreMi: 30 s ads, never longer than 60 s
+    ads["max_length"] = min(60, max(30, int(ads["max_length"])))
     for key in ("length", "race_length"):
-        ads[key] = min(180, max(30, int(ads[key])))
+        ads[key] = min(ads["max_length"], max(30, int(ads[key])))
     return data
 
 
@@ -262,7 +265,7 @@ def plan_ad(ads, now, live_minutes, last_race_ad, race_ended, lobby_done, asked,
     in_lobby = race_ended and now - race_ended < RACE_FRESH
     if in_lobby:
         if race_ended != lobby_done and hour_minutes >= ads["lobby_after"]:
-            return "lobby", min(180, -(-missing // 30) * 30)  # rounded up to 30 s steps
+            return "lobby", min(ads["max_length"], -(-missing // 30) * 30)  # rounded up to 30 s steps
         return None
     if recent_chat <= ads["quiet_max"] and now - last_race_ad >= ads["min_gap"] * 60:
         return "race", ads["race_length"]
@@ -895,7 +898,8 @@ def main(argv):
         asyncio.run(once("chat", token, lambda c: c.say(argv[2])))
         print("Sent.")
     elif len(argv) in (2, 3) and argv[1] == "ad":
-        length = min(180, max(30, int(argv[2]) if len(argv) == 3 else load_timers()["ads"]["length"]))
+        ads = load_timers()["ads"]
+        length = min(ads["max_length"], max(30, int(argv[2]) if len(argv) == 3 else ads["length"]))
         res = asyncio.run(once("owner", token, lambda c: c.run_ad(length)))
         print(f"Ad running: {res.get('length')} seconds. {res.get('message', '')}".strip())
     elif len(argv) == 2 and argv[1] == "ads":
