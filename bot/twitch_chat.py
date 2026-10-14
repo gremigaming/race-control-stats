@@ -390,7 +390,7 @@ class Twitch:
         if not them:
             raise RuntimeError(f"Twitch channel {channel} not found")
         self.broadcaster, self.channel = them[0]["id"], channel
-        await report(f"{self.kind} login works ({self.me['login']})")
+        log.info("Twitch: %s login works (%s)", self.kind, self.me["login"])
 
     async def live_since(self):
         data = (await self.call("GET", "/streams", params={"user_id": self.broadcaster}))["data"]
@@ -494,7 +494,8 @@ _reported = set()
 
 
 async def report(text):
-    """Logs a status line and, once per distinct line, hands it to REPORTER."""
+    """Logs a problem and, once per distinct line, hands it to REPORTER (staff LOGS).
+    Only for things going wrong; routine success lines go to log.info only."""
     log.info("Twitch: %s", text)
     if REPORTER and text not in _reported:
         _reported.add(text)
@@ -562,7 +563,7 @@ async def listen_chat(bot, room, ads_command):
                                           "user_id": bot.me["id"]},
                             "transport": {"method": "websocket",
                                           "session_id": data["payload"]["session"]["id"]}})
-                        await report(f"listening to #{bot.channel} chat as {bot.me['login']}")
+                        log.info("Twitch: listening to #%s chat as %s", bot.channel, bot.me["login"])
                     elif kind == "session_reconnect":
                         url = data["payload"]["session"]["reconnect_url"]
                         break
@@ -623,7 +624,7 @@ async def listen_subs(owner):
                             await report(f"can't count subs for the giveaway ({e}); run the Twitch chat "
                                          "workflow with 'login-owner' again")
                             return
-                        await report("counting new subs for the giveaway")
+                        log.info("Twitch: counting new subs for the giveaway")
                     elif kind == "session_reconnect":
                         url = data["payload"]["session"]["reconnect_url"]
                         break
@@ -714,7 +715,7 @@ async def title_next_stream(owner, session, now):
     await owner.set_title(title)
     used = [t for t in used if t != title] + [title]
     save_state("titles", {"segments": (titled + [seg["id"]])[-20:], "used": used[-60:]})
-    await report(f"stream title set: {title}")
+    log.info("Twitch: stream title set: %s", title)
 
 
 async def run(discord_token):

@@ -13,7 +13,7 @@ How a round goes:
            The next round opens at midnight (Amsterdam) the day after.
 
 The OBS browser source (subs left until the draw) is served by the staff page at
-https://<server>.sslip.io/giveaway; the address is posted in the staff LOGS channel.
+https://<server>.sslip.io/giveaway; the address is in the bot's journal log.
 State lives on the server only (STATE), never in this public repo.
 The decisions at the top have no Discord code, so they can be tested on their own.
 """
@@ -370,7 +370,7 @@ class Runner:
         await self.bot.wait_until_ready()
         url = await overlay_url()
         if url:
-            await self.report(f"OBS giveaway counter: {url}")
+            log.info("OBS giveaway counter: %s", url)
         while True:
             try:
                 await self.step()

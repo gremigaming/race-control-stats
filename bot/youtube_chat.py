@@ -118,7 +118,7 @@ async def run(discord_token):
     async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=20)) as session:
         yt = YouTube(login, session)
         twitch_chat.MIRRORS.append(yt.say)
-        await twitch_chat.report("YouTube login loaded")
+        log.info("YouTube login loaded")
         checked = 0.0
         while True:
             wait = LIVE_EVERY
