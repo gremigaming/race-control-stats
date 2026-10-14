@@ -5,37 +5,96 @@
   "min_chat": 3,
   "timers": [
     {
-      "first": 10,
-      "every": 30,
+      "id": "names",
+      "game": "F1",
+      "events": {
+        "hidden_driver": 3
+      },
+      "cooldown": 5,
+      "commands": [
+        "!showname",
+        "!shownames",
+        "!names"
+      ],
+      "ask": "\\b(how|hoe|where|waar)\\b.{0,40}\\b(names?|naam|namen)\\b|\\bshow ?(player ?)?names?\\b",
+      "text": "👀 Racing in GreMi's lobby? Turn on Show Player Names (Settings > Telemetry Settings) so your results and safety rating land under your own name. Results of every race: https://gremigaming.github.io/race-stats/",
+      "ask_text": "Turn on Show Player Names (Settings > Telemetry Settings) so your results and safety rating land under your own name. Results of every race: https://gremigaming.github.io/race-stats/"
+    },
+    {
+      "id": "discord",
+      "events": {
+        "new_chatter": 2,
+        "stream_end": 0
+      },
+      "cooldown": 15,
+      "commands": [
+        "!discord"
+      ],
+      "ask": "\\b(how|hoe|where|waar|join|link|invite)\\b.{0,30}\\bdiscord\\b|\\bdiscord\\b.{0,20}(\\blink\\b|\\binvite\\b|\\?)",
       "text": "🏁 Join the GreMi Gang on Discord: a racing community where we help each other get faster, plus all the news about GreMi and the streams. https://discord.gg/bDga7v97Qq"
     },
     {
+      "id": "stats",
       "first": 20,
-      "every": 30,
+      "every": 40,
+      "skip_after": {
+        "id": "names",
+        "minutes": 15
+      },
+      "commands": [
+        "!stats",
+        "!results"
+      ],
+      "ask": "\\b(my|mijn|where|waar|how|hoe)\\b.{0,25}\\b(stats|results|resultaten|statistieken)\\b",
       "text": "📊 Lap times, results and head to heads from the races on stream: https://gremigaming.github.io/race-stats/"
     },
     {
-      "first": 5,
-      "every": 30,
-      "game": "F1",
-      "text": "👀 Racing in GreMi's lobby? Turn on Show Player Names (Settings > Telemetry Settings) so your results and safety rating land under your own name. Results of every race: https://gremigaming.github.io/race-stats/"
+      "id": "simgasm",
+      "events": {
+        "ad": 0
+      },
+      "cooldown": 5,
+      "commands": [
+        "!simgasm",
+        "!setup",
+        "!rig"
+      ],
+      "ask": "\\b(what|which|wat|welke)\\b.{0,25}\\b(rig|cockpit|sim ?rig)\\b|\\b(your|je|jouw) (rig|setup|cockpit)\\b",
+      "text": "🏎️ Looking for a sim rig? GreMi partners with Simgasm: great cockpits at a fair price. Get 10% off with code GREMI10 at https://simgasm.com/gremi_gaming . Bought one? Show GreMi your order for a free sub and the Simgasm Buyer role on Discord!"
     },
     {
-      "first": 30,
-      "every": 30,
+      "id": "follow",
+      "first": 15,
+      "every": 45,
+      "quiet": 10,
       "text": "💜 Enjoying the racing? Hit follow so you don't miss the next stream!"
     },
     {
-      "first": 25,
-      "every": 30,
-      "text": "🏎️ Looking for a sim rig? GreMi partners with Simgasm: great cockpits at a fair price. Get 10% off with code GREMI10 at https://simgasm.com/gremi_gaming . Bought one? Show GreMi your order for a free sub and the Simgasm Buyer role on Discord!",
-      "command": "!simgasm"
-    },
-    {
+      "id": "giveaway",
       "first": 15,
       "every": 30,
-      "text": "🎁 Weekly giveaway: a €10 gift card (Steam, EA, Xbox or PlayStation)! It's drawn 10 minutes after the 5th new sub. {giveaway} Join the Discord, get the Prize Hunter role and press Enter in #giveaways: https://discord.gg/bDga7v97Qq",
-      "command": "!giveaway"
+      "events": {
+        "sub": 1
+      },
+      "cooldown": 5,
+      "commands": [
+        "!giveaway"
+      ],
+      "ask": "\\bgiveaway\\b.{0,30}\\?|\\b(how|hoe|when|wanneer)\\b.{0,30}\\bgiveaway\\b",
+      "text": "🎁 Weekly giveaway: a €10 gift card (Steam, EA, Xbox or PlayStation)! It's drawn 10 minutes after the 5th new sub. {giveaway} Join the Discord, get the Prize Hunter role and press Enter in #giveaways: https://discord.gg/bDga7v97Qq"
+    },
+    {
+      "id": "subs",
+      "first": 25,
+      "every": 45,
+      "quiet": 3,
+      "commands": [
+        "!sub",
+        "!subs",
+        "!perks"
+      ],
+      "ask": "\\b(why|what|waarom|wat)\\b.{0,30}\\bsub(s|scribe|scribers?|ben)?\\b.{0,30}\\b(get|perks?|benefits?|voordelen|krijg)|\\bsub (perks|benefits)\\b",
+      "text": "💜 Why sub? No ads on stream, extra entries in the weekly giveaway on Discord, the subs-only chat on Discord, and your own custom welcome sound and alert every time you join the stream!"
     }
   ],
   "ads": {
@@ -52,5 +111,6 @@
     "snooze_when_busy": true,
     "command": true,
     "length": 90
-  }
+  },
+  "_about": "Race Control's chat messages. every = minutes between clock runs (none = only on events, commands or questions); first = not before this minute of the stream; quiet = only after this many minutes without any Race Control message; skip_after = not when that message went out that recently; events = minutes to wait after: new_chatter, stream_end, hidden_driver, ad, sub; cooldown = minutes between event runs of this message; commands = anyone can type them; ask = question pattern; ask_text = the answer to a command or question if it differs; game = only while the stream category contains it."
 }

@@ -67,7 +67,10 @@ TOKEN_URL = "https://id.twitch.tv/oauth2/token"
 EVENTSUB = "wss://eventsub.wss.twitch.tv/ws"
 RACES_URL = "https://api.github.com/repos/gremigaming/race-stats/commits?path=races&per_page=1"
 TICK = 10          # seconds between checks
-COMMAND_GAP = 20   # seconds before the same !command is answered again
+COMMAND_GAP = 60   # seconds before the same !command or question is answered again
+EVENT_GAP = 60     # seconds between an event message and any other Race Control message
+RACE_API = "https://api.github.com/repos/gremigaming/race-stats/commits/{}"
+RACE_RAW = "https://raw.githubusercontent.com/gremigaming/race-stats/main/{}"
 LIVE_EVERY = 60    # seconds between live checks
 RACES_EVERY = 20   # seconds between race file checks (ETag, so 304s are free)
 ADS_EVERY = 60     # seconds between ad schedule checks
@@ -102,6 +105,9 @@ def load_timers(path=TIMERS):
     data.setdefault("min_chat", 0)
     for t in data.get("timers", []):
         t.setdefault("first", 0)
+        t.setdefault("events", {})
+        cmds = t.get("commands") or ([t["command"]] if t.get("command") else [])
+        t["commands"] = [c.lower() for c in cmds]
     ads = data.setdefault("ads", {})
     for key, value in {"auto": False, "length": 90, "race_length": 30, "target_per_hour": 180,
                        "first": 10, "quiet_minutes": 3, "quiet_max": 1, "min_gap": 10,
@@ -137,12 +143,69 @@ def segment_to_title(segments, now, before_minutes, titled):
     return None
 
 
+def game_ok(timer, game):
+    return not timer.get("game") or timer["game"].lower() in (game or "").lower()
+
+
+def timer_index(config, tid):
+    for i, t in enumerate(config.get("timers", [])):
+        if t.get("id") == tid:
+            return i
+    return None
+
+
+def queue_event(config, events, kind, now, game=None):
+    """Adds (due time, timer index) for every timer that reacts to this event
+    ("events": {"new_chatter": 2, ...} = minutes to wait)."""
+    for i, t in enumerate(config.get("timers", [])):
+        if kind in t.get("events", {}) and game_ok(t, game):
+            events.append((now + float(t["events"][kind]) * 60, i))
+
+
+def due_event(config, events, sent, last_any, now, game=None):
+    """Index of an event message to send now, or None. Events whose timer is on
+    its "cooldown" (minutes) are dropped; they wait for EVENT_GAP after any message."""
+    timers = config.get("timers", [])
+    for item in sorted(events):
+        due, i = item
+        if due > now:
+            break
+        t = timers[i] if i < len(timers) else None
+        if t is None or not game_ok(t, game) or now - sent.get(i, -1e12) < t.get("cooldown", 0) * 60:
+            events.remove(item)
+            continue
+        if now - last_any < EVENT_GAP:
+            return None
+        events.remove(item)
+        return i
+    return None
+
+
+def hidden_keys(data):
+    """One key per human driver with their name hidden in a raw race file: race
+    number + nationality + platform, or the car name for the shared default (#2)."""
+    keys = set()
+    for d in data.get("classification-data") or []:
+        p = d.get("participant-data") or {}
+        if p.get("ai-controlled") or p.get("show-online-names") is not False:
+            continue
+        number, nat = p.get("race-number"), p.get("nationality") or "Unspecified"
+        if number == 2 and nat == "Unspecified":
+            keys.add("car:" + (d.get("driver-name") or ""))
+        else:
+            keys.add(f"{number}|{nat}|{p.get('platform')}")
+    return keys
+
+
 def next_timer(config, live_minutes, sent, last_any, now, chatted=None, game=None):
     """Index of the timer to send now, or None.
     live_minutes: minutes since the stream started (None when offline)
     sent: {index: time last sent}, last_any: time of the last timed message
     chatted: viewer chat messages since the last timed message (None = don't check)
-    game: the stream's Twitch category; a timer with "game" only goes out when it's in there."""
+    game: the stream's Twitch category; a timer with "game" only goes out when it's in there.
+    Only timers with "every" run by the clock; "quiet" = minutes without any Race
+    Control message first; "skip_after" = {"id", "minutes"}: not when that timer went
+    out that recently."""
     if live_minutes is None and config["only_live"]:
         return None
     if now - last_any < config["gap"] * 60:
@@ -150,11 +213,21 @@ def next_timer(config, live_minutes, sent, last_any, now, chatted=None, game=Non
     if chatted is not None and chatted < config["min_chat"]:
         return None
     best = None
-    for i, t in enumerate(config.get("timers", [])):
+    timers = config.get("timers", [])
+    for i, t in enumerate(timers):
+        if not t.get("every"):
+            continue
         if live_minutes is not None and live_minutes < t["first"]:
             continue
-        if t.get("game") and t["game"].lower() not in (game or "").lower():
+        if not game_ok(t, game):
             continue
+        if now - last_any < t.get("quiet", 0) * 60:
+            continue
+        skip = t.get("skip_after")
+        if skip:
+            j = timer_index(config, skip.get("id"))
+            if j is not None and now - sent.get(j, -1e12) < skip.get("minutes", 0) * 60:
+                continue
         last = sent.get(i)
         if last is not None and now - last < t["every"] * 60:
             continue
@@ -379,14 +452,20 @@ class Twitch:
 
 # ---------------------------------------------------------------- running on the server
 
-def chat_command(config, text, badges):
-    """Index of the timer whose "command" (e.g. !simgasm) GreMi or a mod just typed, else None."""
+def chat_match(config, text):
+    """(timer index, message) for a !command anyone typed or a question a timer
+    answers ("ask": regex, answered with "ask_text" if it has one), else None."""
+    import re
     word = (text.split() or [""])[0].lower()
-    if not word.startswith("!") or not badges & {"broadcaster", "moderator"}:
+    timers = config.get("timers", [])
+    if word.startswith("!"):
+        for i, t in enumerate(timers):
+            if word in t.get("commands", []):
+                return i, t.get("ask_text") or t["text"]
         return None
-    for i, timer in enumerate(config["timers"]):
-        if (timer.get("command") or "").lower() == word:
-            return i
+    for i, t in enumerate(timers):
+        if t.get("ask") and re.search(t["ask"], text, re.I):
+            return i, t.get("ask_text") or t["text"]
     return None
 
 
@@ -428,8 +507,26 @@ class Room:
     def __init__(self):
         self.chat = collections.deque(maxlen=2000)  # times of viewer messages
         self.asked = False                           # !ad from GreMi or a mod
-        self.commands = {}                           # timer index -> when a command sent it
+        self.commands = {}                           # timer index -> when a command or question sent it
         self.race_ended = 0.0
+        self.chatters = set()                        # who talked this stream
+        self.hidden = set()                          # hidden-name drivers already told this stream
+        self.events = []                             # (due time, timer index)
+        self.live = False
+        self.game = None
+
+    def event(self, kind, delay_from=None):
+        if self.live:
+            queue_event(load_timers(), self.events, kind, delay_from or time.time(), self.game)
+
+    def talked(self, who):
+        """A chat message from someone; the first one this stream is a new chatter."""
+        if who and who not in self.chatters:
+            self.chatters.add(who)
+            self.event("new_chatter")
+
+    def fresh(self):
+        self.chatters, self.hidden, self.events = set(), set(), []
 
     def since(self, t):
         return sum(1 for x in self.chat if x > t)
@@ -466,15 +563,17 @@ async def listen_chat(bot, room, ads_command):
                             if ads_command and badges & {"broadcaster", "moderator"}:
                                 room.asked = True
                             continue
-                        config = load_timers()
-                        i = chat_command(config, text, badges)
-                        if i is not None:
+                        room.talked("tw:" + (ev.get("chatter_user_id") or ""))
+                        hit = chat_match(load_timers(), text)
+                        if hit:
+                            i, message = hit
                             # answered here, not on the next tick, so it lands right away
                             if time.time() - room.commands.get(i, 0) > COMMAND_GAP:
                                 room.commands[i] = time.time()
-                                await say_everywhere(bot, config["timers"][i]["text"])
-                                log.info("Twitch chat: %s", config["timers"][i]["command"])
-                            continue
+                                await bot.say(FILL(message) if FILL else message)
+                                log.info("Twitch chat: answered %s", text[:30])
+                            if text.startswith("!"):
+                                continue
                         room.chat.append(time.time())
         except Exception as e:
             await report(f"chat listener problem: {e}")
@@ -510,11 +609,34 @@ async def listen_subs(owner):
                     elif kind == "notification":
                         ev = data["payload"]["event"]
                         log.info("Twitch: new sub (%s)", "gift" if ev.get("is_gift") else "sub")
+                        if ROOM is not None:
+                            ROOM.event("sub")
                         if ON_SUB:
                             await ON_SUB({"user": ev.get("user_login", ""), "gift": bool(ev.get("is_gift"))})
         except Exception as e:
             await report(f"sub listener problem: {e}")
         await asyncio.sleep(5 if url == EVENTSUB else 0)
+
+
+async def check_hidden(session, room, sha):
+    """New drivers with their name hidden in the race file that just came in: the
+    "hidden_driver" event, once per driver per stream."""
+    try:
+        async with session.get(RACE_API.format(sha)) as r:
+            files = [f["filename"] for f in (await r.json()).get("files", [])
+                     if f["filename"].startswith("races/") and f["filename"].endswith(".json")
+                     and f.get("status") == "added"]
+        new = set()
+        for name in files:
+            async with session.get(RACE_RAW.format(name)) as r:
+                if r.status == 200:
+                    new |= hidden_keys(json.loads(await r.text()))
+        if new - room.hidden:
+            room.hidden |= new
+            room.event("hidden_driver")
+            log.info("Twitch: %d new driver(s) with a hidden name", len(new))
+    except Exception as e:
+        log.warning("Twitch hidden names: %s", e)
 
 
 async def watch_races(session, room, live):
@@ -533,6 +655,7 @@ async def watch_races(session, room, live):
                         if last is not None and sha != last and message.startswith("race:"):
                             room.race_ended = time.time()
                             log.info("Twitch: a race just ended")
+                            await check_hidden(session, room, sha)
                         last = sha
         except Exception as e:
             log.warning("Twitch race watch: %s", e)
@@ -617,21 +740,35 @@ async def run(discord_token):
                 now = time.time()
                 if now - checked_live >= LIVE_EVERY:
                     since, checked_live = await bot.live_since(), now
+                if was_live is not None and since is None:  # stream ended
+                    room.events = []
+                    queue_event(config, room.events, "stream_end", now, bot.game)
+                    while room.events:
+                        i = due_event(config, room.events, {}, 0.0, now, bot.game)
+                        if i is None:
+                            break
+                        await say_everywhere(bot, config["timers"][i]["text"])
                 if since != was_live:  # stream started or ended: start fresh
+                    room.fresh()
+                    room.live = since is not None
                     sent, last_any, was_live = {}, 0.0, since
                     last_race_ad, lobby_done, room.race_ended, room.asked = 0.0, 0.0, 0.0, False
                     spent, counted, schedule = collections.Counter(), set(), None
                 minutes = None if since is None else (now - since) / 60
 
-                for i, t in room.commands.items():  # a !command counts as that timer going out
+                room.game = bot.game
+                for i, t in room.commands.items():  # an answered !command counts as that timer going out
                     if since is not None and t > since:
                         sent[i] = max(sent.get(i, 0.0), t)
-                i = next_timer(config, minutes, sent, last_any, now,
-                               room.since(last_any or (since or now)), bot.game)
+                        last_any = max(last_any, t)
+                i = due_event(config, room.events, sent, last_any, now, bot.game)
+                if i is None:
+                    i = next_timer(config, minutes, sent, last_any, now,
+                                   room.since(last_any or (since or now)), bot.game)
                 if i is not None:
                     await say_everywhere(bot, config["timers"][i]["text"])
                     sent[i] = last_any = now
-                    log.info("Twitch chat: sent timer %d", i)
+                    log.info("Twitch chat: sent timer %s", config["timers"][i].get("id", i))
 
                 if owner and since is None and now - checked_title >= TITLE_EVERY:
                     checked_title = now
@@ -653,6 +790,7 @@ async def run(discord_token):
                         if seen > since and all(abs(seen - t) > 60 for t in counted):
                             counted.add(seen)
                             spent[int((seen - since) // 3600)] += int(schedule.get("duration") or 0)
+                            room.event("ad")
                         if snooze_now(ads, schedule, now, recent):
                             await owner.snooze()
                             log.info("Twitch: snoozed the scheduled ad (chat is busy)")
@@ -673,6 +811,7 @@ async def run(discord_token):
                         if notice:
                             await bot.say(notice.format(length=length))
                         res = await owner.run_ad(length)
+                        room.event("ad")
                         spent[hour] += int(res.get("length") or length)
                         log.info("Twitch: ad (%s) %s s, %s s this hour", why, length, spent[hour])
             except Exception as e:

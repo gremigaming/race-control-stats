@@ -157,23 +157,24 @@ async def handle(yt, items, answered):
         text = (item.get("snippet") or {}).get("displayMessage", "").strip()
         if text in yt.sent:  # our own message coming back (we post as the channel)
             continue
-        if twitch_chat.ROOM is not None:
-            twitch_chat.ROOM.chat.append(time.time())
-        badges = ({"broadcaster"} if author.get("isChatOwner") else set()) | \
-                 ({"moderator"} if author.get("isChatModerator") else set())
-        i = twitch_chat.chat_command(config, text, badges)
-        if i is None or time.time() - answered.get(i, 0) <= twitch_chat.COMMAND_GAP:
+        room = twitch_chat.ROOM
+        if room is not None:
+            room.talked("yt:" + (author.get("channelId") or ""))
+            if not text.startswith("!"):
+                room.chat.append(time.time())
+        hit = twitch_chat.chat_match(config, text.lower())
+        if hit is None or time.time() - answered.get(hit[0], 0) <= twitch_chat.COMMAND_GAP:
             continue
+        i, message = hit
         answered[i] = time.time()
-        if twitch_chat.ROOM is not None:
-            twitch_chat.ROOM.commands[i] = time.time()
-        message = config["timers"][i]["text"]
+        if room is not None:
+            room.commands[i] = time.time()
         if twitch_chat.FILL:
             message = twitch_chat.FILL(message)
         await yt.say(message)
-        if twitch_chat.SAY is not None:  # Twitch too, so the stream popups fire
-            await twitch_chat.SAY(message)
-        log.info("YouTube chat: %s", config["timers"][i].get("command"))
+        if "simgasm" in message.lower() and twitch_chat.SAY is not None:
+            await twitch_chat.SAY(message)  # on Twitch too, so the stream popup fires
+        log.info("YouTube chat: answered %s", text[:30])
 
 
 # ---------------------------------------------------------------- login and one-offs

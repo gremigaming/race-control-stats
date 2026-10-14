@@ -52,7 +52,7 @@ class TimerTests(unittest.TestCase):
         self.assertIn("{length}", config["ads"]["notice_lobby"])
         for t in config["timers"]:
             self.assertLessEqual(len(t["text"]), 500)
-            self.assertGreater(t["every"], 0)
+            self.assertTrue(t.get("every") or t["events"] or t["commands"], t.get("id"))
 
 
 class AdTests(unittest.TestCase):
@@ -103,13 +103,16 @@ class AdTests(unittest.TestCase):
 
 class ChatCommandTest(unittest.TestCase):
     def test_only_mods_and_broadcaster(self):
-        config = {"timers": [{"text": "a"}, {"text": "Simgasm!", "command": "!simgasm"}]}
-        self.assertEqual(tc.chat_command(config, "!simgasm", {"broadcaster"}), 1)
-        self.assertEqual(tc.chat_command(config, "!SimGasm please", {"moderator"}), 1)
-        self.assertIsNone(tc.chat_command(config, "!simgasm", {"subscriber"}))
-        self.assertIsNone(tc.chat_command(config, "simgasm", {"broadcaster"}))
-        self.assertIsNone(tc.chat_command(config, "!discord", {"broadcaster"}))
-        self.assertIsNone(tc.chat_command(config, "", {"broadcaster"}))
+        config = {"timers": [{"text": "a", "commands": []},
+                             {"text": "Simgasm!", "commands": ["!simgasm", "!setup"], "ask": r"\brig\b.*\?"},
+                             {"text": "long", "ask_text": "short", "commands": ["!showname"]}]}
+        self.assertEqual(tc.chat_match(config, "!simgasm"), (1, "Simgasm!"))
+        self.assertEqual(tc.chat_match(config, "!setup please"), (1, "Simgasm!"))
+        self.assertEqual(tc.chat_match(config, "nice rig?"), (1, "Simgasm!"))
+        self.assertEqual(tc.chat_match(config, "!showname"), (2, "short"))
+        self.assertIsNone(tc.chat_match(config, "simgasm"))
+        self.assertIsNone(tc.chat_match(config, "!discord"))
+        self.assertIsNone(tc.chat_match(config, ""))
 
 
 if __name__ == "__main__":
@@ -142,3 +145,55 @@ class GameTimerTests(unittest.TestCase):
         self.assertIsNone(tc.next_timer(config, 10, {}, 0, 10_000, game="Le Mans Ultimate"))
         self.assertIsNone(tc.next_timer(config, 10, {}, 0, 10_000))
         self.assertEqual(tc.next_timer(config, 10, {}, 0, 10_000, game="EA SPORTS F1 25"), 0)
+
+
+class EventTests(unittest.TestCase):
+    config = {"timers": [
+        {"id": "names", "game": "F1", "events": {"hidden_driver": 3}, "cooldown": 5},
+        {"id": "discord", "events": {"new_chatter": 2, "stream_end": 0}, "cooldown": 15},
+        {"id": "stats", "every": 40, "first": 0, "events": {}, "skip_after": {"id": "names", "minutes": 15}},
+        {"id": "follow", "every": 45, "first": 0, "quiet": 10, "events": {}},
+    ]}
+
+    def test_event_waits_then_fires_once_per_cooldown(self):
+        events, now = [], 100_000
+        tc.queue_event(self.config, events, "new_chatter", now)
+        tc.queue_event(self.config, events, "new_chatter", now + 30)
+        self.assertIsNone(tc.due_event(self.config, events, {}, 0, now + 60))
+        self.assertEqual(tc.due_event(self.config, events, {}, 0, now + 121), 1)
+        sent = {1: now + 121}
+        self.assertIsNone(tc.due_event(self.config, events, sent, now + 121, now + 300))
+        self.assertEqual(events, [])  # the second one was dropped by the cooldown
+
+    def test_event_respects_game_and_gap(self):
+        events, now = [], 100_000
+        tc.queue_event(self.config, events, "hidden_driver", now, game="Le Mans Ultimate")
+        self.assertEqual(events, [])
+        tc.queue_event(self.config, events, "hidden_driver", now, game="F1 25")
+        self.assertIsNone(tc.due_event(self.config, events, {}, now + 170, now + 181, "F1 25"))
+        self.assertEqual(tc.due_event(self.config, events, {}, now + 100, now + 181, "F1 25"), 0)
+
+    def test_clock_rules(self):
+        cfg = dict(self.config, only_live=True, gap=0, min_chat=0)
+        now = 100_000
+        self.assertIsNone(tc.next_timer(cfg, 50, {0: now - 600, 3: 0}, now - 60, now))  # names 10 min ago, follow not quiet
+        self.assertEqual(tc.next_timer(cfg, 50, {0: now - 1000, 3: 0}, now - 60, now), 2)
+        self.assertEqual(tc.next_timer(cfg, 50, {0: now - 600, 2: now - 700}, now - 700, now), 3)
+
+    def test_hidden_keys(self):
+        def car(name, num, nat, hidden=True, ai=False):
+            return {"driver-name": name, "participant-data": {"race-number": num, "nationality": nat,
+                    "platform": "Steam", "show-online-names": not hidden, "ai-controlled": ai}}
+        data = {"classification-data": [car("RB #2", 2, "Unspecified"), car("X", 7, "Dutch", hidden=False),
+                                        car("Ferrari #9", 9, "Polish"), car("AI", 4, "Dutch", ai=True)]}
+        self.assertEqual(tc.hidden_keys(data), {"car:RB #2", "9|Polish|Steam"})
+
+    def test_room_new_chatter_only_once(self):
+        room = tc.Room()
+        room.live, load = True, tc.load_timers
+        tc.load_timers = lambda: self.config
+        try:
+            room.talked("tw:1"); room.talked("tw:1"); room.talked("tw:2")
+        finally:
+            tc.load_timers = load
+        self.assertEqual(len(room.events), 2)

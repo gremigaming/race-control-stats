@@ -25,7 +25,8 @@ class HandleTest(unittest.TestCase):
     def setUp(self):
         self.twitch = []
         tc.ROOM, tc.SAY = tc.Room(), self.say_twitch
-        self.config = {"timers": [{"text": "Simgasm GREMI10", "command": "!simgasm"}]}
+        self.config = {"timers": [{"text": "Simgasm GREMI10", "commands": ["!simgasm"]},
+                                  {"text": "Join the Discord", "commands": ["!discord"]}]}
         self.load, tc.load_timers = tc.load_timers, lambda: self.config
 
     def tearDown(self):
@@ -34,20 +35,21 @@ class HandleTest(unittest.TestCase):
     async def say_twitch(self, text):
         self.twitch.append(text)
 
-    def test_mod_command_posts_on_both_and_counts_as_sent(self):
+    def test_simgasm_command_posts_on_both_and_counts_as_sent(self):
         yt = FakeYouTube()
-        asyncio.run(yc.handle(yt, [item("!simgasm", mod=True)], {}))
+        asyncio.run(yc.handle(yt, [item("!simgasm")], {}))
         self.assertEqual(yt.said, ["Simgasm GREMI10"])
         self.assertEqual(self.twitch, ["Simgasm GREMI10"])
         self.assertIn(0, tc.ROOM.commands)
 
-    def test_viewer_command_and_own_messages_are_ignored(self):
+    def test_other_commands_stay_on_youtube_and_own_messages_are_ignored(self):
         yt = FakeYouTube()
         yt.sent.append("Simgasm GREMI10")
-        asyncio.run(yc.handle(yt, [item("!simgasm"), item("Simgasm GREMI10", owner=True),
+        asyncio.run(yc.handle(yt, [item("!discord"), item("Simgasm GREMI10", owner=True),
                                    item("hi")], {}))
-        self.assertEqual(yt.said, [])
-        self.assertEqual(len(tc.ROOM.chat), 2)  # the viewer's two messages, not ours
+        self.assertEqual(yt.said, ["Join the Discord"])
+        self.assertEqual(self.twitch, [])
+        self.assertEqual(len(tc.ROOM.chat), 1)  # the viewer's chat line, not commands or ours
 
 
 if __name__ == "__main__":
