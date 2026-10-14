@@ -1,0 +1,22 @@
+{
+  "on": true,
+  "before_minutes": 60,
+  "about": "Twitch stream titles (= the go-live notification text). Race Control sets the next unused one about an hour before each scheduled stream. The race news routine refreshes the F1 ones on Mondays and Thursdays. Max 140 characters each.",
+  "titles": [
+    "Verstappen won Singapore from pole. Can I do the same tonight? 🏁",
+    "Antonelli leads the title fight, but who rules the GreMi Gang lobby? 🏆",
+    "Austin is coming: warming up COTA tyres tonight 🇺🇸",
+    "Two wins in a row for Max. Time for my own streak 👀",
+    "Leclerc P2 in Singapore, me P2 in turn 1 (hopefully) 🔴",
+    "Le Mans 24h special in LMU on 20 Oct: practising the night stints now 🌙",
+    "Join the lobby and try to beat me (you won't) 😤",
+    "I will NOT crash on lap 1 tonight. Probably. 🫠",
+    "Clean racing or chaos? You decide in chat 🏎️💥",
+    "Safety rating on the line: who keeps it clean tonight? 🛡️",
+    "Open lobby! Come race with the GreMi Gang 🏁",
+    "This might be my best race ever (or my worst) 😬",
+    "Late braking masterclass incoming... or a gravel trap tour 🪨",
+    "Last to first? Let's try it live 🔥",
+    "Wet race roulette: slicks or inters? ☔"
+  ]
+}

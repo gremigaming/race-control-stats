@@ -114,3 +114,22 @@ class ChatCommandTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TitleTests(unittest.TestCase):
+    def test_picks_unused_then_oldest(self):
+        self.assertEqual(tc.pick_title(["a", "b", "c"], ["a"]), "b")
+        self.assertEqual(tc.pick_title(["a", "b"], ["b", "a"]), "b")
+        self.assertIsNone(tc.pick_title(["", " "], []))
+        self.assertEqual(len(tc.pick_title(["x" * 200], [])), 140)
+
+    def test_segment_window(self):
+        now = 1_000_000
+        seg = lambda i, mins, **kw: dict(id=i, start_time=str(int(now + mins * 60)), **kw)
+        self.assertIsNone(tc.segment_to_title([seg("a", 90)], now, 60, []))
+        self.assertEqual(tc.segment_to_title([seg("a", 30)], now, 60, [])["id"], "a")
+        self.assertIsNone(tc.segment_to_title([seg("a", 30)], now, 60, ["a"]))
+        self.assertEqual(tc.segment_to_title(
+            [seg("a", 30, canceled_until="x"), seg("b", 50)], now, 60, [])["id"], "b")
+        self.assertEqual(tc.segment_to_title([seg("a", -10)], now, 60, [])["id"], "a")
+        self.assertIsNone(tc.segment_to_title([seg("a", -20)], now, 60, []))

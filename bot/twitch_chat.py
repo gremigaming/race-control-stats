@@ -3,8 +3,9 @@
 Two Twitch logins, both from the "Twitch chat" workflow:
   login        the bot account (gremi_bot) that reads and writes chat
                -> bot/twitch_chat.sealed
-  login-owner  GreMi's own account, for ads, new subs (giveaway) and VIPs (Twitch lets only the channel
-               owner run them) -> bot/twitch_owner.sealed
+  login-owner  GreMi's own account, for ads, new subs (giveaway), VIPs and the
+               stream title (Twitch lets only the channel owner run them)
+               -> bot/twitch_owner.sealed
 The workflow seals each login with a key made from the Discord bot token, which
 the workflow and this server both have, and commits it; the bot restarts on that
 commit and picks it up. Twitch may hand out a new refresh token, so the newest
@@ -58,6 +59,8 @@ import time
 HERE = pathlib.Path(__file__).resolve().parent
 SEALED = {"chat": HERE / "twitch_chat.sealed", "owner": HERE / "twitch_owner.sealed"}
 TIMERS = HERE / "twitch_timers.json"
+TITLES = HERE / "stream_titles.json"
+TITLES_URL = "https://raw.githubusercontent.com/gremigaming/race-control-stats/main/bot/stream_titles.json"
 STATE = pathlib.Path(os.environ.get("RACE_CONTROL_TWITCH", "/var/lib/race-control/twitch_chat.json"))
 HELIX = "https://api.twitch.tv/helix"
 TOKEN_URL = "https://id.twitch.tv/oauth2/token"
@@ -68,6 +71,7 @@ COMMAND_GAP = 20   # seconds before the same !command is answered again
 LIVE_EVERY = 60    # seconds between live checks
 RACES_EVERY = 20   # seconds between race file checks (ETag, so 304s are free)
 ADS_EVERY = 60     # seconds between ad schedule checks
+TITLE_EVERY = 300  # seconds between stream title checks
 RACE_FRESH = 180   # a race that ended this many seconds ago still counts as "between races"
 
 log = logging.getLogger("race_control.twitch")
@@ -107,6 +111,30 @@ def load_timers(path=TIMERS):
     for key in ("length", "race_length"):
         ads[key] = min(180, max(30, int(ads[key])))
     return data
+
+
+def pick_title(titles, used):
+    """The first title not used yet; when all were used, the one used longest ago."""
+    titles = [t.strip()[:140] for t in titles if t and t.strip()]
+    if not titles:
+        return None
+    fresh = [t for t in titles if t not in used]
+    if fresh:
+        return fresh[0]
+    return min(titles, key=used.index)
+
+
+def segment_to_title(segments, now, before_minutes, titled):
+    """The next scheduled stream that starts within before_minutes and has no title from us yet."""
+    for seg in segments or []:
+        if seg.get("canceled_until"):
+            continue
+        start = stamp(seg.get("start_time"))
+        if start and now <= start + 15 * 60 and start - now <= before_minutes * 60:
+            if seg.get("id") not in titled:
+                return seg
+            return None
+    return None
 
 
 def next_timer(config, live_minutes, sent, last_any, now, chatted=None):
@@ -207,8 +235,12 @@ def read_state():
 
 
 def save_refresh(kind, token):
+    save_state(kind, {"refresh_token": token, "sealed": sealed_id(kind)})
+
+
+def save_state(key, value):
     state = read_state()
-    state[kind] = {"refresh_token": token, "sealed": sealed_id(kind)}
+    state[key] = value
     STATE.parent.mkdir(parents=True, exist_ok=True)
     tmp = STATE.with_suffix(".tmp")
     tmp.write_text(json.dumps(state))
@@ -318,6 +350,21 @@ class Twitch:
             after = (res.get("pagination") or {}).get("cursor")
             if not after:
                 return out
+
+    async def segments(self):
+        """The channel's next scheduled streams (empty when there is no schedule)."""
+        try:
+            return (await self.call("GET", "/schedule", params={
+                "broadcaster_id": self.broadcaster, "first": 5}))["data"]["segments"] or []
+        except RuntimeError as e:
+            if ": 404" in str(e):
+                return []
+            raise
+
+    async def set_title(self, title):
+        """Needs the owner login with channel:manage:broadcast."""
+        await self.call("PATCH", "/channels", params={"broadcaster_id": self.broadcaster},
+                        json={"title": title[:140]})
 
     async def snooze(self):
         res = await self.call("POST", "/channels/ads/schedule/snooze",
@@ -487,6 +534,40 @@ async def watch_races(session, room, live):
         await asyncio.sleep(RACES_EVERY)
 
 
+async def load_titles(session):
+    """bot/stream_titles.json from main (the race news routine refreshes it), else the local copy."""
+    try:
+        async with session.get(TITLES_URL) as r:
+            if r.status == 200:
+                return json.loads(await r.text())
+    except Exception as e:
+        log.warning("Twitch titles: %s", e)
+    try:
+        return json.loads(TITLES.read_text())
+    except (OSError, ValueError):
+        return {}
+
+
+async def title_next_stream(owner, session, now):
+    """Before a scheduled stream, sets a fresh Twitch title: it is the text of
+    Twitch's go-live notification."""
+    config = await load_titles(session)
+    if not config.get("on", True):
+        return
+    state = read_state().get("titles") or {}
+    titled, used = state.get("segments", []), state.get("used", [])
+    seg = segment_to_title(await owner.segments(), now, config.get("before_minutes", 60), titled)
+    if not seg:
+        return
+    title = pick_title(config.get("titles", []), used)
+    if not title:
+        return
+    await owner.set_title(title)
+    used = [t for t in used if t != title] + [title]
+    save_state("titles", {"segments": (titled + [seg["id"]])[-20:], "used": used[-60:]})
+    await report(f"stream title set: {title}")
+
+
 async def run(discord_token):
     """Runs next to the Discord bot; never raises."""
     if not SEALED["chat"].exists():
@@ -507,6 +588,7 @@ async def run(discord_token):
     room = ROOM = Room()
     sent, last_any, was_live, since = {}, 0.0, None, None
     last_race_ad, lobby_done, schedule, checked_live, checked_ads = 0.0, 0.0, None, 0.0, 0.0
+    checked_title = 0.0
     spent, counted = collections.Counter(), set()  # ad seconds per stream hour
     async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=20)) as session:
         bot = Twitch("chat", logins["chat"], session)
@@ -545,6 +627,17 @@ async def run(discord_token):
                     await say_everywhere(bot, config["timers"][i]["text"])
                     sent[i] = last_any = now
                     log.info("Twitch chat: sent timer %d", i)
+
+                if owner and since is None and now - checked_title >= TITLE_EVERY:
+                    checked_title = now
+                    try:
+                        await title_next_stream(owner, session, now)
+                    except Exception as e:
+                        if ": 401" in str(e) or ": 403" in str(e):
+                            await report("can't set the stream title yet: run the Twitch chat "
+                                         "workflow with 'login-owner' again")
+                        else:
+                            await report(f"title problem: {e}")
 
                 if owner:
                     recent = room.since(now - ads["quiet_minutes"] * 60)
