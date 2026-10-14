@@ -6,7 +6,7 @@ CONFIG = {"only_live": True, "gap": 10, "min_chat": 0, "timers": [
     {"text": "discord", "first": 15, "every": 45},
     {"text": "site", "first": 30, "every": 60},
 ]}
-ADS = {"auto": True, "length": 90, "race_length": 30, "target_per_hour": 180, "first": 10,
+ADS = {"auto": True, "length": 30, "max_length": 60, "race_length": 30, "target_per_hour": 180, "first": 10,
        "quiet_minutes": 3, "quiet_max": 1, "min_gap": 10, "lobby_after": 30,
        "snooze_when_busy": True}
 
@@ -65,7 +65,7 @@ class AdTests(unittest.TestCase):
         return tc.plan_ad(**args)
 
     def test_asked_runs_while_live_only(self):
-        self.assertEqual(self.plan(asked=True, recent_chat=20), ("asked", 90))
+        self.assertEqual(self.plan(asked=True, recent_chat=20), ("asked", 30))
         self.assertIsNone(self.plan(asked=True, live_minutes=None))
 
     def test_race_ad_when_chat_is_quiet(self):
@@ -78,8 +78,9 @@ class AdTests(unittest.TestCase):
 
     def test_lobby_top_up(self):
         lobby = dict(race_ended=self.now - 30, hour_minutes=40)
-        self.assertEqual(self.plan(hour_seconds=60, **lobby), ("lobby", 120))
-        self.assertEqual(self.plan(hour_seconds=100, **lobby), ("lobby", 90))   # rounded up
+        self.assertEqual(self.plan(hour_seconds=150, **lobby), ("lobby", 30))
+        self.assertEqual(self.plan(hour_seconds=60, **lobby), ("lobby", 60))    # capped at 60 s
+        self.assertEqual(self.plan(hour_seconds=140, **lobby), ("lobby", 60))   # rounded up
         self.assertIsNone(self.plan(hour_seconds=60, lobby_done=self.now - 30,
                                     race_ended=self.now - 30, hour_minutes=40))
         self.assertIsNone(self.plan(hour_seconds=60, race_ended=self.now - 30, hour_minutes=20))
