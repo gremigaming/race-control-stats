@@ -14,7 +14,7 @@ import discord
 
 from bot.members import named_members
 from bot.memory import Memory, said
-from bot.replies import (ASKS_CHANGE, briefing_for, fit_context, plain, promises_check,
+from bot.replies import (ASKS_CHANGE, ASKS_STREAM_RACES, briefing_for, fit_context, plain, promises_check,
                          schedule_lines, split_marker)
 
 # Small model on purpose: quick chat answers are cheap and fast. Set QUICK_MODEL on the
@@ -24,7 +24,11 @@ RAW = "https://raw.githubusercontent.com/gremigaming/race-control-stats/main/bot
 BRIEFING_URL = RAW + "briefing.md"
 # Race results and upcoming races, researched by the "Race Control: race news" routine
 RACING_URL = RAW + "racing.md"
+# Latest stream's race results and this month's top 5, written by the race-stats
+# site build. Loaded once a day, and only for questions about the stream races.
+STREAM_RACES_URL = "https://gremigaming.github.io/race-stats/league/recent.txt"
 BRIEFING_TTL = 600
+DAILY = 86400
 HISTORY = 6     # chat messages before the tag
 CLIP = 150      # characters kept per quoted message
 ASK_CLIP = 400  # characters kept of the tagged message
@@ -52,7 +56,7 @@ TWITCH_URL = "twitch.tv/gremi_gaming"
 log = logging.getLogger("race_control")
 
 SYSTEM = """You are Race Control, the bot of GreMi_Gaming's Discord server, chatting with everyone in it. Reply in 1 to 3 short sentences, in the asker's language. No em dashes, no pings.
-Take facts only from the briefing, race news, stats and chat below; never invent facts (jokes and banter are free). GreMi's stream schedule, when asked about, comes from his Twitch schedule below; use the <t:...> times exactly as given so Discord shows them in each reader's time zone. If no stream is listed, nothing is planned on Twitch in the next 7 days.
+Take facts only from the briefing, race news, stats and chat below (race news is real F1; stream races are GreMi's own online races on stream, ask which if unclear); never invent facts (jokes and banter are free). GreMi's stream schedule, when asked about, comes from his Twitch schedule below; use the <t:...> times exactly as given so Discord shows them in each reader's time zone. If no stream is listed, nothing is planned on Twitch in the next 7 days.
 If you'd need anything else (channel contents, research, race facts not in the race news), reply only: RESEARCH: <what to find out>. Never promise to check later. A short follow-up ("check it", "and?") continues the chat above it.
 If someone asks for any change (server channels, roles, settings, posts, or how you work, your code, your data or routines), reply only: CHANGE: <the request in one sentence>. Nothing before it. That posts a change request GreMi approves with a checkmark, then Claude carries it out.
 You can't change anything yourself and you can't tell if a change is done: never claim you made, flagged, posted or remembered something, and never say you lack access or can't run routines.
@@ -80,9 +84,9 @@ class Brain:
         self.memory = Memory()
         self.members = members
 
-    async def fetch(self, url):
+    async def fetch(self, url, ttl=BRIEFING_TTL):
         text, at = self._fetched.get(url, ("", 0.0))
-        if not text or time.time() - at > BRIEFING_TTL:
+        if not text or time.time() - at > ttl:
             try:
                 async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=10)) as s:
                     async with s.get(url) as r:
@@ -156,6 +160,9 @@ class Brain:
         system = (f"{SYSTEM}\n<briefing>\n{briefing_for(await self.fetch(BRIEFING_URL), topic)}"
                   f"</briefing>\n<race_news>\n{await self.fetch(RACING_URL)}</race_news>\n"
                   f"<stats>{self.stats(message.guild)}</stats>")
+        if ASKS_STREAM_RACES.search(topic):
+            system += (f"\n<stream_races>\n{await self.fetch(STREAM_RACES_URL, DAILY)}"
+                       "</stream_races>")
         if ASKS_SCHEDULE.search(message.clean_content):
             system += f"\n<twitch_schedule>\n{self.schedule(message.guild)}\n</twitch_schedule>"
         a = message.author

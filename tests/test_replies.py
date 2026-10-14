@@ -128,9 +128,9 @@ class ScheduleTests(unittest.TestCase):
         self.assertFalse(replies.promises_check("Verstappen won Singapore from pole."))
 
     def test_briefing_topic_lines(self):
-        briefing = "Joining: rules\nPartner: GREMI10\nWeekly giveaway: €10 card"
+        briefing = "Favourites: Spa\nPartner: GREMI10\nWeekly giveaway: €10 card"
         dnf = replies.briefing_for(briefing, "who dnfed in singapore last weekend?")
-        self.assertEqual(dnf, "Joining: rules")
+        self.assertEqual(dnf, "Favourites: Spa")
         self.assertIn("Weekly giveaway", replies.briefing_for(briefing, "how do I win the giveaway"))
         self.assertIn("Partner", replies.briefing_for(briefing, "best seat for my rig?"))
 
@@ -141,3 +141,8 @@ class ScheduleTests(unittest.TestCase):
         self.assertEqual(kept, ["x: hi", "y: yo"])
         earlier, kept = replies.fit_context(0, "old", chat, len, 1500)
         self.assertEqual((earlier, kept), ("old", chat))
+
+    def test_stream_race_questions(self):
+        self.assertTrue(replies.ASKS_STREAM_RACES.search("who dnfed in singapore last weekend?"))
+        self.assertTrue(replies.ASKS_STREAM_RACES.search("wie heeft gewonnen vorige stream"))
+        self.assertFalse(replies.ASKS_STREAM_RACES.search("tell me a joke"))

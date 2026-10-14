@@ -126,11 +126,21 @@ def promises_check(text):
 # Briefing lines that only matter for some questions: line start -> words in the
 # question or recent chat that bring the line in. Keeps quick answers under budget.
 TOPIC_LINES = {
+    "Joining:": re.compile(r"join|role|rol|channel|kanaal|onboard|member|lid|unlock|ping|notify", re.I),
+    "Rules:": re.compile(r"rule|regel|allowed|mag ik|spam|promo|ban|kick|warn|incident|steward", re.I),
     "Partner:": re.compile(r"simgasm|rig|seat|stoel|cockpit|gear|discount|korting|code|partner"
                            r"|wheel|stuur|pedal|\bbuy|kopen", re.I),
     "Weekly giveaway:": re.compile(r"giveaway|\bwin\b|winn|prize|prijs|gift ?card|entr|loot|draw"
                                    r"|trekking|prize hunter|vip|\bog\b|award|booster|\bsubs?\b", re.I),
 }
+
+
+# Questions about race results, on GreMi's stream or in real F1: the stream race
+# summary (race-stats recent.txt) only loads for these
+ASKS_STREAM_RACES = re.compile(
+    r"\b(dnf\w*|retir\w*|crash\w*|won|wins?|winner|podium|fastest|standings|championship"
+    r"|points?|punten|gewonnen|winnaar|races?|raced|race ?stats|uitslag|results?|leaderboard"
+    r"|p[1-3]|last stream|vorige stream)\b", re.I)
 
 
 def briefing_for(briefing, text):
