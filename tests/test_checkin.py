@@ -45,7 +45,8 @@ class CheckinTests(unittest.TestCase):
         self.assertTrue(t.startswith("**Remember GreMi_Gaming? 🏎️**"))
         self.assertIn("Hey Max!", t)
         self.assertNotIn("scam", t)
-        self.assertLess(len(t), 2000)
+        self.assertLess(len(t), 500)
+        self.assertLess(len("\n".join(CONFIG["welcome"])), 2000)
 
 
 if __name__ == "__main__":

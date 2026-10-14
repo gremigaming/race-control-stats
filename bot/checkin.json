@@ -1,5 +1,5 @@
 {
-  "_about": "Check-in DMs for quiet members (GreMi 2026-10-14), run by bot/checkin.py and read live. 'on': false stops sending; the buttons keep working. {name} is the member's server name.",
+  "_about": "Check-in DMs for quiet members (GreMi 2026-10-14), run by bot/checkin.py and read live. 'on': false stops sending; the buttons keep working. {name} is the member's server name. 'welcome' is sent after ✅.",
   "on": false,
   "months": 6,
   "per_day": 20,
@@ -10,11 +10,15 @@
   "invite": "https://discord.gg/bDga7v97Qq",
   "text": [
     "**Remember GreMi_Gaming? 🏎️**",
-    "Hey {name}! I'm **Race Control**, the bot of GreMi's Discord. We haven't heard from you in a while, so I came to check in. 👀",
-    "",
-    "Quick reminder: GreMi is a sim racer who streams EA F1 and Le Mans Ultimate on Twitch, YouTube and TikTok. He races with the community in open lobbies, so you can jump in and race him live, or just hang out in chat and talk racing.",
-    "🔴 Catch him live: <https://twitch.tv/gremi_gaming>",
-    "",
-    "Still up for being part of the gang? No hard feelings either way."
+    "Hey {name}! I'm **Race Control**, GreMi's bot. GreMi streams EA F1 and Le Mans Ultimate and races with his viewers in open lobbies. We haven't seen you in a while, so: still up for being part of the gang? 👀"
+  ],
+  "welcome": [
+    "**Awesome, welcome back! 🏁** A lot changed since you were last here:",
+    "🎭 Pick your roles in **Channels & Roles** (top of the channel list). They unlock F1, LMU, leagues and more, and chats like F1-CHAT stay hidden without them.",
+    "🎁 Weekly €10 gift card giveaway: get the Prize Hunter role and hit Enter in GIVEAWAYS.",
+    "📊 Race stats from every stream: <https://gremigaming.github.io/race-stats/>",
+    "🤖 Tag @Race Control in the server with any question.",
+    "🛒 Code **GREMI10** gets you 10% off at Simgasm.",
+    "🔴 GreMi live: <https://twitch.tv/gremi_gaming>"
   ]
 }

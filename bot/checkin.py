@@ -2,7 +2,7 @@
 
 Members who joined more than `months` ago and haven't posted anything in that
 time get one friendly DM from Race Control with two buttons:
-  ✅ I'm still here   thanks them, nothing changes
+  ✅ I'm still here   sends a welcome back with what's new (config 'welcome')
   ❌ Not anymore      asks "Sure?" first; confirming removes them (a kick, so
                       they can rejoin with an invite)
 Nobody is asked twice. DMs go out a few per hour inside `hours` (Amsterdam),
@@ -232,8 +232,10 @@ class Runner:
         if cid in (YES, KEEP):
             self.state["answers"][uid] = "yes"
             save_state(self.state)
-            await self.update(interaction, original + "\n\n-# ✅ Awesome, glad you're still with us! "
-                                                      "See you in the server. 🏁")
+            await self.update(interaction, original + "\n\n-# ✅ You're still here.")
+            await self.api("POST", "/channels/{channel_id}/messages",
+                           params={"channel_id": interaction.channel_id},
+                           json={"content": "\n".join(config["welcome"]), "allowed_mentions": {"parse": []}})
             await self.report(f"✅ Check-in: {user.display_name} ({user.name}) is still here.")
             return
         # SURE: they confirmed they want to leave
