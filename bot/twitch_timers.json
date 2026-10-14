@@ -15,6 +15,12 @@
       "text": "📊 Lap times, results and head to heads from the races on stream: https://gremigaming.github.io/race-stats/"
     },
     {
+      "first": 5,
+      "every": 30,
+      "game": "F1",
+      "text": "👀 Racing in GreMi's lobby? Turn on Show Player Names (Settings > Telemetry Settings) so your results and safety rating land under your own name. Results of every race: https://gremigaming.github.io/race-stats/"
+    },
+    {
       "first": 30,
       "every": 30,
       "text": "💜 Enjoying the racing? Hit follow so you don't miss the next stream!"

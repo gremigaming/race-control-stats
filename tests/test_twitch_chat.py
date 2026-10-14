@@ -133,3 +133,12 @@ class TitleTests(unittest.TestCase):
             [seg("a", 30, canceled_until="x"), seg("b", 50)], now, 60, [])["id"], "b")
         self.assertEqual(tc.segment_to_title([seg("a", -10)], now, 60, [])["id"], "a")
         self.assertIsNone(tc.segment_to_title([seg("a", -20)], now, 60, []))
+
+
+class GameTimerTests(unittest.TestCase):
+    def test_game_only_timer(self):
+        config = {"only_live": True, "gap": 0, "min_chat": 0, "timers": [
+            {"text": "names", "first": 0, "every": 30, "game": "F1"}]}
+        self.assertIsNone(tc.next_timer(config, 10, {}, 0, 10_000, game="Le Mans Ultimate"))
+        self.assertIsNone(tc.next_timer(config, 10, {}, 0, 10_000))
+        self.assertEqual(tc.next_timer(config, 10, {}, 0, 10_000, game="EA SPORTS F1 25"), 0)

@@ -137,11 +137,12 @@ def segment_to_title(segments, now, before_minutes, titled):
     return None
 
 
-def next_timer(config, live_minutes, sent, last_any, now, chatted=None):
+def next_timer(config, live_minutes, sent, last_any, now, chatted=None, game=None):
     """Index of the timer to send now, or None.
     live_minutes: minutes since the stream started (None when offline)
     sent: {index: time last sent}, last_any: time of the last timed message
-    chatted: viewer chat messages since the last timed message (None = don't check)."""
+    chatted: viewer chat messages since the last timed message (None = don't check)
+    game: the stream's Twitch category; a timer with "game" only goes out when it's in there."""
     if live_minutes is None and config["only_live"]:
         return None
     if now - last_any < config["gap"] * 60:
@@ -151,6 +152,8 @@ def next_timer(config, live_minutes, sent, last_any, now, chatted=None):
     best = None
     for i, t in enumerate(config.get("timers", [])):
         if live_minutes is not None and live_minutes < t["first"]:
+            continue
+        if t.get("game") and t["game"].lower() not in (game or "").lower():
             continue
         last = sent.get(i)
         if last is not None and now - last < t["every"] * 60:
@@ -270,6 +273,7 @@ class Twitch:
         self.expires = 0
         self.me = None
         self.broadcaster = None
+        self.game = ""
 
     async def _refresh(self):
         async with self.session.post(TOKEN_URL, data={
@@ -318,6 +322,7 @@ class Twitch:
         data = (await self.call("GET", "/streams", params={"user_id": self.broadcaster}))["data"]
         if not data:
             return None
+        self.game = data[0].get("game_name") or ""
         return dt.datetime.fromisoformat(data[0]["started_at"].replace("Z", "+00:00")).timestamp()
 
     async def say(self, text):
@@ -622,7 +627,7 @@ async def run(discord_token):
                     if since is not None and t > since:
                         sent[i] = max(sent.get(i, 0.0), t)
                 i = next_timer(config, minutes, sent, last_any, now,
-                               room.since(last_any or (since or now)))
+                               room.since(last_any or (since or now)), bot.game)
                 if i is not None:
                     await say_everywhere(bot, config["timers"][i]["text"])
                     sent[i] = last_any = now
