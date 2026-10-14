@@ -171,6 +171,7 @@ async def handle(yt, items, answered):
             room.commands[i] = time.time()
         if twitch_chat.FILL:
             message = twitch_chat.FILL(message)
+        await asyncio.sleep(twitch_chat.REPLY_DELAY)
         await yt.say(message)
         if "simgasm" in message.lower() and twitch_chat.SAY is not None:
             await twitch_chat.SAY(message)  # on Twitch too, so the stream popup fires

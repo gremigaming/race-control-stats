@@ -69,6 +69,7 @@ RACES_URL = "https://api.github.com/repos/gremigaming/race-stats/commits?path=ra
 TICK = 10          # seconds between checks
 COMMAND_GAP = 60   # seconds before the same !command or question is answered again
 EVENT_GAP = 60     # seconds between an event message and any other Race Control message
+REPLY_DELAY = 3    # seconds before answering a question or !command, so it doesn't feel instant
 RACE_API = "https://api.github.com/repos/gremigaming/race-stats/commits/{}"
 RACE_RAW = "https://raw.githubusercontent.com/gremigaming/race-stats/main/{}"
 LIVE_EVERY = 60    # seconds between live checks
@@ -582,7 +583,7 @@ async def listen_chat(bot, room, ads_command):
                             # answered here, not on the next tick, so it lands right away
                             if time.time() - room.commands.get(i, 0) > COMMAND_GAP:
                                 room.commands[i] = time.time()
-                                await bot.say(FILL(message) if FILL else message)
+                                asyncio.create_task(answer_later(bot.say, FILL(message) if FILL else message))
                                 log.info("Twitch chat: answered %s", text[:30])
                             if text.startswith("!"):
                                 continue
@@ -590,6 +591,14 @@ async def listen_chat(bot, room, ads_command):
         except Exception as e:
             await report(f"chat listener problem: {e}")
         await asyncio.sleep(5 if url == EVENTSUB else 0)
+
+
+async def answer_later(say, text):
+    await asyncio.sleep(REPLY_DELAY)
+    try:
+        await say(text)
+    except Exception as e:
+        await report(f"answer problem: {e}")
 
 
 async def listen_subs(owner):

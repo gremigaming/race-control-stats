@@ -28,9 +28,10 @@ class HandleTest(unittest.TestCase):
         self.config = {"timers": [{"text": "Simgasm GREMI10", "commands": ["!simgasm"]},
                                   {"text": "Join the Discord", "commands": ["!discord"]}]}
         self.load, tc.load_timers = tc.load_timers, lambda: self.config
+        self.delay, tc.REPLY_DELAY = tc.REPLY_DELAY, 0
 
     def tearDown(self):
-        tc.ROOM, tc.SAY, tc.load_timers = None, None, self.load
+        tc.ROOM, tc.SAY, tc.load_timers, tc.REPLY_DELAY = None, None, self.load, self.delay
 
     async def say_twitch(self, text):
         self.twitch.append(text)
