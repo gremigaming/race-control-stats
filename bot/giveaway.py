@@ -110,18 +110,14 @@ def status_line(state, now, config):
 
 
 def public(state, config, now):
-    """What the OBS counter shows (no names). config "test_sub": [from, to]
-    (unix times) shows one extra sub, 15 s on and 15 s off, in that window only, to try the overlay;
-    nothing is counted."""
-    subs, left = len(state["subs"]), subs_left(state, config)
-    test = config.get("test_sub")
-    blink = int((now - test[0]) // 15) % 2 == 0 if test else False  # on 15 s, off 15 s
-    if test and test[0] <= now < test[1] and blink and state["status"] == "open" and left > 1:
-        subs, left = subs + 1, left - 1
+    """What the OBS counter shows: no member names except the last winner's
+    display name (also said in chat)."""
+    last = state.get("last") or {}
     return {"status": state["status"], "round": state["round"], "need": config["need"],
-            "subs": min(subs, config["need"]), "left": left,
+            "subs": min(len(state["subs"]), config["need"]), "left": subs_left(state, config),
             "draw_at": state.get("draw_at"), "reopen_at": state.get("reopen_at"),
-            "entered": len(state["entrants"]), "now": now}
+            "delay": config["delay_minutes"] * 60, "entered": len(state["entrants"]),
+            "winner": last.get("name"), "won_at": last.get("at"), "now": now}
 
 
 def entries_text(config):
@@ -314,7 +310,8 @@ class Runner:
         total = sum(weights.values())
         state.update(status="closed", reopen_at=reopen_time(now),
                      last={"uid": winner, "entries": weights.get(winner, 0), "total": total,
-                           "drivers": len(weights), "at": now})
+                           "drivers": len(weights), "at": now,
+                           "name": members[winner].display_name if winner else None})
         state.setdefault("history", []).append(dict(state["last"], round=state["round"]))
         save_state(state)
         ch = config["channel"]
