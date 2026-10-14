@@ -8,7 +8,7 @@ Runs next to the Discord bot and writes STATE every TICK seconds; staff/app.py s
   YouTube viewers              the same login, summed over every live broadcast (horizontal + vertical)
   TikTok followers             the TikTok stat channel name, kept fresh by stats.yml (TikTok login lives
                                in GitHub, not on this server)
-  TikTok viewers               not available: TikTok has no official API for live viewers
+  TikTok viewers               not here: the overlay reads them from TikFinity on GreMi's PC (local websocket)
 """
 
 import asyncio

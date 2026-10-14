@@ -4,7 +4,8 @@
      It switches every 30 seconds between FOLLOWERS and WATCHING NOW (only while live somewhere).
      ?every=20 changes the 30 seconds, ?page=followers or ?page=viewers keeps one page,
      ?demo plays a loop with made up numbers (a new follower, the switch) without the server.
-     TikTok has no live viewer number (no official API), so WATCHING NOW shows Twitch and YouTube. -->
+     TikTok has no official live viewer number, so the overlay reads it from TikFinity on the same PC
+     (its local websocket, ws://localhost:21213; ?tikfinity=PORT if it uses another port). -->
 <html><head><meta charset="utf-8"><title>Socials</title>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Saira+Condensed:wght@600;800&display=swap">
 <style>
@@ -155,7 +156,28 @@ function cycle() {
   else setPage(page === "followers" && live() ? "viewers" : "followers");
 }
 
+// TikTok viewers come from TikFinity on GreMi's PC (it relays TikTok LIVE events on a local websocket)
+const TIKFINITY = "ws://localhost:" + (q.get("tikfinity") || 21213);
+const TIKTOK_STALE = 120000;  // ms without a viewer update before TikTok counts as not live
+let tiktok = null, server = null;
+
+function tikfinity() {
+  let ws;
+  try { ws = new WebSocket(TIKFINITY); } catch (e) { return setTimeout(tikfinity, 10000); }
+  ws.onmessage = (m) => {
+    let msg; try { msg = JSON.parse(m.data); } catch (e) { return; }
+    const ev = msg.event || msg.type || "", d = msg.data || msg;
+    if (/streamEnd|liveEnd/i.test(ev)) { tiktok = null; return server && update(server); }
+    const n = d.viewerCount ?? d.viewer_count ?? d.roomUserCount;
+    if (typeof n === "number") { tiktok = { count: n, at: Date.now() }; if (server) update(server); }
+  };
+  ws.onclose = () => setTimeout(tikfinity, 10000);
+}
+
 function update(d) {
+  server = d;
+  d = Object.assign({}, d, { viewers: Object.assign({}, d.viewers || {}) });
+  if (tiktok && Date.now() - tiktok.at < TIKTOK_STALE) d.viewers.tiktok = tiktok.count;
   data = d;
   if (page === "viewers" && !live()) setPage("followers");
   draw(true);
@@ -169,12 +191,12 @@ async function poll() {
 }
 
 function demo() {  // made up numbers: a new follower after 4 s, live viewers rise a bit
-  let f = { twitch: 1645, youtube: 2700, tiktok: 3942 }, v = { twitch: 12, youtube: 12 }, n = 0;
+  let f = { twitch: 1645, youtube: 2700, tiktok: 3942 }, v = { twitch: 12, youtube: 12, tiktok: 4 }, n = 0;
   const tickDemo = () => {
     n++;
     if (n === 2) f = Object.assign({}, f, { twitch: f.twitch + 1 });
     if (n === 5) f = Object.assign({}, f, { tiktok: f.tiktok + 2 });
-    v = { twitch: v.twitch + (n % 3 === 0 ? 1 : 0), youtube: v.youtube + (n % 4 === 0 ? 2 : 0) };
+    v = { twitch: v.twitch + (n % 3 === 0 ? 1 : 0), youtube: v.youtube + (n % 4 === 0 ? 2 : 0), tiktok: v.tiktok + (n % 5 === 0 ? 1 : 0) };
     update({ followers: f, viewers: v });
   };
   tickDemo(); setInterval(tickDemo, 2000);
@@ -182,7 +204,7 @@ function demo() {  // made up numbers: a new follower after 4 s, live viewers ri
 
 $("heart").classList.toggle("off", page !== "followers");
 $("eye").classList.toggle("off", page !== "viewers");
-if (q.has("demo")) demo(); else { poll(); setInterval(poll, 10000); }
+if (q.has("demo")) demo(); else { poll(); setInterval(poll, 10000); tikfinity(); setInterval(() => server && update(server), 30000); }
 setInterval(cycle, q.has("demo") && !q.get("every") ? 8000 : EVERY);
 </script>
 </body></html>
