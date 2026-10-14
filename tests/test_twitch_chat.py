@@ -197,3 +197,18 @@ class EventTests(unittest.TestCase):
         finally:
             tc.load_timers = load
         self.assertEqual(len(room.events), 2)
+
+
+class QuestionTests(unittest.TestCase):
+    def test_real_questions(self):
+        config = tc.load_timers()
+        ids = lambda q: (lambda h: config["timers"][h[0]]["id"] if h else None)(tc.chat_match(config, q.lower()))
+        for q, want in [("what rig do you use?", "simgasm"), ("what pedals are those", "simgasm"),
+                        ("is that a simgasm?", "simgasm"), ("what are you driving on", "simgasm"),
+                        ("share your setup for spa pls", None), ("whats your car setup", None),
+                        ("what setup for monza?", None), ("nice rig!", None), ("what is your name?", None),
+                        ("hoe zet je je naam aan?", "names"), ("is there a discord?", "discord"),
+                        ("where can i see my stats", "stats"), ("what are the f1 standings?", None),
+                        ("how do i enter the giveaway", "giveaway"), ("is subbing worth it", "subs"),
+                        ("thanks for the sub!", None)]:
+            self.assertEqual(ids(q), want, q)

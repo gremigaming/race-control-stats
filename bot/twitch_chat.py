@@ -464,9 +464,21 @@ def chat_match(config, text):
                 return i, t.get("ask_text") or t["text"]
         return None
     for i, t in enumerate(timers):
-        if t.get("ask") and re.search(t["ask"], text, re.I):
+        if t.get("ask") and asks(t["ask"], text):
             return i, t.get("ask_text") or t["text"]
     return None
+
+
+def asks(ask, text):
+    """Whether a chat line is this question. ask is a regex, or {"topic", "cue",
+    "not"}: the topic must be there, plus a sign it's a question or interest
+    (cue), and nothing that means it's about something else (not)."""
+    import re
+    if isinstance(ask, str):
+        return bool(re.search(ask, text, re.I))
+    return (bool(re.search(ask["topic"], text, re.I))
+            and (not ask.get("cue") or bool(re.search(ask["cue"], text, re.I)))
+            and not (ask.get("not") and re.search(ask["not"], text, re.I)))
 
 
 REPORTER = None   # async fn(text): the Discord bot posts Twitch status in the staff LOGS channel
