@@ -1,7 +1,9 @@
 <!doctype html>
 <!-- OBS browser source for GreMi's weekly giveaway, served by Race Control at /giveaway.
      Size 540 x 160 (room for the shadow). ?hide=closed hides it between the winner and the next round.
-     ?demo plays a short loop (a sub, the 10 minute countdown sped up, the winner) without the server. -->
+     ?demo plays a short loop (a sub, the 10 minute countdown sped up, the winner) without the server.
+     Animations: a sub makes the present jump with "+1 SUB" and confetti; the last 10 seconds pulse;
+     the draw shows 3 seconds of "Drawing…", then the winner with a confetti rain and a glow. -->
 <html><head><meta charset="utf-8"><title>Giveaway</title>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Saira+Condensed:wght@600;800&display=swap">
 <style>
@@ -18,11 +20,12 @@
   .streaks i:nth-child(1) { left: -30px; width: 46px; background: rgba(225,6,0,.3); }
   .streaks i:nth-child(2) { left: 58%; width: 70px; background: rgba(145,70,255,.26); }
   .streaks i:nth-child(3) { left: 84%; width: 20px; background: rgba(255,255,255,.1); }
+  .streaks i:nth-child(4) { left: -60%; width: 60px; background: rgba(255,255,255,.22); filter: blur(8px); opacity: 0; }
   .card::before { content: ""; position: absolute; inset: 0; border-radius: 14px; padding: 2px;
           background: linear-gradient(90deg, var(--red), var(--purple));
           -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
           -webkit-mask-composite: xor; mask-composite: exclude; }
-  .gift { width: 56px; text-align: center; font-size: 46px; line-height: 1; filter: drop-shadow(0 0 10px rgba(145,70,255,.6)); }
+  .gift { position: relative; width: 56px; text-align: center; font-size: 46px; line-height: 1; filter: drop-shadow(0 0 10px rgba(145,70,255,.6)); }
   .label { white-space: nowrap; font-weight: 600; font-size: 17px; letter-spacing: .14em; color: var(--dim); text-transform: uppercase; }
   .big { font-weight: 800; font-size: 40px; line-height: 1; text-transform: uppercase; letter-spacing: .02em; white-space: nowrap; }
   .card > div:last-child { min-width: 0; flex: 1; }
@@ -39,11 +42,39 @@
   .hidden { opacity: 0; }
   .pop { animation: pop .6s ease; }
   @keyframes pop { 40% { transform: scale(1.06); } }
+
+  /* animations: a sub, the last 10 seconds, the draw, the winner */
+  .big { transform-origin: left center; }
+  .plus { position: absolute; left: 50%; top: 2px; transform: translateX(-50%); font-weight: 800; font-size: 22px;
+          white-space: nowrap; color: #fff; text-shadow: 0 0 10px var(--purple), 2px 2px 0 #000; opacity: 0; pointer-events: none; }
+  .confetti { position: absolute; width: 8px; height: 12px; border-radius: 2px; pointer-events: none; }
+  .card.bump { animation: bump .7s ease; }
+  .gift.sub { animation: giftsub 1.1s ease; }
+  .plus.go { animation: plus 1.6s ease-out; }
+  .pip.new { animation: pipflash 1.2s ease; }
+  .big.tick { animation: tick .5s ease; }
+  .gift.drawing { animation: wobble .5s ease-in-out infinite; }
+  .card.win .streaks i:nth-child(4) { animation: sweep 2.4s ease-in-out infinite; }
+  .card.win { animation: glow 2s ease-in-out infinite; }
+  .gift.trophy { animation: trophy 1s cubic-bezier(.2,1.6,.4,1); }
+  @keyframes bump { 30% { transform: scale(1.05); } 60% { transform: scale(.98); } }
+  @keyframes giftsub {
+    0% { transform: scale(1) rotate(0); } 15% { transform: scale(1.35) translateY(-14px) rotate(-14deg); }
+    30% { transform: scale(1.35) translateY(-14px) rotate(14deg); } 45% { transform: scale(1.3) translateY(-10px) rotate(-10deg); }
+    60% { transform: scale(1.2) translateY(-4px) rotate(6deg); } 100% { transform: scale(1) rotate(0); } }
+  @keyframes plus { 0% { opacity: 0; transform: translate(-50%, 40px) scale(.6); } 20% { opacity: 1; transform: translate(-50%, 6px) scale(1.15); }
+    70% { opacity: 1; transform: translate(-50%, -4px) scale(1); } 100% { opacity: 0; transform: translate(-50%, -12px); } }
+  @keyframes pipflash { 0%, 50% { background: #fff; box-shadow: 0 0 16px #fff; } }
+  @keyframes tick { 30% { transform: scale(1.12); color: #ff5a52; } }
+  @keyframes wobble { 0%, 100% { transform: rotate(-10deg) scale(1.05); } 50% { transform: rotate(10deg) scale(1.1); } }
+  @keyframes sweep { 0% { left: -60%; opacity: 0; } 20% { opacity: 1; } 60%, 100% { left: 130%; opacity: 0; } }
+  @keyframes glow { 50% { box-shadow: 0 5px 18px rgba(0,0,0,.45), 0 0 26px rgba(145,70,255,.75); } }
+  @keyframes trophy { 0% { transform: scale(0) rotate(-40deg); } 100% { transform: scale(1) rotate(0); } }
 </style></head>
 <body>
 <div class="card hidden" id="card">
-  <div class="streaks"><i></i><i></i><i></i></div>
-  <div class="gift" id="gift">🎁</div>
+  <div class="streaks"><i></i><i></i><i></i><i></i></div>
+  <div class="gift" id="gift"><span id="icon">🎁</span><div class="plus" id="plus">+1 SUB</div></div>
   <div>
     <div class="label" id="label">Weekly giveaway</div>
     <div class="big" id="big">…</div>
@@ -54,10 +85,34 @@
 const q = new URLSearchParams(location.search);
 const hideClosed = q.get("hide") === "closed";
 const WIN_SHOW = 300;  // seconds the winner stays on after the draw
-let last = null, data = null, offset = 0;
+const SUSPENSE = 3000; // ms of "Drawing…" before a live winner reveal
+let last = null, data = null, offset = 0, revealAt = 0, lastTick = null;
 const $ = (id) => document.getElementById(id);
 
-function mmss(s) { s = Math.max(0, Math.round(s)); return Math.floor(s / 60) + ":" + String(s % 60).padStart(2, "0"); }
+function mmss(s) { s = Math.max(0, Math.ceil(s)); return Math.floor(s / 60) + ":" + String(s % 60).padStart(2, "0"); }
+
+function restart(el, cls) { el.classList.remove(cls); void el.offsetWidth; el.classList.add(cls); }
+
+function confetti(n, rain) {  // a burst from the present, or a rain over the whole card
+  const box = $("card").getBoundingClientRect(), gb = $("gift").getBoundingClientRect();
+  const colors = ["#e10600", "#9146ff", "#ffffff", "#ff5a52", "#c9a7ff"];
+  for (let i = 0; i < n; i++) {
+    const c = document.createElement("div");
+    c.className = "confetti";
+    c.style.background = colors[i % colors.length];
+    c.style.left = (rain ? box.left + Math.random() * box.width : gb.left + gb.width / 2) + "px";
+    c.style.top = (rain ? box.top + 10 : gb.top + gb.height / 2) + "px";
+    document.body.appendChild(c);
+    const a = rain ? Math.PI / 2 + (Math.random() - .5) * 1.4 : Math.random() * Math.PI * 2;
+    const v = rain ? 40 + Math.random() * 80 : 50 + Math.random() * 70;
+    const dx = Math.cos(a) * v * (rain ? .6 : 1), dy = rain ? Math.abs(Math.sin(a)) * v * .5 : -Math.abs(Math.sin(a)) * v;
+    c.animate([
+      { transform: "translate(0,0) rotate(0)", opacity: 1 },
+      { transform: `translate(${dx}px, ${dy}px) rotate(${Math.random() * 360}deg)`, opacity: 1, offset: .45 },
+      { transform: `translate(${dx * 1.3}px, ${dy + 70}px) rotate(${Math.random() * 720}deg)`, opacity: 0 }
+    ], { duration: 1400 + Math.random() * 600, easing: "cubic-bezier(.2,.7,.4,1)" }).onfinish = () => c.remove();
+  }
+}
 
 function fit() {  // a long winner name gets a smaller font so it fits
   const big = $("big"); let size = 40;
@@ -69,16 +124,24 @@ function show() {
   if (!data || !data.status) return;
   const now = Date.now() / 1000 + offset;
   const card = $("card");
-  let label = "Giveaway · €10 gift card", big = "", who = "", timer = false;
-  const n = data.entered || 0, winner = data.winner && now - data.won_at < WIN_SHOW;
+  let label = "Giveaway · €10 gift card", big = "", who = "", timer = false, drawing = false;
+  const suspense = Date.now() < revealAt;
+  const n = data.entered || 0, winner = !suspense && data.winner && now - data.won_at < WIN_SHOW;
   if (data.status === "open") {
     big = data.left === 1 ? "1 sub to go" : data.left + " subs to go";
   } else if (data.status === "drawing") {
     const left = data.draw_at - now;
     label = "Giveaway draw";
     big = left > 0 ? "Draw in " + mmss(left) : "Drawing…";
+    drawing = left <= 0;
+    const sec = Math.ceil(left);
+    if (left > 0 && sec <= 10 && sec !== lastTick) { lastTick = sec; restart($("big"), "tick"); }
     timer = true;  // the bar runs down over the 10 minutes
     $("fill").style.width = Math.max(0, Math.min(100, 100 * left / (data.delay || 600))) + "%";
+  } else if (suspense) {
+    label = "Giveaway draw";
+    big = "Drawing…";
+    drawing = true;
   } else if (winner) {
     label = "Giveaway winner · €10 gift card";
     big = data.winner;
@@ -97,7 +160,10 @@ function show() {
     $("who").innerHTML = '<span class="emo">👥</span><span></span>';
     $("who").lastChild.textContent = n + " entered";
   }
-  $("gift").textContent = winner ? "🏆" : "🎁";
+  const icon = winner ? "🏆" : "🎁";
+  if ($("icon").textContent !== icon) { $("icon").textContent = icon; if (winner) restart($("gift"), "trophy"); }
+  $("gift").classList.toggle("drawing", drawing);
+  card.classList.toggle("win", !!winner);
   $("pips").style.display = timer || data.status === "closed" ? "none" : "flex";
   $("bar").style.display = timer ? "block" : "none";
   const pips = $("pips");
@@ -106,14 +172,27 @@ function show() {
     for (let i = 0; i < data.need; i++) { const p = document.createElement("div"); p.className = "pip"; pips.appendChild(p); }
   }
   [...pips.children].forEach((p, i) => p.classList.toggle("on", data.status !== "open" || i < data.subs));
-  card.classList.toggle("hidden", hideClosed && data.status === "closed" && !winner);
+  card.classList.toggle("hidden", hideClosed && data.status === "closed" && !winner && !suspense);
 }
 
-function update(d) {
-    offset = d.now - Date.now() / 1000;
-    const key = d.status + d.subs + "/" + d.entered;
-    if (last !== null && key !== last) { $("card").classList.remove("pop"); void $("card").offsetWidth; $("card").classList.add("pop"); }
-    last = key; data = d; show();
+function update(d) {  // react to what changed since the last look
+  offset = d.now - Date.now() / 1000;
+  const prev = last;
+  last = data = d;
+  show();
+  if (!prev) return;
+  const subbed = d.round === prev.round && (d.subs > prev.subs || (prev.status === "open" && d.status === "drawing"));
+  if (subbed) {  // the present jumps, "+1 SUB", confetti, the new pip flashes
+    restart($("card"), "bump"); restart($("gift"), "sub"); restart($("plus"), "go"); confetti(26, false);
+    const pip = $("pips").children[Math.min(d.subs, d.need) - 1];
+    if (pip) restart(pip, "new");
+  } else if (prev.status === "drawing" && d.status === "closed" && d.winner) {  // 3 seconds of suspense, then the winner
+    revealAt = Date.now() + SUSPENSE;
+    show();
+    setTimeout(() => { show(); confetti(60, true); restart($("card"), "bump"); }, SUSPENSE);
+  } else if (d.entered !== prev.entered || d.status !== prev.status) {
+    restart($("card"), "pop");
+  }
 }
 
 async function poll() {
@@ -126,15 +205,15 @@ async function poll() {
 function demo() {  // a 30 second loop: a sub, the 5th sub starts a 15 second countdown, the winner
   const t0 = Date.now() / 1000, at = (s) => t0 + s;
   const base = { round: 1, need: 5, delay: 15, entered: 12, winner: null, won_at: null };
-  const steps = [[0, { status: "open", subs: 3, left: 2 }], [3, { status: "open", subs: 4, left: 1 }],
-                 [6, { status: "drawing", subs: 5, left: 0, draw_at: at(21) }],
-                 [23, { status: "closed", subs: 5, left: 0, winner: "DemoDriver_27", won_at: at(23) }]];
+  const steps = [[0, { status: "open", subs: 3, left: 2 }], [3, { status: "open", subs: 4, left: 1, entered: 13 }],
+                 [6, { status: "drawing", subs: 5, left: 0, draw_at: at(21), entered: 13 }],
+                 [23, { status: "closed", subs: 5, left: 0, winner: "DemoDriver_27", won_at: at(23), entered: 13 }]];
   last = null;
   steps.forEach(([s, d]) => setTimeout(() => update(Object.assign({}, base, d, { now: Date.now() / 1000 })), s * 1000));
   setTimeout(demo, 30000);
 }
 
 if (q.has("demo")) demo(); else { poll(); setInterval(poll, 3000); }
-setInterval(show, 1000);
+setInterval(show, 250);
 </script>
 </body></html>
