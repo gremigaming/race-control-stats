@@ -14,7 +14,7 @@ on:
   workflow_dispatch:
     inputs:
       command:
-        description: "login, login-owner, ad, ad 120, ads, rewards, or a message to send in chat now"
+        description: "login, login-owner, ad, ad 120, ads, rewards, emotes, or a message to send in chat now"
         required: true
         default: login
 
@@ -86,7 +86,7 @@ jobs:
         run: |
           python3 -m pip install --quiet "cryptography>=41" "aiohttp>=3.9"
           case "$MESSAGE" in
-            ad|"ad "[0-9]*|ads|rewards) python3 -m bot.twitch_chat $MESSAGE ;;
+            ad|"ad "[0-9]*|ads|rewards|emotes) python3 -m bot.twitch_chat $MESSAGE ;;
             *) python3 -m bot.twitch_chat say "$MESSAGE" ;;
           esac
       - name: Hand a renewed login to the bot

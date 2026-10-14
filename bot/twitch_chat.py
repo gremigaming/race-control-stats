@@ -431,6 +431,11 @@ class Twitch:
             if not after:
                 return out
 
+    async def emotes(self):
+        """The channel's own emotes (sub tiers, bits, follower); no extra scope."""
+        res = await self.call("GET", "/chat/emotes", params={"broadcaster_id": self.me["id"]})
+        return res.get("data", [])
+
     async def rewards(self):
         """The channel point rewards (owner login with channel:manage:redemptions).
         Twitch only lets an app edit rewards it made itself, so each one says
@@ -896,6 +901,13 @@ def main(argv):
         s = asyncio.run(once("owner", token, lambda c: c.ad_schedule()))
         print(f"Next scheduled ad: {when(s.get('next_ad_at'))} ({s.get('duration')} s), "
               f"last ad: {when(s.get('last_ad_at'))}, snoozes left: {s.get('snooze_count')}")
+    elif len(argv) == 2 and argv[1] == "emotes":
+        for e in sorted(asyncio.run(once("owner", token, lambda c: c.emotes())),
+                        key=lambda e: (e.get("emote_type", ""), e.get("tier", ""), e["name"])):
+            kind = {"subscriptions": f"sub tier {int(e.get('tier') or 1000) // 1000}",
+                    "bitstier": "bits", "follower": "follower"}.get(e.get("emote_type"), e.get("emote_type"))
+            print(f"{e['name']} | {kind} | {'animated' if 'animated' in e.get('format', []) else 'still'} | "
+                  f"https://static-cdn.jtvnw.net/emoticons/v2/{e['id']}/default/dark/3.0")
     elif len(argv) == 2 and argv[1] == "rewards":
         for r in sorted(asyncio.run(once("owner", token, lambda c: c.rewards())), key=lambda r: r["cost"]):
             limits = [f"{k} {v}" for k, v in (
