@@ -4,7 +4,8 @@ Award roles: race-stats ranks the drivers over the last 5 streams
 (league/awards.json, scripts/awards.py there). Each role goes to the best
 driver who has linked their Discord (bot/links.py), never GreMi (then the next
 one). A holder keeps the role for at least HOLD_DAYS; after that the best
-driver takes it over, and Race Control says so in F1-CHAT (old ➜ new). A driver can hold
+driver takes it over, and Race Control says so in F1-CHAT (old ➜ new); that line
+is kept in the state file until it is really posted, so a restart can't lose it. A driver can hold
 several. The roles always have a holder while anyone linked qualifies.
 
 VIP: members whose name matches one of the Twitch channel's VIPs get the VIP
@@ -98,40 +99,60 @@ async def sync_awards(guild, owner_id, state):
     import discord
     data = await fetch_awards()
     if not data:
+        await announce(guild, state, discord)  # still send what an earlier run missed
         return
     linked = {v["driver"].lower(): int(uid) for uid, v in L.Links().read().items()}
     present = {m.id for m in guild.members if not m.bot}
     now = time.time()
-    channel = guild.get_channel(F1_CHAT_ID)
-    news, winners = [], []
-    for key, role_id in AWARDS.items():
-        role = guild.get_role(role_id)
-        if role is None:
-            continue
-        old = state.get(key, {})
-        uid, row = choose(old, data["awards"].get(key, []), linked, present, owner_id, now)
-        if uid is None:
-            continue
-        if uid != old.get("uid"):
-            state[key] = {"uid": uid, "since": now}
+    try:
+        for key, role_id in AWARDS.items():
+            role = guild.get_role(role_id)
+            if role is None:
+                continue
+            old = state.get(key, {})
+            uid, row = choose(old, data["awards"].get(key, []), linked, present, owner_id, now)
+            if uid is None:
+                continue
+            if uid != old.get("uid"):
+                # The F1-CHAT line is saved together with the new holder, so a restart or a
+                # failed send never loses it: announce() retries until it is posted.
+                state[key] = {"uid": uid, "since": now}
+                if row:
+                    was = f"<@{old['uid']}> ➜ " if old.get("uid") else "➜ "
+                    state.setdefault("pending", []).append(
+                        {"text": f"🏆 **{role.name}**: {was}<@{uid}> ({row['text']})",
+                         "uid": uid, "at": now})
+                save_state(state)
+            member = guild.get_member(uid)
+            for m in list(role.members):
+                if m.id != uid:
+                    await m.remove_roles(role, reason="Award role moved to the best driver")
+            if member and role not in member.roles:
+                await member.add_roles(role, reason="Best over the last 5 streams")
+    finally:
+        await announce(guild, state, discord)
+
+
+PENDING_DAYS = 2  # an announcement that could not be sent for this long is dropped
+
+
+async def announce(guild, state, discord):
+    """Post the saved award changes in F1-CHAT, then forget them (only once sent)."""
+    pending = [p for p in state.get("pending", []) if time.time() - p["at"] < PENDING_DAYS * 86400]
+    if not pending:
+        if state.pop("pending", None) is not None:
             save_state(state)
-        member = guild.get_member(uid)
-        for m in list(role.members):
-            if m.id != uid:
-                await m.remove_roles(role, reason="Award role moved to the best driver")
-        if member and role not in member.roles:
-            await member.add_roles(role, reason="Best over the last 5 streams")
-        if uid != old.get("uid") and row:
-            was = f"<@{old['uid']}> ➜ " if old.get("uid") else "➜ "
-            news.append(f"🏆 **{role.name}**: {was}<@{uid}> ({row['text']})")
-            winners.append(uid)
-    if news:
-        channel = channel or await guild.fetch_channel(F1_CHAT_ID)
-        await channel.send("\n".join(news) + "\n-# Over the last 5 streams, checked every day. "
-                           "Link your driver name in "
-                           "<#1558730257593409628> to compete.",
-                           allowed_mentions=discord.AllowedMentions(users=[
-                               discord.Object(u) for u in winners if wants_pings(guild.get_member(u))]))
+        return
+    channel = guild.get_channel(F1_CHAT_ID) or await guild.fetch_channel(F1_CHAT_ID)
+    winners = {p["uid"] for p in pending}
+    await channel.send("\n".join(p["text"] for p in pending) + "\n-# Over the last 5 streams, "
+                       "checked every day. Link your driver name in "
+                       "<#1558730257593409628> to compete.",
+                       allowed_mentions=discord.AllowedMentions(users=[
+                           discord.Object(u) for u in winners if wants_pings(guild.get_member(u))]))
+    state.pop("pending", None)
+    save_state(state)
+    log.info("award roles: announced %d change(s) in F1-CHAT", len(pending))
 
 
 async def sync_vips(guild, state, report):

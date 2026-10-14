@@ -87,6 +87,42 @@ class AwardTests(unittest.TestCase):
         self.assertEqual(ar.choose({}, self.RANK, {"ddrk": 3}, {3}, 1, 0)[0], 3)
         self.assertEqual(ar.choose({}, self.RANK, {}, set(), 1, 0), (None, None))
 
+    def test_lost_announcement_is_sent_later(self):
+        import asyncio
+        import tempfile
+        import types
+        from unittest import mock
+
+        class Channel:
+            def __init__(self):
+                self.sent, self.fail = [], True
+
+            async def send(self, text, **kw):
+                if self.fail:
+                    raise RuntimeError("bot restarted")
+                self.sent.append(text)
+
+        class Guild:
+            channel = Channel()
+
+            def get_channel(self, _):
+                return self.channel
+
+            def get_member(self, _):
+                return None
+
+        fake = types.SimpleNamespace(AllowedMentions=lambda **kw: None, Object=lambda u: u)
+        state = {"pending": [{"text": "🏆 **Most Wins**: <@2> ➜ <@3> (5 wins)", "uid": 3,
+                              "at": __import__("time").time()}]}
+        with tempfile.TemporaryDirectory() as d, mock.patch.object(ar, "STATE", __import__("pathlib").Path(d) / "a.json"):
+            with self.assertRaises(RuntimeError):
+                asyncio.run(ar.announce(Guild(), state, fake))
+            self.assertEqual(len(ar.read_state().get("pending", state["pending"])), 1)
+            Guild.channel.fail = False
+            asyncio.run(ar.announce(Guild(), state, fake))
+            self.assertIn("<@2> ➜ <@3>", Guild.channel.sent[0])
+            self.assertNotIn("pending", ar.read_state())
+
     def test_vip_names(self):
         vips = [("hiddegaming", "HiddeGaming"), ("nobody_here", "Nobody_Here")]
         members = [(10, [None, "Hidde", "hiddegam1ng"]), (11, ["Someone", None, "someone"])]
