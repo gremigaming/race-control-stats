@@ -1,5 +1,5 @@
 {
- "on": false,
+ "on": true,
  "wait_minutes": 60,
  "card_text": "Welcome to the paddock, {mention}! 🏁 Pick your games in Channels & Roles and come say hi in <#{general}>.",
  "general_one": "👋 Give a warm welcome to {names}, the newest driver on the GreMi Gang grid! Say hi and tell us your favourite track 🏁",
