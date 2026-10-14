@@ -30,7 +30,7 @@ import discord
 from bot.brain import Brain, HandOff
 from bot.members import GUILD_ID, Members
 from bot.profiles import write_profiles
-from bot import award_roles, giveaway, twitch_chat, youtube_chat
+from bot import award_roles, giveaway, twitch_chat, welcome, youtube_chat
 
 from bot.replies import (CHANGE_REQUESTS_ID, FIRE_HEADERS, FIRE_URL, Cooldown, approval_body,
                          change_request, is_approval, is_staff, load_staff, needs_restart,
@@ -298,6 +298,12 @@ async def on_voice_state_update(member, before, after):
             or (before.channel is None) == (after.channel is None)):
         return
     members.voice(member.id, joined=after.channel is not None)
+
+
+@bot.event
+async def on_member_update(before, after):
+    if after.guild.id == GUILD_ID and welcome.became_member(before, after):
+        await welcome.greet(bot, after)
 
 
 @bot.event
