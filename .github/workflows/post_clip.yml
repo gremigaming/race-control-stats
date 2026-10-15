@@ -2,11 +2,11 @@ name: Post clip
 
 # Sends a finished clip from clip-studio (clips-ready/<clip>) to GreMi's TikTok drafts.
 # Nothing goes public: GreMi gets the caption in a Discord DM, adds a sound in TikTok and posts.
-# Every morning (08:00 Dutch summer time, 07:00 winter time) it sends the oldest
+# Every morning (around 05:17 Dutch summer time; GitHub often starts it hours late) it sends the oldest
 # clip in clip-studio's queue that hasn't been sent yet.
 on:
   schedule:
-    - cron: "0 6 * * *"
+    - cron: "17 3 * * *"
   workflow_dispatch:
     inputs:
       clip:
