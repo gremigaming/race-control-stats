@@ -467,10 +467,14 @@ def names_page(user, q):
     for frm, to, c in sorted(links.values(), key=lambda x: x[1].lower()):
         btn = change_form(user, "/names", {"type": "split", "from": frm}, "", "Split", "red")
         rows += f"<tr><td>{e(frm)}</td><td>→ <b>{e(to)}</b></td><td style='width:55%'>{btn}</td></tr>"
-    dl = "".join(f'<option value="{e(n)}">' for n in known)
-    add = change_form(user, "/names", {"type": "alias"},
-                      f'<input name=from placeholder="Old name, exactly as in the race" required maxlength=60>'
-                      f'<input name=to list=known placeholder="Current name" required maxlength=60><datalist id=known>{dl}</datalist>', "Link")
+    try:  # every named driver in the races (the site writes it at build)
+        everyone = site_json("league/names.json").get("names") or known
+    except Exception:
+        everyone = known
+    opts = "".join(f'<option value="{e(n)}">{e(n)}</option>' for n in everyone)
+    pick = lambda name, ph: (f'<select name={name} required style="flex:1;min-width:180px">'
+                             f'<option value="" selected disabled>{ph}</option>{opts}</select>')
+    add = change_form(user, "/names", {"type": "alias"}, pick("from", "Old name") + pick("to", "Current name"), "Link")
     merged = ""
     try:
         merges = site_json("league/merges.json").get("merges", [])
