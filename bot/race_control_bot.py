@@ -30,8 +30,8 @@ import discord
 from bot.brain import Brain, HandOff
 from bot.members import GUILD_ID, Members
 from bot.profiles import write_profiles
-from bot import (award_roles, checkin, giveaway, mod_alerts, socials_live, twitch_chat, welcome,
-                 youtube_chat)
+from bot import (award_roles, checkin, giveaway, mod_alerts, scheduled_posts, socials_live,
+                 twitch_chat, welcome, youtube_chat)
 
 from bot.replies import (CHANGE_REQUESTS_ID, FIRE_HEADERS, FIRE_URL, Cooldown, approval_body,
                          change_request, is_approval, is_staff, load_staff, needs_restart,
@@ -57,6 +57,7 @@ except Exception as e:  # pragma: no cover
     sr_roles = None
     logging.getLogger("race_control").warning("safety rating commands off: %s", e)
 welcomer = welcome.Welcomer(bot, GUILD_ID)
+posts = scheduled_posts.Runner(bot, GUILD_ID)
 
 
 def tags_me(message):
@@ -101,6 +102,7 @@ async def on_ready():
         asyncio.create_task(mod_alerts.run(bot))
         asyncio.create_task(socials_live.run(bot, GUILD_ID))
         asyncio.create_task(welcomer.run())
+        asyncio.create_task(posts.run())
 
 
 LOGS_CHANNEL_ID = 1091494080741122148  # staff-only logs
@@ -321,6 +323,7 @@ async def on_voice_state_update(member, before, after):
 
 @bot.event
 async def on_raw_reaction_add(payload):
+    await posts.on_reaction(payload, added=True)
     if not payload.guild_id or payload.user_id != OWNER_ID:
         return
     channel = bot.get_channel(payload.channel_id) or await bot.fetch_channel(payload.channel_id)
@@ -331,6 +334,11 @@ async def on_raw_reaction_add(payload):
     await hand_over(channel, plan.id, approval_body(channel.id, plan.id, payload.user_id),
                     "\U0001F4FB Radio trouble, I couldn't reach Claude. "
                     "Remove the \u2705 and add it again.", plan)
+
+
+@bot.event
+async def on_raw_reaction_remove(payload):
+    await posts.on_reaction(payload, added=False)
 
 
 def main():
