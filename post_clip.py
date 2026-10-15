@@ -131,7 +131,10 @@ def tiktok_draft(video):
             return state
         if state == "FAILED":
             raise RuntimeError(f"TikTok could not process the clip ({status.get('fail_reason', 'no reason given')})")
-    raise RuntimeError(f"TikTok was still on {state} after 10 minutes; check the TikTok inbox before running again")
+    # The upload itself went through; TikTok sometimes takes longer than this to put it in
+    # the inbox. Count it as sent (a second upload would only make a duplicate draft).
+    print(f"TikTok was still on {state} after 10 minutes; the draft should show up later.", flush=True)
+    return "PENDING"
 
 
 def tiktok_videos(count=10):
@@ -176,12 +179,14 @@ def discord(method, path, data=None):
         return json.loads(resp.read() or b"{}")
 
 
-def dm_caption(clip, caption):
+def dm_caption(clip, caption, late=False):
     """DMs the server owner (GreMi): a heads-up, then the caption on its own to copy."""
     if not (DISCORD_TOKEN and caption):
         return False
     try:
-        dm(f"🎬 **{clip}** is in your TikTok drafts. Hold the next message, "
+        where = ("is on its way to your TikTok drafts (TikTok is slow today, it can take a while to show up)"
+                 if late else "is in your TikTok drafts")
+        dm(f"🎬 **{clip}** {where}. Hold the next message, "
            "tap Copy Text and paste it as the caption. Then add a sound at 0% and post.")
         dm(caption)
         return True
@@ -247,9 +252,9 @@ def main(argv):
     video = clip_file(clip, "video.mp4")
     post = clip_file(clip, "post.md").decode("utf-8")
     print(f"Sending {clip} ({len(video) / 1e6:.1f} MB) to TikTok drafts", flush=True)
-    tiktok_draft(video)
+    state = tiktok_draft(video)
     mark_sent(clip)
-    sent = dm_caption(clip, caption_from(post))
+    sent = dm_caption(clip, caption_from(post), late=state == "PENDING")
     print("Done: open TikTok, tap the inbox notification, add a sound and the caption, and post."
           + (" The caption is in your Discord DMs." if sent else ""))
     if SUMMARY:
