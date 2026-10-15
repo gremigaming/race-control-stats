@@ -155,6 +155,11 @@ async def announce(guild, state, discord):
     log.info("award roles: announced %d change(s) in F1-CHAT", len(pending))
 
 
+def login_problem(text):
+    """True when Twitch refused the owner login itself (re-login needed)."""
+    return "login refused" in text or ": 401" in text or ": 403" in text
+
+
 async def sync_vips(guild, state, report):
     from bot import twitch_chat
     owner = twitch_chat.OWNER
@@ -163,10 +168,15 @@ async def sync_vips(guild, state, report):
     try:
         vips = await owner.vips()
     except Exception as e:
-        if state.get("vip_error") != str(e):
-            state["vip_error"] = str(e)
+        text = str(e) or type(e).__name__
+        if not login_problem(text):
+            # a network hiccup or Twitch timeout, not the login: try again next round
+            log.warning("award roles: Twitch VIPs not read this round (%s)", text)
+            return
+        if state.get("vip_error") != text:
+            state["vip_error"] = text
             save_state(state)
-            await report(f"can't read the Twitch VIPs ({e}); run the Twitch chat workflow with "
+            await report(f"can't read the Twitch VIPs ({text}); run the Twitch chat workflow with "
                          "'login-owner' again")
         return
     state.pop("vip_error", None)
