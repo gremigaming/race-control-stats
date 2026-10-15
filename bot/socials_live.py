@@ -26,6 +26,7 @@ OVERLAY = HERE / "socials_overlay.html"
 STATE = pathlib.Path(os.environ.get("RACE_CONTROL_SOCIALS", "/var/lib/race-control/socials_live.json"))
 TICK = 30             # seconds between viewer checks
 FOLLOWERS_EVERY = 120  # Twitch followers
+FAIL_LIMIT = 10        # failed checks in a row before staff LOGS hears about it (~5 min)
 SUBS_EVERY = 600       # YouTube subscribers (YouTube only changes them in steps)
 STALE = 300            # a viewer count older than this counts as not live
 
@@ -105,11 +106,12 @@ async def youtube_viewers(yt):
 
 
 async def run(bot, guild_id):
-    """Never raises; problems go to staff LOGS once per distinct line."""
+    """Never raises; problems that last FAIL_LIMIT checks go to staff LOGS once per distinct line."""
     state = read_state()
     state.setdefault("followers", {})
     state.setdefault("viewers", {})
     checked = {"twitch": 0.0, "youtube": 0.0}
+    failed = {}  # check name -> failures in a row
     while True:
         now = time.time()
         steps = []
@@ -126,8 +128,14 @@ async def run(bot, guild_id):
             try:
                 value = await call
             except Exception as e:
-                await twitch_chat.report(f"stats overlay: {name} failed ({e})")
+                # timeouts and hiccups come and go; only a problem that sticks is reported
+                text = str(e) or type(e).__name__
+                failed[name] = failed.get(name, 0) + 1
+                log.warning("stats overlay: %s failed (%s), %d in a row", name, text, failed[name])
+                if failed[name] == FAIL_LIMIT:
+                    await twitch_chat.report(f"stats overlay: {name} keeps failing ({text})")
                 continue
+            failed.pop(name, None)
             if mark:
                 checked[mark] = now
             if kind == "followers":
