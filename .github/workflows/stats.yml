@@ -41,9 +41,6 @@ jobs:
           SAFETY_CHANNEL_ID: "1558730261036802088"
           # F1-SETUPS forum: GreMi's setup per track, one Race Control post each (setups_post.py)
           SETUPS_FORUM_ID: "1477423394118041630"
-          # WORDLE channel and the role that shows it (wordle_board.py, results saved in wordle.json)
-          WORDLE_CHANNEL_ID: "1560191888961708042"
-          WORDLE_ROLE_ID: "1560191841264214096"
           SOCIALS_BOARD_POST: ${{ inputs.post_socials_board && 'true' || '' }}
           TWITCH_CLIENT_ID: ${{ secrets.TWITCH_CLIENT_ID }}
           TWITCH_CLIENT_SECRET: ${{ secrets.TWITCH_CLIENT_SECRET }}
@@ -56,16 +53,15 @@ jobs:
           TIKTOK_REFRESH_TOKEN_OUT: ${{ runner.temp }}/tiktok_refresh_token
         run: python3 update_stats.py
 
-      # One saved count per platform per day, for the growth arrows on the socials board,
-      # and the Wordle results read so far
-      - name: Save follower counts and Wordle results
+      # One saved count per platform per day, for the growth arrows on the socials board
+      - name: Save follower counts
         if: always()
         run: |
-          if [ -z "$(git status --porcelain follower_history.json wordle.json)" ]; then exit 0; fi
+          if [ -z "$(git status --porcelain follower_history.json)" ]; then exit 0; fi
           git config user.name "github-actions"
           git config user.email "github-actions@users.noreply.github.com"
-          git add follower_history.json wordle.json
-          git commit -m "Follower counts and Wordle results for $(date -u +%F)"
+          git add follower_history.json
+          git commit -m "Follower counts for $(date -u +%F)"
           git pull --rebase origin main && git push
 
       # TikTok can hand out a new login token on each run; store it or the next run fails

@@ -1,9 +1,10 @@
-"""Wordle leaderboard in the WORDLE channel.
+"""Wordle leaderboard in the WORDLE channel, run by Race Control (bot/wordle.py).
 
 The Wordle app posts "yesterday's results" every morning where people play
 (mostly GENERAL). Each run reads its new posts since last time, saves the
-results in wordle.json, gives every player the Wordle role (that role is what
-lets people see the WORDLE channel) and redraws the leaderboard picture.
+results (on the bot's server; wordle.json here was the starting copy), gives
+every player the Wordle role (that role is what lets people see the WORDLE
+channel) and redraws the leaderboard picture.
 
 Points per game: 1/6 = 6, 2/6 = 5 ... 6/6 = 1, X = 0, and the day's crown
 (best of the group) +1. One message per month: edited while the month runs,
@@ -360,7 +361,6 @@ def update(stats):
     if not state["days"]:
         return
     month = max(state["days"])[:7]
-    png = picture(state, month)
     digest = hashlib.sha256(json.dumps(
         [LAYOUT, standings(state, [d for d in state["days"] if d.startswith(month)]),
          standings(state, list(state["days"]))[:10]], sort_keys=True).encode()).hexdigest()[:12]
@@ -372,6 +372,7 @@ def update(stats):
     if posts and any(a["filename"] == name for a in posts[0]["attachments"]):
         print("unchanged: wordle board")
         return
+    png = picture(state, month)
     message = {
         "content": f"## 🟩 GreMi Gang Wordle · {_month_title(month)}\n"
                    "-# Updates every morning when the Wordle app posts yesterday's results · "

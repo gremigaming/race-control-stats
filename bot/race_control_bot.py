@@ -31,7 +31,7 @@ from bot.brain import Brain, HandOff
 from bot.members import GUILD_ID, Members
 from bot.profiles import write_profiles
 from bot import (award_roles, checkin, giveaway, mod_alerts, scheduled_posts, socials_live,
-                 twitch_chat, welcome, youtube_chat)
+                 twitch_chat, welcome, wordle, youtube_chat)
 
 from bot.replies import (CHANGE_REQUESTS_ID, FIRE_HEADERS, FIRE_URL, Cooldown, approval_body,
                          change_request, is_approval, is_staff, load_staff, needs_restart,
@@ -58,6 +58,11 @@ except Exception as e:  # pragma: no cover
     logging.getLogger("race_control").warning("safety rating commands off: %s", e)
 welcomer = welcome.Welcomer(bot, GUILD_ID)
 posts = scheduled_posts.Runner(bot, GUILD_ID)
+try:  # a problem with the Wordle board must not stop the bot
+    wordle.setup()
+except Exception as e:  # pragma: no cover
+    logging.getLogger("race_control").warning("wordle board setup failed: %s", e)
+wordle_api = wordle._stats(os.environ["DISCORD_BOT_TOKEN"], GUILD_ID)
 
 
 def tags_me(message):
@@ -103,6 +108,7 @@ async def on_ready():
         asyncio.create_task(socials_live.run(bot, GUILD_ID))
         asyncio.create_task(welcomer.run())
         asyncio.create_task(posts.run())
+        asyncio.create_task(wordle.run(wordle_api))
 
 
 LOGS_CHANNEL_ID = 1091494080741122148  # staff-only logs
@@ -245,6 +251,8 @@ async def hand_over(channel, message_id, body, failed_text, reply_to):
 async def on_message(message):
     if not message.guild:
         return
+    if message.guild.id == GUILD_ID:
+        wordle.on_message(message, wordle_api)
     if not message.author.bot and message.guild.id == GUILD_ID:
         at = message.created_at.timestamp()
         members.message(message.author.id, plain(message.channel.name), at)
