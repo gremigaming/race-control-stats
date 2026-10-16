@@ -22,7 +22,7 @@
         "not": "\\b(your|ur|je|jouw|his|her|zijn|haar) (real )?name\\b|\\bname (is|was)\\b|\\bmy name\\b(?!.{0,15}\\b(on|aan|show|zien|hidden|verborgen))"
       },
       "text": "👀 In GreMi's lobby? Turn on Show Player Names (Settings > Telemetry) so your results show your name: https://gremigaming.github.io/race-stats/",
-      "ask_text": "Turn on Show Player Names (Settings > Telemetry) so your results show your name: https://gremigaming.github.io/race-stats/"
+      "ask_text": "Turn on Show Player Names (Settings > Telemetry Settings) so your results and safety rating land under your own name. Results of every race: https://gremigaming.github.io/race-stats/"
     },
     {
       "id": "discord",
@@ -38,7 +38,8 @@
         "topic": "\\bdiscord\\b",
         "cue": "(\\b(how|hoe|where|waar|join|link|invite|uitnodiging|is there|have a|got a|heb je|hebben jullie)\\b|\\?)"
       },
-      "text": "🏁 Join the GreMi Gang Discord: racing help, news and stream updates. https://discord.gg/bDga7v97Qq"
+      "text": "🏁 Join the GreMi Gang Discord: racing help, news and stream updates. https://discord.gg/bDga7v97Qq",
+      "ask_text": "🏁 Join the GreMi Gang on Discord: a racing community where we help each other get faster, plus all the news about GreMi and the streams. https://discord.gg/bDga7v97Qq"
     },
     {
       "id": "stats",
@@ -57,7 +58,8 @@
         "cue": "(\\b(my|mijn|where|waar|how|hoe|see|zien|check|link|site|website|page)\\b|\\?)",
         "not": "\\b(f1|formula|verstappen|norris|leclerc|hamilton|piastri|russell|antonelli|grand prix|gp)\\b"
       },
-      "text": "📊 Lap times and results from stream: https://gremigaming.github.io/race-stats/"
+      "text": "📊 Lap times and results from stream: https://gremigaming.github.io/race-stats/",
+      "ask_text": "📊 Lap times, results and head to heads from the races on stream: https://gremigaming.github.io/race-stats/"
     },
     {
       "id": "simgasm",
@@ -75,7 +77,8 @@
         "cue": "(\\b(what|which|where|how much|who makes|brand|merk|price|prijs|cost|kost|buy|bought|kopen|gekocht|link|wat|welke|waar|hoeveel|your|ur|je|jouw|is that|is dat)\\b|\\?)",
         "not": "(\\b(car|auto|game|f1|lmu|tune|tuning|wing|vleugel|tyres?|tires?|banden|brake bias|diff|camber|quali|race|wet|dry|fuel|ers|setups)\\b|\\bsetup\\b.{0,12}\\b(for|voor|on|op|at)\\b|\\b(australia|melbourne|china|shanghai|japan|suzuka|bahrain|sakhir|jeddah|saudi|miami|imola|canada|montreal|monaco|barcelona|spain|catalunya|austria|silverstone|britain|spa|belgium|hungary|hungaroring|zandvoort|netherlands|monza|italy|madrid|baku|azerbaijan|singapore|austin|cota|texas|mexico|brazil|interlagos|vegas|qatar|losail|abu dhabi|yas|le mans|road atlanta|portimao|fuji|sebring|daytona|nurburgring)\\b)"
       },
-      "text": "🏎️ GreMi's rig is from Simgasm. 10% off with code GREMI10: https://simgasm.com/gremi_gaming"
+      "text": "🏎️ GreMi partners with Simgasm: 10% off sim rigs with code GREMI10 at https://simgasm.com/gremi_gaming",
+      "ask_text": "🏎️ Looking for a sim rig? GreMi partners with Simgasm: great cockpits at a fair price. Get 10% off with code GREMI10 at https://simgasm.com/gremi_gaming . Bought one? Show GreMi your order for a free sub and the Simgasm Buyer role on Discord!"
     },
     {
       "id": "follow",
@@ -99,7 +102,8 @@
         "topic": "\\b(giveaways?|give away|winactie|gift ?card|prize|prijs winnen)\\b",
         "cue": "(\\b(how|hoe|when|wanneer|where|waar|who|wie|enter|join|win|meedoen|what|wat)\\b|\\?)"
       },
-      "text": "🎁 Weekly €10 gift card giveaway! {giveaway} Enter on Discord: https://discord.gg/bDga7v97Qq"
+      "text": "🎁 Weekly €10 gift card giveaway! {giveaway} Enter on Discord: https://discord.gg/bDga7v97Qq",
+      "ask_text": "🎁 Weekly giveaway: a €10 gift card (Steam, EA, Xbox or PlayStation)! It's drawn 10 minutes after the 5th new sub. {giveaway} Join the Discord, get the Prize Hunter role and press Enter in #giveaways: https://discord.gg/bDga7v97Qq"
     },
     {
       "id": "subs",
@@ -116,7 +120,8 @@
         "cue": "\\b(why|what|waarom|wat|perks?|benefits?|voordelen|worth|get|krijg|krijgen|do i get|happens)\\b",
         "not": "\\b(thanks? for the sub|gifted|resub|subbed for)\\b"
       },
-      "text": "💜 Subs get no ads, extra giveaway entries and their own welcome sound."
+      "text": "💜 Subs get no ads, extra giveaway entries and their own welcome sound.",
+      "ask_text": "💜 Why sub? No ads on stream, extra entries in the weekly giveaway on Discord, the subs-only chat on Discord, and your own custom welcome sound and alert every time you join the stream!"
     }
   ],
   "ads": {
