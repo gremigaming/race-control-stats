@@ -567,6 +567,26 @@ class Room:
         return sum(1 for x in self.chat if x > t)
 
 
+KEEPALIVE_WAIT = 30  # seconds; Twitch sends a keepalive every 10 s on a quiet websocket
+
+
+async def frames(ws, wait=KEEPALIVE_WAIT):
+    """Text messages from an EventSub websocket. A connection that goes quiet
+    (no keepalive) is dead, even if it never closed: raise so the caller
+    reconnects instead of waiting forever (that stopped !commands once)."""
+    import aiohttp
+    while True:
+        try:
+            msg = await ws.receive(timeout=wait)
+        except asyncio.TimeoutError:
+            raise RuntimeError(f"no message from Twitch for {wait} s, reconnecting") from None
+        if msg.type == aiohttp.WSMsgType.TEXT:
+            yield msg
+        elif msg.type in (aiohttp.WSMsgType.CLOSE, aiohttp.WSMsgType.CLOSING,
+                          aiohttp.WSMsgType.CLOSED, aiohttp.WSMsgType.ERROR):
+            return
+
+
 async def listen_chat(bot, room, ads_command):
     """Counts viewer messages (EventSub websocket); reconnects by itself."""
     url = EVENTSUB
@@ -574,7 +594,7 @@ async def listen_chat(bot, room, ads_command):
         try:
             async with bot.session.ws_connect(url, heartbeat=None) as ws:
                 url = EVENTSUB
-                async for msg in ws:
+                async for msg in frames(ws):
                     data = json.loads(msg.data)
                     kind = data["metadata"]["message_type"]
                     if kind == "session_welcome":
@@ -631,7 +651,7 @@ async def listen_subs(owner):
         try:
             async with owner.session.ws_connect(url, heartbeat=None) as ws:
                 url = EVENTSUB
-                async for msg in ws:
+                async for msg in frames(ws):
                     data = json.loads(msg.data)
                     kind = data["metadata"]["message_type"]
                     if kind == "session_welcome":
