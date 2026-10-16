@@ -29,7 +29,7 @@ SOURCE_CHANNELS = [c for c in os.environ.get(
     [WORDLE_CHANNEL_ID] if WORDLE_CHANNEL_ID else [])
 FILE_PREFIX = "wordle-"
 # Bump when the picture is drawn differently, so the live board is redrawn
-LAYOUT = 1
+LAYOUT = 2
 
 SUMMARY = re.compile(r"on an? (\d+) day streak.*results:", re.S)
 LINE = re.compile(r"^(👑 )?([1-6X])/6: (.*)$")
