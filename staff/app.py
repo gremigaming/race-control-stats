@@ -189,6 +189,29 @@ def is_staff(uid: int) -> bool:
     return any(any(w in names.get(r, "") for w in STAFF_ROLES) for r in member.get("roles", []))
 
 
+def is_owner(uid: int) -> bool:
+    try:
+        return uid == json.loads(STAFF_FILE.read_text()).get("owner")
+    except Exception:
+        return False
+
+
+def setup_key() -> str:
+    """Key of the Setup manager data on the site (GreMi only). The site build
+    encrypts with the same value, saved there as the SETUP_KEY secret."""
+    return base64.b64encode(hmac.new(SECRET, b"setup-manager-v1", hashlib.sha256).digest()).decode()
+
+
+def setup_key_page(user, q):
+    if not is_owner(int(user["id"])):
+        return page("Setup key", "<p>Only the owner can see this.</p>", user)
+    return page("Setup key", "<div class=narrow><h1>Setup manager key</h1>"
+                "<p class=muted>Save this once as a repository secret named <b>SETUP_KEY</b> in gremigaming/race-stats "
+                "(Settings, Secrets and variables, Actions). The site uses it to lock your setups; only you get it "
+                "after logging in on the Setup manager page. Don't share it.</p>"
+                f"<p class=quote>{e(setup_key())}</p></div>", user)
+
+
 def remember_name(uid, name):
     try:
         names = json.loads(NAMES_FILE.read_text()) if NAMES_FILE.exists() else {}
@@ -1020,7 +1043,8 @@ def member_change(form, user):
 
 
 PAGES = {"/": home, "/incidents": incidents, "/results": results, "/names": names_page,
-         "/members": members_page, "/log": log_page, "/kick": kick_page, "/protests": protests_page}
+         "/members": members_page, "/log": log_page, "/kick": kick_page, "/protests": protests_page,
+         "/setup-key": setup_key_page}
 
 
 def explain(ex):
@@ -1098,6 +1122,8 @@ class Handler(BaseHTTPRequestHandler):
                 body = socials_live.public(socials_live.read_state(), time.time())
                 return self.send(200, json.dumps(body), {"Content-Type": "application/json",
                                                          "Access-Control-Allow-Origin": "*"})
+            if url.path == "/setup-login":  # the Setup manager on the site
+                return self.login(setup_back=q.get("back", [""])[0])
             if url.path == "/login":
                 return self.login()
             if url.path == "/callback":
@@ -1242,7 +1268,7 @@ class Handler(BaseHTTPRequestHandler):
         sep = "&" if "?" in back else "?"
         self.redirect(f"{back}{sep}ok={urllib.parse.quote(msg)}")
 
-    def login(self):
+    def login(self, setup_back=""):
         state = secrets.token_urlsafe(16)
         q = urllib.parse.urlencode({"client_id": CLIENT_ID, "redirect_uri": BASE_URL + "/callback", "response_type": "code",
                                     "scope": "identify", "state": state})
@@ -1250,6 +1276,10 @@ class Handler(BaseHTTPRequestHandler):
         cookies = [f"staff_state={state}; Max-Age=600; Path=/; HttpOnly; Secure; SameSite=Lax"]
         if nxt.startswith("/protest"):  # a driver logging in to protest
             cookies.append(f"staff_next={urllib.parse.quote(nxt, safe='')}; Max-Age=600; Path=/; HttpOnly; Secure; SameSite=Lax")
+        if setup_back:  # GreMi opening the Setup manager: back to the site afterwards
+            if not setup_back.startswith(SITE):
+                return self.send(400, "Unknown return address")
+            cookies.append(f"setup_back={urllib.parse.quote(setup_back, safe='')}; Max-Age=600; Path=/; HttpOnly; Secure; SameSite=Lax")
         self.redirect(f"https://discord.com/oauth2/authorize?{q}", cookies)
 
     def callback(self, q):
@@ -1263,7 +1293,12 @@ class Handler(BaseHTTPRequestHandler):
         me = http("https://discord.com/api/v10/users/@me", headers={"Authorization": f"Bearer {tok['access_token']}"})
         uid = int(me["id"])
         clear = ["staff_state=; Max-Age=0; Path=/; HttpOnly; Secure; SameSite=Lax",
-                 "staff_next=; Max-Age=0; Path=/; HttpOnly; Secure; SameSite=Lax"]
+                 "staff_next=; Max-Age=0; Path=/; HttpOnly; Secure; SameSite=Lax",
+                 "setup_back=; Max-Age=0; Path=/; HttpOnly; Secure; SameSite=Lax"]
+        back = urllib.parse.unquote(self.cookie("setup_back") or "")
+        if back.startswith(SITE):  # the key goes in the hash, so no server ever logs it
+            ok = is_owner(uid)
+            return self.redirect(back + ("#setup-key=" + urllib.parse.quote(setup_key()) if ok else "#setup-denied"), clear)
         nxt = urllib.parse.unquote(self.cookie("staff_next") or "")
         nxt = nxt if nxt.startswith("/protest") else ""
         name = me.get("global_name") or me.get("username") or "Driver"
