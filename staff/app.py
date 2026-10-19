@@ -427,7 +427,7 @@ def incident_detail(user, sr, file):
                       f'<input type=number name=lap min=1 max=99 placeholder="Lap" title="Lap (optional)">'
                       f'<input name=text placeholder="What happened" required maxlength=120>', "Add")
     return (f"<div class=card><h2 style='margin-top:0'>{e(label(file))}</h2>"
-            f"<p class=muted>Set the new points (0 cancels it) and say why. Clearing a driver's only penalty in a race gives them the clean race bonus back.</p>"
+            f"<p class=muted>Set the new points (0 cancels it) and say why. Clearing a driver's only penalty in a race gives them their clean-lap points back.</p>"
             f"<table>{html_rows or '<tr><td class=muted>No points in this session.</td></tr>'}</table></div>"
             f"<div class=card><h2 style='margin-top:0'>Add a penalty or bonus</h2>{add}</div>")
 
