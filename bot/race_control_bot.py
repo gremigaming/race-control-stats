@@ -30,7 +30,7 @@ import discord
 from bot.brain import Brain, HandOff
 from bot.members import GUILD_ID, Members
 from bot.profiles import write_profiles
-from bot import (award_roles, checkin, giveaway, mod_alerts, scheduled_posts, socials_live,
+from bot import (award_roles, checkin, giveaway, league_promos, mod_alerts, scheduled_posts, socials_live,
                  twitch_chat, welcome, wordle, youtube_chat)
 
 from bot.replies import (CHANGE_REQUESTS_ID, FIRE_HEADERS, FIRE_URL, Cooldown, approval_body,
@@ -58,6 +58,8 @@ except Exception as e:  # pragma: no cover
     logging.getLogger("race_control").warning("safety rating commands off: %s", e)
 welcomer = welcome.Welcomer(bot, GUILD_ID)
 posts = scheduled_posts.Runner(bot, GUILD_ID)
+promos = league_promos.Watcher(bot, lambda m: is_staff(m.id, OWNER_ID, MOD_IDS) or getattr(
+    getattr(m, "guild_permissions", None), "manage_messages", False))
 try:  # a problem with the Wordle board must not stop the bot
     wordle.setup()
 except Exception as e:  # pragma: no cover
@@ -108,6 +110,7 @@ async def on_ready():
         asyncio.create_task(socials_live.run(bot, GUILD_ID))
         asyncio.create_task(welcomer.run())
         asyncio.create_task(posts.run())
+        asyncio.create_task(promos.run())
         asyncio.create_task(wordle.run(wordle_api))
 
 
@@ -259,6 +262,7 @@ async def on_message(message):
         members.archive(message.id, message.author.id, plain(message.channel.name),
                         message.clean_content, at)
         await welcomer.on_message(message)
+        await promos.on_message(message)
     ref = message.reference.message_id if message.reference else None
     if message.author == bot.user and ref in waiting:
         waiting[ref].set()  # Claude answered, stop typing
