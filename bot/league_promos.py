@@ -4,7 +4,7 @@ When someone advertises a league in 📣┃self-promotion, Race Control replies
 that it belongs in 🏆┃community-leagues (the way GreMi sent Romijn there) and
 removes the original message 10 minutes after it was posted. Members without
 the League Racer role are told how to get it, since only that role sees the
-forum.
+forum. The reply ends with a short guide on how to set up a post there.
 
 Detection is a cheap keyword score, no Claude call: a Discord invite plus one
 league word, or a few league words, counts as a league promo. A stream or clip
@@ -64,7 +64,17 @@ def reply_text(author_id, has_role):
     if not has_role:
         text += ("\nYou need the **League Racer** role to see it, pick it in "
                  "<id:customize>.")
-    return text
+    return text + GUIDE
+
+
+GUIDE = """
+
+**How to post your league there**
+1. Open the channel and press **New Post**.
+2. Title: your league name.
+3. In the post: a short description (race days and times, platform, level) and the join link.
+4. Pick tags: the game (F1 25 or F1 26), your race days, Competitive or Chill, time of day and region.
+5. Keep it up to date, questions about the league go in the replies."""
 
 
 def due(state, now):

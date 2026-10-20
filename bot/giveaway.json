@@ -1,12 +1,12 @@
 {
-  "_about": "Weekly giveaway (GreMi 2026-10-13). Read live by bot/giveaway.py, no restart needed. Role ids are from the real server.",
+  "_about": "Weekly giveaway (GreMi 2026-10-13). Read live by bot/giveaway.py, no restart needed. Role ids are from the real server. entry_role null = everyone can enter (GreMi 2026-10-20).",
   "channel": 1082967543142162522,
   "need": 5,
   "delay_minutes": 10,
   "prize": "€10 gift card",
   "prize_choice": "Steam, EA, Xbox or PlayStation, the winner picks",
   "invite": "https://discord.gg/bDga7v97Qq",
-  "entry_role": 1556963755043192862,
+  "entry_role": null,
   "winner_role": 1091493626829348924,
   "base": 10,
   "bonus": [

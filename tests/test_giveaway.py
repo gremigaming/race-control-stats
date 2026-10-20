@@ -56,7 +56,7 @@ class GiveawayTests(unittest.TestCase):
 
     def test_panel_and_table(self):
         text = g.entries_text(CONFIG)
-        self.assertIn("<@&1556963755043192862> starts with **10 entries**", text)
+        self.assertIn("Everyone starts with **10 entries**", text)
         self.assertIn("<@&1080519811219595377> **+30**", text)
         self.assertIn("<@&1558583801813270581> **+30**", text)
         self.assertEqual(g.entrants_text([("1", 10), ("2", 45)]), "<@2> 🎟️45 · <@1> 🎟️10")

@@ -2,7 +2,7 @@
 have been 5 new Twitch subs.
 
 How a round goes:
-  open     members with the Prize Hunter role press Enter on the panel in
+  open     members press Enter on the panel in
            GIVEAWAYS. New, Prime and gifted subs count (resubs don't); they
            come in from Twitch through bot/twitch_chat.py (GreMi's own login).
   drawing  the 5th new sub sets the draw 10 minutes later. Race Control says
@@ -133,7 +133,8 @@ def entries_text(config):
         return " · ".join(one(k) for k in labels if k in role)
 
     awards = [k for k in ("Most Wins", "Most FL", "Most DOTD", "Most Overtakes", "Cleanest Driver") if k in role]
-    lines = [f"🏁 Everyone with <@&{config['entry_role']}> starts with **{config['base']} entries**", "",
+    who = f"Everyone with <@&{config['entry_role']}>" if config.get("entry_role") else "Everyone"
+    lines = [f"🏁 {who} starts with **{config['base']} entries**", "",
              "💜 **Supporters**", row(["Twitch sub Tier 1", "Twitch sub Tier 2", "Twitch sub Tier 3"]),
              row(["Server Booster", "Simgasm Buyer"]), "",
              "⭐ **Community**", row(["VIP", "OG"]), ""]
@@ -302,7 +303,7 @@ class Runner:
         for uid in state["entrants"]:
             m = guild.get_member(int(uid)) if guild else None
             if (m is None or m.bot or m.id == self.owner_id
-                    or config["entry_role"] not in {r.id for r in m.roles}):
+                    or (config.get("entry_role") and config["entry_role"] not in {r.id for r in m.roles})):
                 continue
             weights[uid] = entries([r.id for r in m.roles], config)[0]
             members[uid] = m
@@ -356,8 +357,8 @@ class Runner:
             state["announced"] = True
             save_state(state)
             await self.say(f"🎁 That's {config['need']} new subs! The weekly giveaway ({config['prize']}) "
-                           f"is drawn in {config['delay_minutes']} minutes. Join the Discord, get the "
-                           f"Prize Hunter role and press Enter in #giveaways: {config['invite']}")
+                           f"is drawn in {config['delay_minutes']} minutes. Join the Discord and press "
+                           f"Enter in #giveaways: {config['invite']}")
             await self.post(config["channel"], f"🥁 {config['need']} new subs reached! The draw is "
                                                f"<t:{int(state['draw_at'])}:R>. Not entered yet? "
                                                "Press Enter on the panel above.")
@@ -401,7 +402,7 @@ class Runner:
         if user.id == self.owner_id:
             text = "It's your own giveaway, so you can't enter. 😄"
         elif cid == ENTER:
-            if config["entry_role"] not in roles:
+            if config.get("entry_role") and config["entry_role"] not in roles:
                 text = ("You need the **Prize Hunter** role to enter. Add it in Channels & Roles "
                         "(Browse Channels at the top of the channel list), then press Enter again.")
             elif state["status"] == "closed":
