@@ -139,7 +139,8 @@ class Session:
                 self._laps(t, rows)
         elif kind == 0:
             if pid == 1 and len(body) >= 8:
-                self.meta.update(total_laps=body[3], session_type=body[6], track_id=struct.unpack_from("<b", body, 7)[0])
+                self.meta.update(total_laps=body[3], session_type=body[6], track_id=struct.unpack_from("<b", body, 7)[0],
+                                 track_length=struct.unpack_from("<H", body, 4)[0])
                 self.dirty = True
             elif pid == 4 and body:
                 parts = parse_participants(body)
@@ -287,7 +288,8 @@ class Session:
         return {"v": 1, "uid": m["uid"], "started": m["started"],
                 "track": TRACKS[tid] if 0 <= tid < len(TRACKS) else "Unknown",
                 "session": SESSION_TYPES[m["session_type"]] if 0 <= m.get("session_type", 0) < len(SESSION_TYPES) else "Unknown",
-                "laps": m.get("total_laps", 0), "chunk_seconds": CHUNK_SECONDS, "chunks": m["chunks"],
+                "laps": m.get("total_laps", 0), "track_length": m.get("track_length", 0),
+                "chunk_seconds": CHUNK_SECONDS, "chunks": m["chunks"],
                 "cars": {k: {"name": shown_name(p), "team": p.get("team"), "number": p.get("race_number"),
                              "ai": bool(p.get("ai"))} for k, p in m["participants"].items()},
                 "events": m["events"], "finished": m["finished"],
