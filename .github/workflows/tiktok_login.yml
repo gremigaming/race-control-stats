@@ -38,6 +38,6 @@ jobs:
             echo "Missing the GH_SECRETS_TOKEN secret, so the TikTok login can't be saved."
             rm -f "$FILE"; exit 1
           fi
-          gh secret set TIKTOK_REFRESH_TOKEN --repo "${{ github.repository }}" < "$FILE"
+          for r in gremigaming/race-control-stats gremigaming/clip-studio; do gh secret set TIKTOK_REFRESH_TOKEN --repo "$r" < "$FILE"; done
           rm -f "$FILE"
           echo "Saved. The next stats run will show your TikTok followers."
