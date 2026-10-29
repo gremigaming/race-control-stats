@@ -24,6 +24,7 @@ import time
 import zlib
 
 from websockets.asyncio.server import serve
+from websockets.exceptions import ConnectionClosed
 
 from live import publish
 from live.race import Session, records
@@ -78,6 +79,8 @@ async def ingest(ws):
                 state["last_batch"] = time.time()
                 state["batches"] += 1
             await ws.send(f"ack {seq}")
+    except ConnectionClosed:
+        pass  # the PC went away (shutdown, network): it resends what wasn't acked
     finally:
         state["uplink"] = False
 
