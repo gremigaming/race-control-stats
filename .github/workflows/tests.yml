@@ -13,8 +13,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Install Pillow (draws the socials board picture) and cryptography (Twitch chat login)
-        run: python3 -m pip install --quiet "pillow>=10,<13" "cryptography>=41"
+      - name: Install Pillow (draws the socials board picture), cryptography (Twitch chat login) and websockets (live race server)
+        run: python3 -m pip install --quiet "pillow>=10,<13" "cryptography>=41" "websockets>=13,<16"
 
       - name: Run tests
         run: python3 -m unittest discover -s tests -t . -v
