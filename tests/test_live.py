@@ -3,6 +3,7 @@ import gzip
 import importlib.util
 import json
 import os
+import shutil
 import struct
 import tempfile
 import unittest
@@ -153,3 +154,35 @@ class ServerTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class MapsTest(unittest.TestCase):
+    def test_new_pyramids_go_to_r2_once(self):
+        import io
+        import tarfile
+        import tempfile
+
+        from live import maps
+
+        class S3:
+            def __init__(self):
+                self.keys = {}
+
+            def put_object(self, Bucket, Key, Body, **kw):
+                self.keys[Key] = Body
+
+        with tempfile.TemporaryDirectory() as data, tempfile.TemporaryDirectory() as src:
+            tar = os.path.join(src, "pyramid-monaco.tar")
+            with tarfile.open(tar, "w") as t:
+                for name, body in (("monaco/4/0_-12.webp", b"RIFF"), ("monaco/index.json", b'{"px":1024}')):
+                    info = tarfile.TarInfo(name)
+                    info.size = len(body)
+                    t.addfile(info, io.BytesIO(body))
+            release = {"assets": [{"name": "pyramid-monaco.tar", "updated_at": "2026-10-29T11:00:00Z",
+                                   "browser_download_url": tar}]}
+            s3 = S3()
+            copy = lambda url, path: shutil.copy(url, path)
+            self.assertEqual(maps.sync(data, s3, release, copy), ["monaco"])
+            self.assertEqual(s3.keys["maps/monaco/4/0_-12.webp"], b"RIFF")
+            self.assertEqual(json.loads(s3.keys["maps/index.json"]), {"monaco": {"px": 1024}})
+            self.assertEqual(maps.sync(data, s3, release, copy), [])

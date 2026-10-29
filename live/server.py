@@ -26,7 +26,7 @@ import zlib
 from websockets.asyncio.server import serve
 from websockets.exceptions import ConnectionClosed
 
-from live import publish
+from live import maps, publish
 from live.race import Session, records
 
 DATA_DIR = os.environ.get("DATA_DIR", "/var/lib/race-live")
@@ -39,7 +39,7 @@ MESSAGE = struct.Struct("<QIQ")
 
 log = logging.getLogger("race-live")
 sessions = {}
-state = {"started": time.time(), "uplink": False, "last_batch": 0.0, "batches": 0, "errors": []}
+state = {"started": time.time(), "uplink": False, "last_batch": 0.0, "batches": 0, "errors": [], "maps": []}
 
 
 def note(text):
@@ -89,7 +89,7 @@ def status():
     now = time.time()
     return {"ok": True, "uptime_s": round(now - state["started"]), "uplink_connected": state["uplink"],
             "last_batch_s_ago": round(now - state["last_batch"], 1) if state["last_batch"] else None,
-            "batches": state["batches"], "errors": state["errors"],
+            "batches": state["batches"], "errors": state["errors"], "maps_copied": state["maps"],
             "sessions": [{"uid": s.meta["uid"], "track": s.manifest()["track"], "session": s.manifest()["session"],
                           "chunks": len(s.meta["chunks"]), "cars": len(s.meta["participants"]),
                           "finished": s.meta["finished"], "published": s.meta["published"]}
@@ -125,8 +125,20 @@ async def publish_race(s):
         note(f"publishing {s.meta['uid']} failed: {ex}")
 
 
+async def sync_maps():
+    """New map pyramids from GitHub to R2 (live/maps.py), at most once an hour."""
+    try:
+        done = await asyncio.to_thread(maps.sync, DATA_DIR)
+        state["maps"] = sorted(set(state["maps"]) | set(done))
+        if done:
+            log.info("map pyramid copied to R2: %s", ", ".join(done))
+    except Exception as ex:
+        note(f"copying the map pyramid failed: {ex}")
+
+
 async def housekeeping():
     last_clean = 0.0
+    maps_task = None
     while True:
         await asyncio.sleep(5)
         now = time.time()
@@ -145,6 +157,8 @@ async def housekeeping():
         if now - last_clean > 3600:
             last_clean = now
             clean(now)
+            if maps_task is None or maps_task.done():
+                maps_task = asyncio.create_task(sync_maps())
 
 
 def clean(now):
