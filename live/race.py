@@ -89,9 +89,9 @@ def parse_participants(b):
 
 
 def shown_name(p):
-    """The name the public viewer gets: hidden-name players only by race number (GreMi's rule)."""
-    if p.get("ai") or p.get("public"):
-        return p.get("name") or f"Car #{p.get('race_number', 0)}"
+    """The name the public viewer gets: hidden-name players (and the game's anonymous "Player") only by race number (GreMi's rule)."""
+    if (p.get("ai") or p.get("public")) and p.get("name") not in (None, "", "Player"):
+        return p["name"]
     return f"Car #{p.get('race_number', 0)}"
 
 
