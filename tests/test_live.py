@@ -121,6 +121,42 @@ class SessionTest(unittest.TestCase):
         self.assertEqual(len(t), 2)
 
 
+class TimingTest(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+
+    def test_rows_are_timed_by_game_frames_and_carry_the_game_interval(self):
+        s = race.Session(self.tmp.name, UID)
+
+        def lap_row(t, last_ms, gap_ms, grid, status):
+            row = race.FIELD_LAP.pack(last_ms, 0, 0, 0, 0, 0, gap_ms % 60000, gap_ms // 60000, 0, 0, 50.0, 50.0, 0,
+                                      2, 1, *([0] * 9), grid, 0, status)
+            return record(2, 2, t, bytes([race.FIELD_LAP.size]) + row * 2)
+
+        recs = [lap_row(0.0, 0, 1234, 3, 2),
+                telemetry(0.0, [(216, 1.0, 0.0, 0.0, 7, [0, 0, 0, 0])] * 2)]
+        # 216 km/h = 1 m per game frame; rows every 6 frames, session time jittered by up to 15 ms
+        jitter = [0, 0.015, -0.01, 0.012, -0.015, 0.0, 0.01]
+        for k, j in enumerate(jitter):
+            recs.append(motion(k * 0.1 + j, [(k * 6.0, 0.0, 0.0), (k * 6.0, 5.0, 0.0)]))
+        recs.append(motion(0.6 + 0.004, [(36.0, 0.0, 0.0), (36.0, 5.0, 0.0)]))  # repeats the last frame
+        recs += [lap_row(0.7, 91500, 1234, 3, 2), lap_row(0.8, 91500, 1234, 3, 3)]
+        for kind, head, body in race.records(b"".join(recs)):
+            s.add(kind, head, body)
+        ts = [t for t, _ in s.frames]
+        self.assertEqual(len(ts), len(jitter))
+        steps = [b - a for a, b in zip(ts, ts[1:])]
+        self.assertLess(max(steps) - min(steps), 0.01)
+        s.flush()
+        _, _, cols = race.decode_chunk(gzip.decompress(open(os.path.join(s.dir, "chunks", "00000.bin"), "rb").read()))
+        self.assertEqual(cols["gap_front"][:2], [1230, 1230])
+        d = s.meta["timing"]["0"]
+        self.assertEqual(d["grid"], 3)
+        self.assertEqual(d["laps"], [[1, 0.7, 91500]])
+        self.assertEqual([st for _, st in d["status"]], [2, 3])
+
+
 @unittest.skipUnless(importlib.util.find_spec("websockets"), "websockets not installed")
 class ServerTest(unittest.TestCase):
     def test_uplink_batches_are_acked_and_stored(self):

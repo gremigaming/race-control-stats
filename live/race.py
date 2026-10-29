@@ -10,7 +10,7 @@ for motion (20 per second), car telemetry (20 per second) and lap data (4 per se
 
 A chunk is every car at every motion row inside 10 s of session time, gzip'd:
 
-    "GMLC" uint8 version=1  uint8 cars  uint16 frames  float64 chunk start (session s)
+    "GMLC" uint8 version=2  uint8 cars  uint16 frames  float64 chunk start (session s)
     float32 t[frames]                      session time of each frame
     float32 x, z, y, lap_distance[frames * cars]   metres (x right, z down on the maps)
     int16   heading[frames * cars]         atan2(forward z, forward x) * 10000
@@ -20,6 +20,10 @@ A chunk is every car at every motion row inside 10 s of session time, gzip'd:
     int8    gear[frames * cars]            -1 reverse, 0 neutral
     uint8   offtrack[frames * cars]        bit per wheel (RL, RR, FL, FR) off tarmac and kerbs
     uint8   lap, position[frames * cars]   position 0 = no car in that slot
+    uint16  gap_front[frames * cars]       the game's interval to the car ahead, 10 ms units (version 2)
+
+Frame times are the game's frame count between rows (see Session._retime), not the raw session
+time, which can be ~20 ms off from when the positions were taken.
 
 Arrays are frame-major (frame 0 car 0, frame 0 car 1, ...), little endian.
 """
@@ -28,6 +32,7 @@ import gzip
 import json
 import math
 import os
+import statistics
 import struct
 import time
 
@@ -111,8 +116,10 @@ class Session:
                          "track_id": -1, "session_type": 0, "total_laps": 0, "participants": {},
                          "events": [], "chunks": [], "finished": False, "published": False}
         self.tel = {}     # slot -> (speed, throttle, brake, steer, gear, offtrack)
-        self.lap = {}     # slot -> (lap_distance, lap, position)
+        self.lap = {}     # slot -> (lap_distance, lap, position, gap_front_ms)
+        self.clock = None  # (frame id, corrected time, cars, raw time, frame period) of the last motion row
         self.frames = []  # (t, {slot: row tuple}) of the open chunk
+        self.last_lap = {}  # slot -> last lap time (ms) seen, to spot a new one
         self.chunk = None
         self.last_seen = time.time()
         self.dirty = False
@@ -125,11 +132,11 @@ class Session:
         if kind == 2:
             rows = field_rows(body)
             if pid == 0:
-                self._motion(t, rows)
+                self._motion(t, rows, head[9])
             elif pid == 6:
                 self._telemetry(rows)
             elif pid == 2:
-                self._laps(rows)
+                self._laps(t, rows)
         elif kind == 0:
             if pid == 1 and len(body) >= 8:
                 self.meta.update(total_laps=body[3], session_type=body[6], track_id=struct.unpack_from("<b", body, 7)[0])
@@ -144,7 +151,7 @@ class Session:
             elif pid == 8:
                 self.finish()
 
-    def _motion(self, t, rows):
+    def _motion(self, t, rows, frame_id):
         cars = {}
         for i, r in enumerate(rows):
             if len(r) < FIELD_MOTION.size:
@@ -155,14 +162,39 @@ class Session:
             cars[i] = (v[0], v[2], v[1], math.atan2(v[8], v[6]))
         if not cars:
             return
+        t = self._retime(t, cars, frame_id)
+        if t is None:
+            return
         index = int(t // CHUNK_SECONDS)
         if self.chunk is not None and index < self.chunk:
             return  # a late row from before the open chunk: its chunk is already on disk
         if self.chunk is not None and index != self.chunk:
             self.flush()
         self.chunk = index
-        self.frames.append((t, {i: c + self.tel.get(i, (0, 0, 0, 0, 0, 0)) + self.lap.get(i, (0.0, 0, 0))
+        self.frames.append((t, {i: c + self.tel.get(i, (0, 0, 0, 0, 0, 0)) + self.lap.get(i, (0.0, 0, 0, 0))
                                 for i, c in cars.items()}))
+
+    def _retime(self, t, cars, frame_id):
+        """Time a motion row by the game frames since the last one (same as retime in race-stats
+        scripts/telemetry/race_bundles.py); None for a row that repeats the last frame."""
+        speed = {i: self.tel.get(i, (0,))[0] for i in cars}
+        c = self.clock
+        tc = t
+        period = c[4] if c else 1 / 60
+        if c:
+            est = [math.hypot(v[0] - c[2][i][0], v[1] - c[2][i][1]) / (speed[i] / 3.6) * 60
+                   for i, v in cars.items() if i in c[2] and speed[i] > 80]
+            df = round(statistics.median(est)) if len(est) >= 2 else frame_id - c[0]
+            if df == 0 and t - c[3] < 0.1:
+                return None
+            if 0 < df <= 120 and 0 < t - c[3] < 3:
+                period += 0.002 * (min(max((t - c[3]) / df, 0.008), 0.03) - period)
+                tc = c[1] + df * period
+                tc += 0.05 * (t - tc)
+                if abs(tc - t) > 0.1 or tc <= c[1]:
+                    tc = t
+        self.clock = (frame_id, tc, {i: v[:2] for i, v in cars.items()}, t, period)
+        return round(tc, 4)
 
     def _telemetry(self, rows):
         for i, r in enumerate(rows):
@@ -176,13 +208,31 @@ class Session:
                         off |= 1 << w
             self.tel[i] = (v[0], v[1], v[3], v[2], v[5], off)
 
-    def _laps(self, rows):
+    def _laps(self, t, rows):
         for i, r in enumerate(rows):
             if len(r) < FIELD_LAP.size:
                 continue
             v = FIELD_LAP.unpack_from(r)
             if v[13]:
-                self.lap[i] = (v[10], v[14], v[13])
+                self.lap[i] = (v[10], v[14], v[13], v[6] + v[7] * 60000)
+                self._timing(t, i, v)
+
+    def _timing(self, t, slot, v):
+        """Grid slot, completed laps [lap, time, ms] and result status changes [time, status]
+        per car (same shape as timing_of in race-stats scripts/telemetry/race_bundles.py)."""
+        d = self.meta.setdefault("timing", {}).setdefault(str(slot), {"grid": 0, "laps": [], "status": []})
+        last = self.last_lap.get(slot)
+        if v[24] and d["grid"] != v[24]:
+            d["grid"] = v[24]
+            self.dirty = True
+        if v[0] and last is not None and v[0] != last:
+            d["laps"].append([len(d["laps"]) + 1, round(t, 2), v[0]])
+            self.dirty = True
+        if last is None or v[0]:
+            self.last_lap[slot] = v[0]
+        if not d["status"] or d["status"][-1][1] != v[26]:
+            d["status"].append([round(t, 2), v[26]])
+            self.dirty = True
 
     def _event(self, t, body):
         code = body[:4].decode("ascii", "replace")
@@ -191,7 +241,11 @@ class Session:
         ev = {"t": round(t, 3), "code": code}
         if code == "COLL" and len(body) >= 6:
             ev.update(a=body[4], b=body[5])
-        elif code in ("PENA", "OVTK", "RTMT", "FTLP", "SPTP", "DTSV", "SGSV") and len(body) >= 5:
+        elif code == "OVTK" and len(body) >= 6:
+            ev.update(a=body[4], b=body[5])
+        elif code == "STLG" and len(body) >= 5:
+            ev["lights"] = body[4]
+        elif code in ("PENA", "RTMT", "FTLP", "SPTP", "DTSV", "SGSV") and len(body) >= 5:
             ev["car"] = body[4]
         self.meta["events"].append(ev)
         self.dirty = True
@@ -236,19 +290,20 @@ class Session:
                 "laps": m.get("total_laps", 0), "chunk_seconds": CHUNK_SECONDS, "chunks": m["chunks"],
                 "cars": {k: {"name": shown_name(p), "team": p.get("team"), "number": p.get("race_number"),
                              "ai": bool(p.get("ai"))} for k, p in m["participants"].items()},
-                "events": m["events"], "finished": m["finished"]}
+                "events": m["events"], "finished": m["finished"],
+                "timing": {k: v for k, v in m.get("timing", {}).items() if k in m["participants"]}}
 
 
 def encode_chunk(t0, frames):
     """frames: [(t, {slot: (x, z, y, heading, speed, throttle, brake, steer, gear, offtrack,
-    lap_distance, lap, position)})] -> chunk bytes (see the module doc)."""
+    lap_distance, lap, position, gap_front_ms)})] -> chunk bytes (see the module doc)."""
     cars = max((max(c) for _, c in frames if c), default=-1) + 1
     n = len(frames)
-    blank = (0.0, 0.0, 0.0, 0.0, 0, 0.0, 0.0, 0.0, 0, 0, 0.0, 0, 0)
+    blank = (0.0, 0.0, 0.0, 0.0, 0, 0.0, 0.0, 0.0, 0, 0, 0.0, 0, 0, 0)
     grid = [[c.get(i, blank) for i in range(cars)] for _, c in frames]
     flat = [r for row in grid for r in row]
     clamp = lambda v, lo, hi: max(lo, min(hi, v))
-    out = [CHUNK_HEAD.pack(b"GMLC", 1, cars, n, float(t0)),
+    out = [CHUNK_HEAD.pack(b"GMLC", 2, cars, n, float(t0)),
            struct.pack(f"<{n}f", *(t for t, _ in frames))]
     for k in (0, 1, 2, 10):
         out.append(struct.pack(f"<{len(flat)}f", *(r[k] for r in flat)))
@@ -261,6 +316,7 @@ def encode_chunk(t0, frames):
     out.append(bytes(r[9] & 15 for r in flat))
     out.append(bytes(clamp(r[11], 0, 255) for r in flat))
     out.append(bytes(clamp(r[12], 0, 255) for r in flat))
+    out.append(struct.pack(f"<{len(flat)}H", *(clamp(round(r[13] / 10), 0, 65535) for r in flat)))
     return b"".join(out)
 
 
@@ -286,5 +342,7 @@ def decode_chunk(data):
     cols["gear"] = take("b", m, 1)
     for k in ("offtrack", "lap", "position"):
         cols[k] = take("B", m, 1)
+    if version >= 2:
+        cols["gap_front"] = [v * 10 for v in take("H", m, 2)]
     cols["cars"] = cars
     return t0, t, cols
