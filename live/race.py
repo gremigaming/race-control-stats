@@ -28,6 +28,7 @@ time, which can be ~20 ms off from when the positions were taken.
 Arrays are frame-major (frame 0 car 0, frame 0 car 1, ...), little endian.
 """
 
+import collections
 import gzip
 import json
 import math
@@ -43,6 +44,7 @@ FIELD_TELEMETRY = struct.Struct("<HfffBb")
 CHUNK_HEAD = struct.Struct("<4sBBHd")
 CHUNK_SECONDS = 10
 ON_TRACK = (0, 1)  # surface types: tarmac, rumble strip
+GHOST_LON, GHOST_LAT = 3.5, 1.4  # two car centres this close (along, across): driving through each other
 
 TRACKS = ["Melbourne", "Paul Ricard", "Shanghai", "Bahrain", "Catalunya", "Monaco", "Montreal",
           "Silverstone", "Hockenheim", "Hungaroring", "Spa", "Monza", "Singapore", "Suzuka",
@@ -172,8 +174,10 @@ class Session:
         if self.chunk is not None and index != self.chunk:
             self.flush()
         self.chunk = index
-        self.frames.append((t, {i: c + self.tel.get(i, (0, 0, 0, 0, 0, 0)) + self.lap.get(i, (0.0, 0, 0, 0))
-                                for i, c in cars.items()}))
+        row = {i: c + self.tel.get(i, (0, 0, 0, 0, 0, 0)) + self.lap.get(i, (0.0, 0, 0, 0)) for i, c in cars.items()}
+        self.frames.append((t, row))
+        for a, b in overlaps(row):
+            self.meta.setdefault("ghost_hits", []).append([round(t, 2), a, b])
 
     def _retime(self, t, cars, frame_id):
         """Time a motion row by the game frames since the last one (same as retime in race-stats
@@ -293,7 +297,67 @@ class Session:
                 "cars": {k: {"name": shown_name(p), "team": p.get("team"), "number": p.get("race_number"),
                              "ai": bool(p.get("ai"))} for k, p in m["participants"].items()},
                 "events": m["events"], "finished": m["finished"],
+                "ghosts": ghosts(m.get("ghost_hits", []), [e for e in m["events"] if e["code"] == "COLL" and "a" in e]),
                 "timing": {k: v for k, v in m.get("timing", {}).items() if k in m["participants"]}}
+
+
+def overlaps(cars):
+    """Pairs of cars (a, b) driving through each other in one frame: centres under GHOST_LON along
+    and GHOST_LAT across, both over 30 km/h. Real cars can't get that close (~5.6 x 2 m).
+    Copy of race-stats scripts/telemetry/race_bundles.py overlaps: keep them equal."""
+    out = []
+    items = [(i, c) for i, c in cars.items() if c[4] > 30]
+    for k, (i, a) in enumerate(items):
+        fx, fz = math.cos(a[3]), math.sin(a[3])
+        for j, b in items[k + 1:]:
+            dx, dz = b[0] - a[0], b[1] - a[1]
+            if dx * dx + dz * dz > 25 or abs(b[2] - a[2]) > 2:
+                continue
+            if abs(dx * fx + dz * fz) < GHOST_LON and abs(dz * fx - dx * fz) < GHOST_LAT:
+                out.append((i, j))
+    return out
+
+
+def ghosts(hits, collisions):
+    """When each car was ghosted, {car: [[t0, t1], ...]}. The game sends no ghost flag (GreMi's lobbies
+    ghost griefing cars: slow, wrong way, rejoining), so: two cars driving through each other with no
+    game contact means one of them was ghosted. It is the one that went through more different cars
+    in the race (a tie marks both). hits: [(t, a, b)] from overlaps(). Copy of race-stats scripts/telemetry/race_bundles.py ghosts."""
+    contact = collections.defaultdict(list)
+    for c in collisions:
+        contact[frozenset((c["a"], c["b"]))].append(c["t"])
+    episodes = collections.defaultdict(list)   # pair -> [[t0, t1, frames]]
+    for t, a, b in sorted(hits):
+        eps = episodes[frozenset((a, b))]
+        if eps and t - eps[-1][1] <= 1:
+            eps[-1][1] = t
+            eps[-1][2] += 1
+        else:
+            eps.append([t, t, 1])
+    kept, partners = [], collections.defaultdict(set)
+    for pair, eps in episodes.items():
+        for t0, t1, n in eps:
+            if n >= 2 and not any(t0 - 1.5 <= ct <= t1 + 1.5 for ct in contact[pair]):
+                kept.append((pair, t0, t1))
+                a, b = sorted(pair)
+                partners[a].add(b)
+                partners[b].add(a)
+    wins = collections.defaultdict(list)
+    for pair, t0, t1 in kept:
+        a, b = sorted(pair)
+        na, nb = len(partners[a]), len(partners[b])
+        for i in ([a] if na > nb else [b] if nb > na else [a, b]):
+            wins[i].append([t0 - 1, t1 + 1])
+    out = {}
+    for i, ws in wins.items():
+        merged = []
+        for t0, t1 in sorted(ws):
+            if merged and t0 - merged[-1][1] < 3:
+                merged[-1][1] = max(merged[-1][1], t1)
+            else:
+                merged.append([t0, t1])
+        out[str(i)] = [[round(max(t0, 0), 2), round(t1, 2)] for t0, t1 in merged]
+    return out
 
 
 def encode_chunk(t0, frames):

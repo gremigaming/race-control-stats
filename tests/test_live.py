@@ -121,6 +121,19 @@ class SessionTest(unittest.TestCase):
         self.assertEqual(len(t), 2)
 
 
+class GhostTest(unittest.TestCase):
+    def test_cars_driving_through_each_other_without_contact_are_ghosted(self):
+        car = lambda x, z: (x, z, 0.0, 0.0, 200)  # noqa: E731  (x, z, y, heading, speed)
+        self.assertEqual(race.overlaps({0: car(0, 0), 1: car(1, 0.5), 2: car(0, 2.5)}), [(0, 1)])
+        self.assertEqual(race.overlaps({0: car(0, 0), 1: car(6, 0)}), [])  # nose to tail: real cars
+        # car 1 goes through cars 0 and 2 (no contact): car 1 is the ghost; 3 and 4 touched for real
+        hits = [(10.0, 0, 1), (10.1, 0, 1), (20.0, 1, 2), (20.1, 1, 2), (30.0, 3, 4), (30.1, 3, 4)]
+        g = race.ghosts(hits, [{"t": 30.05, "a": 4, "b": 3}])
+        self.assertEqual(g, {"1": [[9.0, 11.1], [19.0, 21.1]]})
+        # one stray frame is not enough
+        self.assertEqual(race.ghosts([(5.0, 0, 1)], []), {})
+
+
 class TimingTest(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
