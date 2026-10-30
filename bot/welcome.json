@@ -2,6 +2,28 @@
  "on": true,
  "wait_minutes": 60,
  "card_text": "Welcome to the paddock, {mention}! 🏁 Pick your games in Channels & Roles and come say hi in <#{general}>.",
- "general_one": "👋 Give a warm welcome to {names}, the newest driver on the GreMi Gang grid! Say hi and tell us your favourite track 🏁",
- "general_many": "👋 Give a warm welcome to {names}, the newest drivers on the GreMi Gang grid! Say hi and tell us your favourite track 🏁"
+ "general_one": "👋 Give a warm welcome to {names}, the newest driver on the GreMi Gang grid! Say hi and {question}",
+ "general_many": "👋 Give a warm welcome to {names}, the newest drivers on the GreMi Gang grid! Say hi and {question}",
+ "questions": [
+  "tell us your favourite track 🏁",
+  "tell us who your favourite F1 driver is 🏎️",
+  "tell us which team you support 🏆",
+  "tell us the best race you've ever watched 📺",
+  "tell us your dream F1 car, any era 🚀",
+  "tell us which track you'd love to see added to the calendar 🗺️",
+  "tell us: wet race or dry race? 🌧️",
+  "tell us: Spa or Suzuka? 🤔",
+  "tell us: Monaco, overrated or iconic? 🏙️",
+  "tell us the best overtake you've ever seen 💨",
+  "tell us who the greatest F1 driver of all time is 🐐",
+  "tell us your favourite F1 car livery 🎨",
+  "tell us which corner you'd most like to take flat out 🔥",
+  "tell us: pole position or fastest lap? ⏱️",
+  "tell us your favourite racing game 🎮",
+  "tell us: controller or wheel? 🕹️",
+  "tell us which driver you'd pick as your teammate 🤝",
+  "tell us: early-morning race or night race? 🌙",
+  "tell us your hot take on this F1 season 🌶️",
+  "tell us how you found the GreMi Gang 👀"
+ ]
 }

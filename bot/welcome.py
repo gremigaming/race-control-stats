@@ -6,7 +6,9 @@ hi to all new members of that hour in one message in 💬┃general. As soon as 
 of them types anything on the server, that message goes out right away.
 
 The waiting members are kept on disk (STATE), so a restart doesn't lose them.
-Texts and the on/off switch are in bot/welcome.json. The batch logic at the top
+Texts and the on/off switch are in bot/welcome.json. The general message ends
+with a question from its "questions" list; the last few asked aren't repeated
+(GreMi 2026-10-30: not always "favourite track"). The batch logic at the top
 has no Discord code, so it can be tested on its own.
 """
 import asyncio
@@ -15,6 +17,7 @@ import json
 import logging
 import os
 import pathlib
+import random
 import time
 
 WELCOME_ID = 1556941692139995157  # 👋┃welcome
@@ -64,10 +67,21 @@ def names(mentions):
     return ", ".join(mentions[:-1]) + " and " + mentions[-1]
 
 
-def general_text(member_ids, config):
+def pick_question(questions, recent, rng=random):
+    """A random question that wasn't one of the recent ones (up to half the list)."""
+    keep = len(questions) // 2
+    recent = [q for q in recent if q in questions][-keep:] if keep else []
+    q = rng.choice([q for q in questions if q not in recent])
+    return q, (recent + [q])[-keep:] if keep else []
+
+
+DEFAULT_QUESTION = "tell us your favourite track 🏁"
+
+
+def general_text(member_ids, config, question=DEFAULT_QUESTION):
     mentions = [f"<@{i}>" for i in member_ids]
     key = "general_one" if len(mentions) == 1 else "general_many"
-    return config[key].format(names=names(mentions))
+    return config[key].format(names=names(mentions), question=question)
 
 
 def card_name(display_name, username):
@@ -289,15 +303,21 @@ class Welcomer:
         async with self.lock:
             if not is_due(self.state, time.time(), typed_by):
                 return
-            ids, self.state = list(self.state["ids"]), fresh()
+            ids = list(self.state["ids"])
+            self.state = {**fresh(), "asked": self.state.get("asked", [])}
             self.save()
         guild = self.bot.get_guild(self.guild_id)
         still = [i for i in ids if guild is None or guild.get_member(i)]
         if not still:
             return
+        config = load_config()
+        async with self.lock:
+            question, self.state["asked"] = pick_question(
+                config.get("questions") or [DEFAULT_QUESTION], self.state.get("asked", []))
+            self.save()
         try:
             ch = await self.channel(GENERAL_ID)
-            await ch.send(general_text(still, load_config()),
+            await ch.send(general_text(still, config, question),
                           allowed_mentions=discord.AllowedMentions(
                               users=[discord.Object(i) for i in still]))
         except Exception as e:

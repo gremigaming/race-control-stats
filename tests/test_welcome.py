@@ -32,6 +32,17 @@ class WelcomeTests(unittest.TestCase):
         self.assertEqual(s, w.fresh())
         self.assertFalse(w.is_due(s, NOW + 9999))
 
+    def test_questions_rotate(self):
+        qs = CONFIG["questions"]
+        self.assertGreaterEqual(len(qs), 10)
+        asked, seen = [], []
+        for _ in range(200):
+            q, asked = w.pick_question(qs, asked)
+            self.assertNotIn(q, seen[-(len(qs) // 2):])  # none of the last few again
+            seen.append(q)
+        self.assertEqual(set(seen), set(qs))
+        self.assertIn("Say hi and " + qs[1], w.general_text([1], CONFIG, qs[1]))
+
     def test_general_text(self):
         self.assertIn("<@1>, the newest driver ", w.general_text([1], CONFIG))
         self.assertIn("<@1>, <@2> and <@3>, the newest drivers", w.general_text([1, 2, 3], CONFIG))
