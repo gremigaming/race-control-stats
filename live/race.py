@@ -143,6 +143,11 @@ class Session:
             if pid == 1 and len(body) >= 8:
                 self.meta.update(total_laps=body[3], session_type=body[6], track_id=struct.unpack_from("<b", body, 7)[0],
                                  track_length=struct.unpack_from("<H", body, 4)[0])
+                w = self.meta.setdefault("weather", [])
+                if not w or w[-1][1] != body[0]:
+                    w.append([round(t, 3), body[0]])
+                if "tod" not in self.meta and len(body) >= 671:  # [session time, local minutes since midnight]
+                    self.meta["tod"] = [round(t, 3), struct.unpack_from("<I", body, 667)[0]]
                 self.dirty = True
             elif pid == 4 and body:
                 parts = parse_participants(body)
@@ -298,7 +303,8 @@ class Session:
                              "ai": bool(p.get("ai"))} for k, p in m["participants"].items()},
                 "events": m["events"], "finished": m["finished"],
                 "ghosts": ghosts(m.get("ghost_hits", []), [e for e in m["events"] if e["code"] == "COLL" and "a" in e]),
-                "timing": {k: v for k, v in m.get("timing", {}).items() if k in m["participants"]}}
+                "timing": {k: v for k, v in m.get("timing", {}).items() if k in m["participants"]},
+                "weather": m.get("weather", []), "tod": m.get("tod")}
 
 
 def overlaps(cars):
