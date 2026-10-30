@@ -30,8 +30,8 @@ import discord
 from bot.brain import Brain, HandOff
 from bot.members import GUILD_ID, Members
 from bot.profiles import write_profiles
-from bot import (award_roles, checkin, giveaway, league_promos, mod_alerts, scheduled_posts, socials_live,
-                 twitch_chat, welcome, wordle, youtube_chat)
+from bot import (award_roles, checkin, giveaway, leaves, league_promos, mod_alerts, scheduled_posts,
+                 socials_live, twitch_chat, welcome, wordle, youtube_chat)
 
 from bot.replies import (CHANGE_REQUESTS_ID, FIRE_HEADERS, FIRE_URL, Cooldown, approval_body,
                          change_request, is_approval, is_staff, load_staff, needs_restart,
@@ -323,6 +323,7 @@ async def on_member_join(member):
 @bot.event
 async def on_member_remove(member):
     await welcomer.on_leave(member)
+    await leaves.on_leave(bot, GUILD_ID, member)
 
 
 @bot.event
