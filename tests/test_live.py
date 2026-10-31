@@ -306,7 +306,8 @@ class ServerTest(unittest.TestCase):
                 server.sessions.clear()
                 server.PUSH_EVERY = 0.05
                 recs = race_feed(14.0)
-                half = 2 + 3 * 140   # session + participants, then 3 records per frame: 7 s of 20 Hz with server.serve(server.handler, "127.0.0.1", 0, process_request=server.process_request) as srv:
+                half = 2 + 3 * 140   # session + participants, then 3 records per frame: 7 s of 20 Hz
+                async with server.serve(server.handler, "127.0.0.1", 0, process_request=server.process_request) as srv:
                     port = srv.sockets[0].getsockname()[1]
                     push = asyncio.create_task(server.pusher())
                     server.take(b"".join(recs[:half]))   # 7 s of the race so far
