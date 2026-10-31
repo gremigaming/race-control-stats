@@ -109,7 +109,7 @@ class SessionTest(unittest.TestCase):
     def test_session_survives_a_restart(self):
         s = race.Session(self.tmp.name, UID)
         self.feed(s, motion(1.0, [(1.0, 2.0, 0.0)]), motion(11.0, [(1.0, 2.0, 0.0)]))
-        s.flush()
+        s.flush(close_chunk=True)
         again = race.Session(self.tmp.name, UID)
         self.assertEqual(again.meta["chunks"], ["00000.bin", "00001.bin"])
 
@@ -119,6 +119,95 @@ class SessionTest(unittest.TestCase):
                   motion(11.0, [(1.0, 2.0, 0.0)]), motion(3.0, [(9.0, 9.0, 0.0)]))
         _, t, _ = race.decode_chunk(gzip.decompress(open(os.path.join(s.dir, "chunks", "00000.bin"), "rb").read()))
         self.assertEqual(len(t), 2)
+
+
+def race_feed(seconds=30.0, hz=20, coll_at=12.0):
+    """A small 2-car race: session packet (Monza race), participants, 20 Hz rows, a contact."""
+    import math
+    recs = [record(0, 1, 0.0, bytes([0, 30, 20, 5, 0, 0, 15, 11]) + bytes(700)),
+            participants([("GreMi", 0, 3, 7, 1), ("Hidden Guy", 0, 1, 44, 0)])]
+    n = int(seconds * hz)
+    for k in range(n):
+        t = k / hz
+        d = 60.0 * t  # 216 km/h
+        recs.append(laps(t, [(d + 4, 1, 1), (d, 1, 2)]))
+        recs.append(telemetry(t, [(216, 1.0, 0.0, 0.0, 7, [0, 0, 0, 0])] * 2))
+        recs.append(motion(t, [(d + 4, 0.0, 0.0), (d, 1.0, 0.0)]))
+        if abs(t - coll_at) < 1e-6:
+            recs.append(record(0, 3, t, b"COLL" + bytes([1, 0, 3])))
+    return recs
+
+
+class LiveFeedTest(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+
+    def test_tail_gives_only_newer_frames_one_chunk_each(self):
+        s = race.Session(self.tmp.name, UID)
+        for kind, head, body in race.records(b"".join(race_feed(12.0))):
+            s.add(kind, head, body)
+        self.assertAlmostEqual(s.newest(), 11.95, places=1)
+        parts = s.tail(9.5)
+        self.assertEqual(len(parts), 2)   # frames in chunk 0 (9.5..10) and chunk 1 (10..12)
+        t0, t, cols = race.decode_chunk(parts[0][1])
+        self.assertEqual(t0, 0.0)
+        self.assertTrue(all(9.5 < x < 10 for x in t))
+        t0, t, _ = race.decode_chunk(parts[1][1])
+        self.assertEqual(t0, 10.0)
+        self.assertAlmostEqual(parts[1][0], s.newest())
+        self.assertEqual(s.tail(s.newest()), [])
+
+    def test_housekeeping_saves_never_cut_the_open_chunk(self):
+        s = race.Session(self.tmp.name, UID)
+        recs = race_feed(12.0)
+        half = len(recs) // 3
+        for kind, head, body in race.records(b"".join(recs[:half])):
+            s.add(kind, head, body)
+        s.dirty = True
+        s.flush()   # what the server does every 5 s
+        for kind, head, body in race.records(b"".join(recs[half:])):
+            s.add(kind, head, body)
+        _, t, _ = race.decode_chunk(gzip.decompress(open(os.path.join(s.dir, "chunks", "00000.bin"), "rb").read()))
+        self.assertEqual(len(t), 200)   # every 20 Hz row of the first 10 s
+
+    def test_recording_is_a_race_stats_telemetry_file(self):
+        s = race.Session(self.tmp.name, UID)
+        for kind, head, body, raw in race.records(b"".join(race_feed(5.0)), raw=True):
+            s.record(raw)
+            s.add(kind, head, body)
+        s.finish()
+        with gzip.open(s.rec_path) as f:
+            data = f.read()
+        self.assertTrue(data.startswith(race.GMTEL_MAGIC))
+        n = sum(1 for _ in race.records(data[len(race.GMTEL_MAGIC):]))
+        self.assertEqual(n, len(race_feed(5.0)))
+
+
+@unittest.skipUnless(os.environ.get("RACE_STATS_DIR") and importlib.util.find_spec("numpy"),
+                     "needs a race-stats checkout (RACE_STATS_DIR) and numpy")
+class FinalTest(unittest.TestCase):
+    def test_finished_race_is_bundled_with_incidents_and_verdicts(self):
+        from live import final
+
+        with tempfile.TemporaryDirectory() as tmp:
+            s = race.Session(tmp, UID)
+            for kind, head, body, raw in race.records(b"".join(race_feed(30.0)), raw=True):
+                s.record(raw)
+                s.add(kind, head, body)
+            s.finish()
+            folder, m = final.build(s, tmp)
+            self.assertEqual(m["uid"], f"{UID:016x}")
+            self.assertEqual(m["source"], "live")
+            self.assertEqual(m["track"], "Monza")
+            self.assertTrue(m["chunks"])
+            for name in m["chunks"]:
+                self.assertTrue(os.path.exists(os.path.join(folder, "chunks", name)))
+            self.assertEqual(len(m["incidents"]), 1)
+            self.assertNotIn("verdict_error", m)
+            for inc in m["incidents"]:
+                self.assertIn("verdict", inc)
+            self.assertNotIn("Hidden Guy", json.dumps(m))
 
 
 class GhostTest(unittest.TestCase):
@@ -161,7 +250,7 @@ class TimingTest(unittest.TestCase):
         self.assertEqual(len(ts), len(jitter))
         steps = [b - a for a, b in zip(ts, ts[1:])]
         self.assertLess(max(steps) - min(steps), 0.01)
-        s.flush()
+        s.flush(close_chunk=True)
         _, _, cols = race.decode_chunk(gzip.decompress(open(os.path.join(s.dir, "chunks", "00000.bin"), "rb").read()))
         self.assertEqual(cols["gap_front"][:2], [1230, 1230])
         d = s.meta["timing"]["0"]
@@ -197,6 +286,60 @@ class ServerTest(unittest.TestCase):
                     self.assertEqual(len(server.sessions[UID].frames), 1)
                     st = server.status()
                     self.assertEqual(st["batches"], 1)
+
+        asyncio.run(run())
+
+    def test_live_viewers_get_the_list_the_manifest_and_new_frames(self):
+        import urllib.request
+
+        from websockets.asyncio.client import connect
+
+        from live import server
+
+        def get(url):
+            with urllib.request.urlopen(url) as r:
+                return r.status, r.headers.get("Access-Control-Allow-Origin"), r.read()
+
+        async def run():
+            with tempfile.TemporaryDirectory() as tmp:
+                server.DATA_DIR = tmp
+                server.sessions.clear()
+                server.PUSH_EVERY = 0.05
+                recs = race_feed(14.0)
+                async with server.serve(server.handler, "127.0.0.1", 0, process_request=server.process_request) as srv:
+                    port = srv.sockets[0].getsockname()[1]
+                    push = asyncio.create_task(server.pusher())
+                    server.take(b"".join(recs[:len(recs) // 2]))   # 7 s of the race so far
+                    async with connect(f"ws://127.0.0.1:{port}/watch") as ws:
+                        first = json.loads(await ws.recv())
+                        self.assertEqual(first["type"], "sessions")
+                        self.assertEqual([r["uid"] for r in first["sessions"]], [f"{UID:016x}"])
+                        await ws.send(json.dumps({"watch": f"{UID:016x}"}))
+                        m = json.loads(await ws.recv())
+                        self.assertEqual(m["type"], "manifest")
+                        self.assertNotIn("Hidden Guy", json.dumps(m))
+                        joined = await ws.recv()          # the open chunk so far
+                        _, t, _ = race.decode_chunk(joined)
+                        self.assertEqual(len(t), 140)
+                        server.take(b"".join(recs[len(recs) // 2:]))  # the next 7 s arrive
+                        got = []
+                        while not got or got[-1] < 13.9:
+                            msg = await asyncio.wait_for(ws.recv(), 3)
+                            if isinstance(msg, bytes):
+                                got += race.decode_chunk(msg)[1]
+                        self.assertEqual(len(got), 140)    # every new frame, once, in order
+                        self.assertEqual(got, sorted(got))
+                        self.assertGreater(got[0], t[-1])
+                    base = f"http://127.0.0.1:{port}"
+                    code, cors, body = await asyncio.to_thread(get, f"{base}/live.json")
+                    self.assertEqual((code, cors), (200, "*"))
+                    self.assertEqual(len(json.loads(body)["sessions"]), 1)
+                    code, _, body = await asyncio.to_thread(get, f"{base}/s/{UID:016x}/chunks/00000.bin")
+                    self.assertEqual(len(race.decode_chunk(gzip.decompress(body))[1]), 200)
+                    code, _, body = await asyncio.to_thread(get, f"{base}/s/{UID:016x}/tail?after=12.0")
+                    self.assertTrue(all(x > 12.0 for x in race.decode_chunk(body)[1]))
+                    self.assertEqual(server.status()["live"], [f"{UID:016x}"])
+                    push.cancel()
 
         asyncio.run(run())
 

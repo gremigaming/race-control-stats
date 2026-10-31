@@ -58,18 +58,25 @@ SESSION_TYPES = ["Unknown", "P1", "P2", "P3", "Short practice", "Q1", "Q2", "Q3"
                  "Short sprint shootout", "One-shot sprint shootout", "Race", "Race 2", "Race 3",
                  "Time trial"]
 RACES = {15, 16, 17}
+GMTEL_MAGIC = b"GMTEL1\n"  # race-stats scripts/telemetry/gmtel.py: the recording file format
+RECENT_SECONDS = 15          # newest frames kept for viewers joining or polling (live tail)
 
 
-def records(data):
-    """(kind, header tuple, bytes after the header) for every record in an uplink batch."""
+def records(data, raw=False):
+    """(kind, header tuple, bytes after the header) for every record in an uplink batch,
+    plus the record's own bytes (kind, length and all) when raw is set."""
     pos = 0
     while pos + 3 <= len(data):
         kind, length = data[pos], data[pos + 1] | (data[pos + 2] << 8)
         rec = data[pos + 3:pos + 3 + length]
+        start = pos
         pos += 3 + length
         if len(rec) < length or length < HEADER.size:
             break
-        yield kind, HEADER.unpack_from(rec), rec[HEADER.size:]
+        if raw:
+            yield kind, HEADER.unpack_from(rec), rec[HEADER.size:], data[start:pos]
+        else:
+            yield kind, HEADER.unpack_from(rec), rec[HEADER.size:]
 
 
 def field_rows(b):
@@ -125,6 +132,29 @@ class Session:
         self.chunk = None
         self.last_seen = time.time()
         self.dirty = False
+        self.version = 0   # goes up whenever the manifest changes (live viewers get the new one)
+        self.recent = collections.deque()  # (t, row) of the newest RECENT_SECONDS, across chunks
+        self.rec_path = os.path.join(self.dir, self.meta["started"][:19].replace("T", "_").replace(":", "-") + "_live.gmtel.gz")
+        self.rec = None
+
+    # ------------------------------------------------------------- recording
+
+    def record(self, raw):
+        """Keep every uplink record in a race-stats recording file (gmtel.py reads it), so a
+        finished race goes through exactly the same incident and verdict code as the site."""
+        if self.meta["finished"]:
+            return
+        if self.rec is None:
+            new = not os.path.exists(self.rec_path)
+            self.rec = gzip.open(self.rec_path, "ab", 6)
+            if new:
+                self.rec.write(GMTEL_MAGIC)
+        self.rec.write(raw)
+
+    def close_recording(self):
+        if self.rec is not None:
+            self.rec.close()
+            self.rec = None
 
     # ------------------------------------------------------------- input
 
@@ -177,10 +207,13 @@ class Session:
         if self.chunk is not None and index < self.chunk:
             return  # a late row from before the open chunk: its chunk is already on disk
         if self.chunk is not None and index != self.chunk:
-            self.flush()
+            self.flush(close_chunk=True)
         self.chunk = index
         row = {i: c + self.tel.get(i, (0, 0, 0, 0, 0, 0)) + self.lap.get(i, (0.0, 0, 0, 0)) for i, c in cars.items()}
         self.frames.append((t, row))
+        self.recent.append((t, row))
+        while self.recent and self.recent[0][0] < t - RECENT_SECONDS:
+            self.recent.popleft()
         for a, b in overlaps(row):
             self.meta.setdefault("ghost_hits", []).append([round(t, 2), a, b])
 
@@ -262,9 +295,10 @@ class Session:
 
     # ------------------------------------------------------------- output
 
-    def flush(self):
-        """Write the open chunk (if any) and the manifest."""
-        if self.frames:
+    def flush(self, close_chunk=False):
+        """Save the manifest; with close_chunk also write the open chunk (only once its 10 s are
+        over or the session ended: writing it earlier would lose the frames before the write)."""
+        if close_chunk and self.frames:
             data = encode_chunk(self.chunk * CHUNK_SECONDS, self.frames)
             name = f"{self.chunk:05d}.bin"
             with open(os.path.join(self.dir, "chunks", name), "wb") as f:
@@ -274,7 +308,10 @@ class Session:
                 self.meta["chunks"].sort()
             self.frames = []
             self.dirty = True
+        if self.rec is not None:
+            self.rec.flush()
         if self.dirty:
+            self.version += 1
             tmp = self.meta_path + ".tmp"
             with open(tmp, "w") as f:
                 json.dump(self.meta, f, separators=(",", ":"))
@@ -284,8 +321,22 @@ class Session:
     def finish(self):
         if not self.meta["finished"]:
             self.meta["finished"] = True
+            self.meta["finished_at"] = time.time()
             self.dirty = True
-        self.flush()
+        self.flush(close_chunk=True)
+        self.close_recording()
+
+    def tail(self, after):
+        """Frames newer than session time `after` as live chunks (same GMLC format, one per
+        10 s chunk they fall in): what live viewers get pushed, and the polling fallback."""
+        by = collections.OrderedDict()
+        for t, row in self.recent:
+            if t > after:
+                by.setdefault(int(t // CHUNK_SECONDS), []).append((t, row))
+        return [(frames[-1][0], encode_chunk(k * CHUNK_SECONDS, frames)) for k, frames in by.items()]
+
+    def newest(self):
+        return self.recent[-1][0] if self.recent else None
 
     def is_race(self):
         return self.meta.get("session_type") in RACES

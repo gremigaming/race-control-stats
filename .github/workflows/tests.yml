@@ -13,8 +13,15 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Install Pillow (draws the socials board picture), cryptography (Twitch chat login) and websockets (live race server)
-        run: python3 -m pip install --quiet "pillow>=10,<13" "cryptography>=41" "websockets>=13,<16"
+      - name: Install Pillow (draws the socials board picture), cryptography (Twitch chat login), websockets and numpy (live race server)
+        run: python3 -m pip install --quiet "pillow>=10,<13" "cryptography>=41" "websockets>=13,<16" "numpy>=1.26"
+
+      - name: race-stats incident and verdict code (the live server bundles finished races with it)
+        run: |
+          git clone -q --depth 1 --filter=blob:none --sparse https://github.com/gremigaming/race-stats.git /tmp/race-stats
+          git -C /tmp/race-stats sparse-checkout set scripts/telemetry
 
       - name: Run tests
+        env:
+          RACE_STATS_DIR: /tmp/race-stats
         run: python3 -m unittest discover -s tests -t . -v

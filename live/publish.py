@@ -36,13 +36,15 @@ def allow_site(s3):
         "AllowedHeaders": ["*"], "MaxAgeSeconds": 86400}]})
 
 
-def publish(session, s3=None):
-    """Upload every chunk, the manifest and the updated index. Returns the manifest."""
+def publish(session, s3=None, final=None):
+    """Upload every chunk, the manifest and the updated index. Returns the manifest.
+    final: (folder, manifest) from live/final.py, the full replay with incidents and verdicts;
+    without it the live chunks and manifest go up as they are."""
     s3 = s3 or client()
-    m = session.manifest()
+    folder, m = final if final else (session.dir, session.manifest())
     prefix = m["uid"]
     for name in m["chunks"]:
-        with open(os.path.join(session.dir, "chunks", name), "rb") as f:
+        with open(os.path.join(folder, "chunks", name), "rb") as f:
             s3.put_object(Bucket=BUCKET, Key=f"{prefix}/chunks/{name}", Body=f.read(),
                           ContentType="application/octet-stream", ContentEncoding="gzip",
                           CacheControl="public, max-age=31536000, immutable")
