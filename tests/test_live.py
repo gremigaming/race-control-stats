@@ -306,10 +306,10 @@ class ServerTest(unittest.TestCase):
                 server.sessions.clear()
                 server.PUSH_EVERY = 0.05
                 recs = race_feed(14.0)
-                async with server.serve(server.handler, "127.0.0.1", 0, process_request=server.process_request) as srv:
+                half = 2 + 3 * 140   # session + participants, then 3 records per frame: 7 s of 20 Hz with server.serve(server.handler, "127.0.0.1", 0, process_request=server.process_request) as srv:
                     port = srv.sockets[0].getsockname()[1]
                     push = asyncio.create_task(server.pusher())
-                    server.take(b"".join(recs[:len(recs) // 2]))   # 7 s of the race so far
+                    server.take(b"".join(recs[:half]))   # 7 s of the race so far
                     async with connect(f"ws://127.0.0.1:{port}/watch") as ws:
                         first = json.loads(await ws.recv())
                         self.assertEqual(first["type"], "sessions")
@@ -321,7 +321,7 @@ class ServerTest(unittest.TestCase):
                         joined = await ws.recv()          # the open chunk so far
                         _, t, _ = race.decode_chunk(joined)
                         self.assertEqual(len(t), 140)
-                        server.take(b"".join(recs[len(recs) // 2:]))  # the next 7 s arrive
+                        server.take(b"".join(recs[half:]))  # the next 7 s arrive
                         got = []
                         while not got or got[-1] < 13.9:
                             msg = await asyncio.wait_for(ws.recv(), 3)
