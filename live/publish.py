@@ -53,7 +53,7 @@ def publish(session, s3=None):
         index = {"races": []}
     index["races"] = [index_entry(m)] + [r for r in index["races"] if r["uid"] != m["uid"]]
     for i, r in enumerate(index["races"]):
-        if "chaos" not in r:   # published before the picker stats: fill in once from its manifest
+        if "weather" not in r:   # published before the latest picker stats: fill in once from its manifest
             try:
                 old = json.loads(s3.get_object(Bucket=BUCKET, Key=f"{r['uid']}/manifest.json")["Body"].read())
                 index["races"][i] = {**index_entry(old), **r, **race_summary(old)}
@@ -74,8 +74,9 @@ def index_entry(m):
 
 def race_summary(m):
     """What the race picker shows besides track and date: who raced (shown names, no AI), the
-    winner and gap to second (from the lap timing), the fastest lap and a 0-10 chaos rating
-    (incidents, or game contacts when a live race has none, per car per lap).
+    winner and gap to second (from the lap timing), the fastest lap, a 0-10 chaos rating
+    (incidents, or game contacts when a live race has none, per car per lap) and the weather
+    codes in the order they happened (0 clear .. 5 storm; more than one = it changed mid-race).
     Copy of race-stats scripts/telemetry/race_bundles.py race_summary: keep them equal."""
     cars, timing = m["cars"], m.get("timing", {})
     order = sorted((k for k in timing if k in cars and timing[k]["laps"]),
@@ -91,6 +92,8 @@ def race_summary(m):
         out["fastest"] = {"name": cars[best[1]]["name"], "ms": best[0]}
     hits = len(m["incidents"]) if "incidents" in m else sum(1 for e in m["events"] if e["code"] == "COLL")
     out["chaos"] = min(10.0, round(hits / max(1, len(cars) * max(1, m["laps"])) * 15, 1))
+    codes = [w[1] for w in m.get("weather") or []]
+    out["weather"] = [c for i, c in enumerate(codes) if i == 0 or c != codes[i - 1]][:8]
     return out
 
 
