@@ -271,7 +271,7 @@ def page(title, body, user=None, tab=""):
     if user:
         n = open_protests()
         links = [("", "Home"), ("protests", "Protests" + (f"<span class=badge>{n}</span>" if n else "")),
-                 ("incidents", "Incidents"), ("results", "Results"), ("kick", "Kick"), ("names", "Names"),
+                 ("incidents", "Incidents"), ("grading", "Grading"), ("results", "Results"), ("kick", "Kick"), ("names", "Names"),
                  ("members", "Members"), ("log", "All changes")]
         nav = "<nav>" + "".join(f'<a href="/{p}" class="{"on" if p == tab else ""}">{t}</a>' for p, t in links) + "</nav>"
         nav += f'<span class="me">{e(user["name"])} · <a href="/logout">log out</a></span>'
@@ -1042,7 +1042,32 @@ def member_change(form, user):
     return f"Linked to {name}. The bot updates their role within 10 minutes."
 
 
-PAGES = {"/": home, "/incidents": incidents, "/results": results, "/names": names_page,
+def _grading_helpers():
+    return {"e": e, "page": page, "csrf_token": csrf_token, "is_owner": is_owner}
+
+
+def grading_page(user, q):
+    from staff import grading
+    return grading.grading_page(user, q, _grading_helpers())
+
+
+def grading_results(user, q):
+    from staff import grading
+    return grading.results_page(user, q, _grading_helpers())
+
+
+def grade_post(form, user):
+    from staff import grading
+    inc = grading.incident(form.get("id", ""))
+    if not inc:
+        raise ValueError("unknown incident")
+    if grading.involved(inc, grading.linked_driver(int(user["id"]))):
+        raise ValueError("you drove in this incident, so another steward grades it")
+    g = grading.save(inc, int(user["id"]), user["name"], form)
+    return f"Saved {inc['id'].upper()}: {grading.verdict_of(g)}."
+
+
+PAGES = {"/": home, "/grading": grading_page, "/grading/results": grading_results, "/incidents": incidents, "/results": results, "/names": names_page,
          "/members": members_page, "/log": log_page, "/kick": kick_page, "/protests": protests_page,
          "/setup-key": setup_key_page}
 
@@ -1142,6 +1167,12 @@ class Handler(BaseHTTPRequestHandler):
                 msg = {"denied": "<p class='flash err'>That Discord account isn't on the staff list.</p>"}.get(q.get("m", [""])[0], "")
                 return self.send(200, page("Log in", f"<div class=login><h1>GreMi Gang staff</h1>{msg}"
                                            f"<p class=muted>For moderators only.</p><a class=btn href='/login'>Log in with Discord</a></div>"))
+            if url.path == "/grading/export.json":
+                if not is_owner(int(user["id"])):
+                    return self.send(403, page("Not allowed", "<p>Only the owner can export grades.</p>", user))
+                from staff import grading
+                return self.send(200, grading.export(int(user["id"])), {"Content-Type": "application/json; charset=utf-8",
+                                 "Content-Disposition": "attachment; filename=staff-grades.json"})
             if url.path.startswith("/clip/"):
                 return self.send_clip(url.path[6:])
             fn = PAGES.get(url.path)
@@ -1212,6 +1243,7 @@ class Handler(BaseHTTPRequestHandler):
         multi = urllib.parse.parse_qs(self.rfile.read(length).decode())
         form = {k: v[0] for k, v in multi.items()}
         form["cars"] = "\n".join(multi.get("cars", []))
+        form["fault"] = "\n".join(multi.get("fault", []))
         if self.path == "/protest":
             member = self.member()
             back = "/protest?item=" + urllib.parse.quote(form.get("item", ""))
@@ -1256,6 +1288,9 @@ class Handler(BaseHTTPRequestHandler):
             elif self.path == "/undo":
                 undo_change(form.get("id", ""))
                 back, msg = "/log", "Undone. The site updates in about 2 minutes."
+            elif self.path == "/grade":
+                back = "/grading?id=" + urllib.parse.quote(form.get("id", ""))
+                msg = grade_post(form, user)
             elif self.path == "/protest-answer":
                 back = "/protests"
                 msg = protest_answer(form, user)
@@ -1312,12 +1347,13 @@ class Handler(BaseHTTPRequestHandler):
 
 def reload_on_change():
     """The bot pulls main when new code arrives; start again when this file changed."""
-    me = pathlib.Path(__file__)
-    seen = me.stat().st_mtime
+    files = [pathlib.Path(__file__), pathlib.Path(__file__).with_name("grading.py")]
+    stamp = lambda: [f.stat().st_mtime if f.exists() else 0 for f in files]  # noqa: E731
+    seen = stamp()
     while True:
         time.sleep(60)
         try:
-            if me.stat().st_mtime != seen:
+            if stamp() != seen:
                 print("staff page: new code, starting again", flush=True)
                 os._exit(0)  # systemd (Restart=always) starts it again
         except OSError:

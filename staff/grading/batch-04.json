@@ -1,0 +1,502 @@
+{
+ "title": "Batch 4 · staff calibration (19-30 Oct)",
+ "made": "2026-11-01",
+ "incidents": [
+  {
+   "id": "b4-01",
+   "track": "Mexico",
+   "date": "2026-10-20",
+   "lap": 1,
+   "race_time": "0:55",
+   "replay": "https://gremigaming.github.io/race-stats/f1/race/2026-10-20_20-05-21_Mexico_Race?inc=55.6&car=1,9",
+   "race_file": "Race_Mexico_2026_10_20_20_13_46.json",
+   "recording": "2026-10-20_20-05-21_Mexico_Race.gmtel.gz",
+   "drivers": [
+    {
+     "car": 1,
+     "name": "#2 Alexowitsh77"
+    },
+    {
+     "car": 9,
+     "name": "#8 niet_Lars123"
+    }
+   ],
+   "engine": {
+    "rules": "v1",
+    "verdict": "niet_Lars123 at fault",
+    "rule": "R3",
+    "severity": 2,
+    "why": "niet_Lars123 ran into the back of Alexowitsh77, closing at 39 km/h",
+    "at_fault": [
+     "#8 niet_Lars123"
+    ],
+    "contacts": 1
+   }
+  },
+  {
+   "id": "b4-02",
+   "track": "Abu Dhabi",
+   "date": "2026-10-20",
+   "lap": 4,
+   "race_time": "4:41",
+   "replay": "https://gremigaming.github.io/race-stats/f1/race/2026-10-20_20-21-09_Abu_Dhabi_Race?inc=281.5&car=6,9",
+   "race_file": "Race_Abu_Dhabi_2026_10_20_20_29_32.json",
+   "recording": "2026-10-20_20-21-09_Abu_Dhabi_Race.gmtel.gz",
+   "drivers": [
+    {
+     "car": 6,
+     "name": "Hidden #15 (Red Bull Racing '26)"
+    },
+    {
+     "car": 9,
+     "name": "Hidden #54 (Ferrari '26)"
+    }
+   ],
+   "engine": {
+    "rules": "v1",
+    "verdict": "Red Bull Racing '26 #15 at fault",
+    "rule": "R3",
+    "severity": 4,
+    "why": "Red Bull Racing '26 #15 ran into the back of Ferrari '26 #54, closing at 28 km/h",
+    "at_fault": [
+     "Hidden #15 (Red Bull Racing '26)"
+    ],
+    "contacts": 1
+   }
+  },
+  {
+   "id": "b4-03",
+   "track": "Brazil",
+   "date": "2026-10-23",
+   "lap": 1,
+   "race_time": "0:52",
+   "replay": "https://gremigaming.github.io/race-stats/f1/race/2026-10-23_20-25-40_Brazil_Race?inc=52.3&car=7,6",
+   "race_file": "Race_Brazil_Just_in_case_2026_10_23_20_38_23.json",
+   "recording": "2026-10-23_20-25-40_Brazil_Race.gmtel.gz",
+   "drivers": [
+    {
+     "car": 7,
+     "name": "#2 MrOIDIOI"
+    },
+    {
+     "car": 6,
+     "name": "#99 niketys2"
+    }
+   ],
+   "engine": {
+    "rules": "v1",
+    "verdict": "niketys2 at fault",
+    "rule": "R3",
+    "severity": 6,
+    "why": "niketys2 ran into the back of MrOIDIOI, closing at 14 km/h",
+    "at_fault": [
+     "#99 niketys2"
+    ],
+    "contacts": 1
+   }
+  },
+  {
+   "id": "b4-04",
+   "track": "Qatar",
+   "date": "2026-10-23",
+   "lap": 1,
+   "race_time": "1:22",
+   "replay": "https://gremigaming.github.io/race-stats/f1/race/2026-10-23_20-42-00_Losail_Race?inc=82.5&car=2,8",
+   "race_file": "Race_Losail_2026_10_23_20_50_37.json",
+   "recording": "2026-10-23_20-42-00_Losail_Race.gmtel.gz",
+   "drivers": [
+    {
+     "car": 2,
+     "name": "#2 JunoFC"
+    },
+    {
+     "car": 8,
+     "name": "#2 MrOIDIOI"
+    }
+   ],
+   "engine": {
+    "rules": "v1",
+    "verdict": "JunoFC at fault",
+    "rule": "R2",
+    "severity": 3,
+    "why": "side by side; JunoFC moved 2.9 m across into the other car",
+    "at_fault": [
+     "#2 JunoFC"
+    ],
+    "contacts": 1
+   }
+  },
+  {
+   "id": "b4-05",
+   "track": "Austin",
+   "date": "2026-10-25",
+   "lap": 2,
+   "race_time": "2:53",
+   "replay": "https://gremigaming.github.io/race-stats/f1/race/2026-10-25_15-26-25_Texas_Race?inc=173.6&car=4,5",
+   "race_file": "Race_Texas_2026_10_25_15_36_33.json",
+   "recording": "2026-10-25_15-26-25_Texas_Race.gmtel.gz",
+   "drivers": [
+    {
+     "car": 4,
+     "name": "#8 Stepino81"
+    },
+    {
+     "car": 5,
+     "name": "#2 Alexowitsh77"
+    }
+   ],
+   "engine": {
+    "rules": "v1",
+    "verdict": "Stepino81 at fault",
+    "rule": "R5",
+    "severity": 2,
+    "why": "Stepino81 came back onto the track and moved 6.9 m across into Alexowitsh77",
+    "at_fault": [
+     "#8 Stepino81"
+    ],
+    "contacts": 1
+   }
+  },
+  {
+   "id": "b4-06",
+   "track": "Catalunya",
+   "date": "2026-10-25",
+   "lap": 1,
+   "race_time": "0:58",
+   "replay": "https://gremigaming.github.io/race-stats/f1/race/2026-10-25_15-59-16_Catalunya_Race?inc=58.6&car=11,1",
+   "race_file": "Race_Catalunya_2026_10_25_16_07_58.json",
+   "recording": "2026-10-25_15-59-16_Catalunya_Race.gmtel.gz",
+   "drivers": [
+    {
+     "car": 11,
+     "name": "#53 TTV_shimadaseba"
+    },
+    {
+     "car": 1,
+     "name": "#50 DevilDriver2396"
+    }
+   ],
+   "engine": {
+    "rules": "v1",
+    "verdict": "TTV_shimadaseba at fault",
+    "rule": "R2",
+    "severity": 6,
+    "why": "side by side; TTV_shimadaseba moved 4.0 m across into the other car",
+    "at_fault": [
+     "#53 TTV_shimadaseba"
+    ],
+    "contacts": 1
+   }
+  },
+  {
+   "id": "b4-07",
+   "track": "Bahrain",
+   "date": "2026-10-25",
+   "lap": 1,
+   "race_time": "0:55",
+   "replay": "https://gremigaming.github.io/race-stats/f1/race/2026-10-25_16-12-29_Bahrain_Race?inc=55.4&car=16,14,9,17,8,15",
+   "race_file": "Race_Sakhir_2026_10_25_16_22_33.json",
+   "recording": "2026-10-25_16-12-29_Bahrain_Race.gmtel.gz",
+   "drivers": [
+    {
+     "car": 16,
+     "name": "#15 FPR_SAMUEL"
+    },
+    {
+     "car": 14,
+     "name": "Hidden #99 (Audi '26)"
+    },
+    {
+     "car": 9,
+     "name": "#53 TTV_shimadaseba"
+    },
+    {
+     "car": 17,
+     "name": "#99 niketys2"
+    },
+    {
+     "car": 8,
+     "name": "#86 Overfast-_"
+    },
+    {
+     "car": 15,
+     "name": "Hidden #2 (Audi '26)"
+    }
+   ],
+   "engine": {
+    "rules": "v1",
+    "verdict": "Audi '26 #99 + Audi '26 #2 at fault",
+    "rule": "R8",
+    "severity": 6,
+    "why": "Audi '26 #99 ran into the back of FPR_SAMUEL, closing at 75 km/h; Audi '26 #2 ran into the back of TTV_shimadaseba, closing at 11 km/h",
+    "at_fault": [
+     "Hidden #99 (Audi '26)",
+     "Hidden #2 (Audi '26)"
+    ],
+    "contacts": 5
+   }
+  },
+  {
+   "id": "b4-08",
+   "track": "Jeddah",
+   "date": "2026-10-25",
+   "lap": 2,
+   "race_time": "2:29",
+   "replay": "https://gremigaming.github.io/race-stats/f1/race/2026-10-25_16-27-27_Jeddah_Race?inc=149.8&car=9,12",
+   "race_file": "Race_Jeddah_2026_10_25_16_37_02.json",
+   "recording": "2026-10-25_16-27-27_Jeddah_Race.gmtel.gz",
+   "drivers": [
+    {
+     "car": 9,
+     "name": "Hidden #54 (Mercedes '26)"
+    },
+    {
+     "car": 12,
+     "name": "Hidden #99 (Audi '26)"
+    }
+   ],
+   "engine": {
+    "rules": "v1",
+    "verdict": "Mercedes '26 #54 at fault",
+    "rule": "R2",
+    "severity": 6,
+    "why": "side by side; Mercedes '26 #54 moved 4.3 m across into the other car",
+    "at_fault": [
+     "Hidden #54 (Mercedes '26)"
+    ],
+    "contacts": 1
+   }
+  },
+  {
+   "id": "b4-09",
+   "track": "Shanghai",
+   "date": "2026-10-25",
+   "lap": 1,
+   "race_time": "0:32",
+   "replay": "https://gremigaming.github.io/race-stats/f1/race/2026-10-25_16-42-14_Shanghai_Race?inc=32.4&car=21,1,15",
+   "race_file": "Race_Shanghai_2026_10_25_16_53_29.json",
+   "recording": "2026-10-25_16-42-14_Shanghai_Race.gmtel.gz",
+   "drivers": [
+    {
+     "car": 21,
+     "name": "#2 fajeckaaa"
+    },
+    {
+     "car": 1,
+     "name": "#50 DevilDriver2396"
+    },
+    {
+     "car": 15,
+     "name": "#99 niketys2"
+    }
+   ],
+   "engine": {
+    "rules": "v1",
+    "verdict": "DevilDriver2396 at fault",
+    "rule": "R2",
+    "severity": 3,
+    "why": "side by side; DevilDriver2396 moved 3.7 m across into the other car",
+    "at_fault": [
+     "#50 DevilDriver2396"
+    ],
+    "contacts": 1
+   }
+  },
+  {
+   "id": "b4-10",
+   "track": "Suzuka",
+   "date": "2026-10-28",
+   "lap": 3,
+   "race_time": "4:36",
+   "replay": "https://gremigaming.github.io/race-stats/f1/race/2026-10-28_20-40-25_Suzuka_Race?inc=276.5&car=3,9",
+   "race_file": "Race_Suzuka_Just_in_case_2026_10_28_20_53_25.json",
+   "recording": "2026-10-28_20-40-25_Suzuka_Race.gmtel.gz",
+   "drivers": [
+    {
+     "car": 3,
+     "name": "#50 DevilDriver2396"
+    },
+    {
+     "car": 9,
+     "name": "#13 LCR-Sab872"
+    }
+   ],
+   "engine": {
+    "rules": "v1",
+    "verdict": "LCR-Sab872 at fault",
+    "rule": "R2",
+    "severity": 5,
+    "why": "side by side; LCR-Sab872 moved 2.1 m across into the other car",
+    "at_fault": [
+     "#13 LCR-Sab872"
+    ],
+    "contacts": 1
+   }
+  },
+  {
+   "id": "b4-11",
+   "track": "Silverstone (reverse)",
+   "date": "2026-10-30",
+   "lap": 2,
+   "race_time": "2:11",
+   "replay": "https://gremigaming.github.io/race-stats/f1/race/2026-10-30_15-10-21_Silverstone_Reverse_Race?inc=131.5&car=3,1",
+   "race_file": "Race_Silverstone_Reverse_2026_10_30_15_19_42.json",
+   "recording": "2026-10-30_15-10-21_Silverstone_Reverse_Race.gmtel.gz",
+   "drivers": [
+    {
+     "car": 3,
+     "name": "#53 TTV_shimadaseba"
+    },
+    {
+     "car": 1,
+     "name": "#21 EthanMoonski"
+    }
+   ],
+   "engine": {
+    "rules": "v1",
+    "verdict": "Not an incident",
+    "rule": "R1",
+    "severity": 1,
+    "why": "TTV_shimadaseba ran into the back of EthanMoonski, closing at 18 km/h, but nobody slid, lost a place or went off",
+    "at_fault": [],
+    "contacts": 1
+   }
+  },
+  {
+   "id": "b4-12",
+   "track": "Las Vegas",
+   "date": "2026-10-30",
+   "lap": 1,
+   "race_time": "0:32",
+   "replay": "https://gremigaming.github.io/race-stats/f1/race/2026-10-30_15-29-57_Las_Vegas_Race?inc=32.8&car=2,9,8,14,12",
+   "race_file": "Race_Las_Vegas_Just_in_case_2026_10_30_15_47_45.json",
+   "recording": "2026-10-30_15-29-57_Las_Vegas_Race.gmtel.gz",
+   "drivers": [
+    {
+     "car": 2,
+     "name": "#8 Stepino81"
+    },
+    {
+     "car": 9,
+     "name": "#13 Jakubm18_F1"
+    },
+    {
+     "car": 8,
+     "name": "#24 rubengggarcia"
+    },
+    {
+     "car": 14,
+     "name": "Hidden #21 (Ferrari '26)"
+    },
+    {
+     "car": 12,
+     "name": "#20 HydraHaloF1"
+    }
+   ],
+   "engine": {
+    "rules": "v1",
+    "verdict": "Stepino81 + rubengggarcia + Ferrari '26 #21 at fault",
+    "rule": "R8",
+    "severity": 5,
+    "why": "side by side; Stepino81 moved 3.2 m across into the other car; rubengggarcia ran into the back of Jakubm18_F1, closing at 64 km/h; Ferrari '26 #21 ran into the back of Jakubm18_F1, closing at 12 km/h; Ferrari '26 #21 ran into the back of Jakubm18_F1, closing at 14 km/h",
+    "at_fault": [
+     "#8 Stepino81",
+     "#24 rubengggarcia",
+     "Hidden #21 (Ferrari '26)"
+    ],
+    "contacts": 7
+   }
+  },
+  {
+   "id": "b4-13",
+   "track": "Miami",
+   "date": "2026-10-30",
+   "lap": 2,
+   "race_time": "2:19",
+   "replay": "https://gremigaming.github.io/race-stats/f1/race/2026-10-30_15-51-13_Miami_Race?inc=139.1&car=1,13",
+   "race_file": "Race_Miami_2026_10_30_16_01_59.json",
+   "recording": "2026-10-30_15-51-13_Miami_Race.gmtel.gz",
+   "drivers": [
+    {
+     "car": 1,
+     "name": "Hidden #2 (Mercedes '26)"
+    },
+    {
+     "car": 13,
+     "name": "#13 SethOnHere"
+    }
+   ],
+   "engine": {
+    "rules": "v1",
+    "verdict": "Mercedes '26 #2 at fault",
+    "rule": "R2",
+    "severity": 4,
+    "why": "side by side; Mercedes '26 #2 moved 2.0 m across into the other car",
+    "at_fault": [
+     "Hidden #2 (Mercedes '26)"
+    ],
+    "contacts": 1
+   }
+  },
+  {
+   "id": "b4-14",
+   "track": "Baku",
+   "date": "2026-10-30",
+   "lap": 4,
+   "race_time": "6:19",
+   "replay": "https://gremigaming.github.io/race-stats/f1/race/2026-10-30_16-11-10_Baku_Race?inc=379.4&car=17,10",
+   "race_file": "Race_Baku_2026_10_30_16_22_36.json",
+   "recording": "2026-10-30_16-11-10_Baku_Race.gmtel.gz",
+   "drivers": [
+    {
+     "car": 17,
+     "name": "Hidden #99 (Audi '26)"
+    },
+    {
+     "car": 10,
+     "name": "#8 Stepino81"
+    }
+   ],
+   "engine": {
+    "rules": "v1",
+    "verdict": "Racing incident",
+    "rule": "R7",
+    "severity": 3,
+    "why": "Audi '26 #99 slid or went off just before; Stepino81 had no time to react",
+    "at_fault": [],
+    "contacts": 1
+   }
+  },
+  {
+   "id": "b4-15",
+   "track": "Imola",
+   "date": "2026-10-30",
+   "lap": 1,
+   "race_time": "0:34",
+   "replay": "https://gremigaming.github.io/race-stats/f1/race/2026-10-30_16-46-43_Imola_Race?inc=34.0&car=9,14",
+   "race_file": "Race_Imola_2026_10_30_16_56_33.json",
+   "recording": "2026-10-30_16-46-43_Imola_Race.gmtel.gz",
+   "drivers": [
+    {
+     "car": 9,
+     "name": "Hidden #21 (Ferrari '26)"
+    },
+    {
+     "car": 14,
+     "name": "Hidden #28 (Ferrari '26)"
+    }
+   ],
+   "engine": {
+    "rules": "v1",
+    "verdict": "Ferrari '26 #21 at fault",
+    "rule": "R5",
+    "severity": 3,
+    "why": "Ferrari '26 #21 came back onto the track and moved 2.2 m across into Ferrari '26 #28",
+    "at_fault": [
+     "Hidden #21 (Ferrari '26)"
+    ],
+    "contacts": 1
+   }
+  }
+ ]
+}
