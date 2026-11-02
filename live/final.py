@@ -25,7 +25,12 @@ _lock = threading.RLock()  # the background pull never swaps the modules under a
 
 
 def checkout(data_dir, pull=True):
-    """Clone or update the sparse race-stats checkout (only scripts/telemetry). Returns its path."""
+    with _lock:
+        return _checkout(data_dir, pull)
+
+
+def _checkout(data_dir, pull=True):
+    """Clone or update the warm race-stats checkout used by live race analysis."""
     if os.environ.get("RACE_STATS_DIR"):   # tests: a local race-stats checkout
         return os.environ["RACE_STATS_DIR"]
     d = os.path.join(data_dir, "race-stats")
@@ -34,7 +39,9 @@ def checkout(data_dir, pull=True):
         shutil.rmtree(d, ignore_errors=True)
         subprocess.run(["git", "clone", "-q", "--depth", "1", "--filter=blob:none", "--sparse", REPO, d],
                        check=True, timeout=120)
-        subprocess.run(git + ["sparse-checkout", "set", "scripts/telemetry"], check=True, timeout=60)
+        subprocess.run(git + ["sparse-checkout", "set", "scripts", "races", "setups"], check=True, timeout=60)
+    elif not os.path.isfile(os.path.join(d, "scripts", "build-league-data.mjs")):
+        subprocess.run(git + ["sparse-checkout", "set", "scripts", "races", "setups"], check=True, timeout=60)
     elif pull and time.time() - _state["pulled"] > PULL_EVERY:
         subprocess.run(git + ["pull", "-q", "--ff-only", "--depth", "1"], check=True, timeout=120)
     _state["pulled"] = time.time()
