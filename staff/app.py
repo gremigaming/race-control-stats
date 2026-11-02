@@ -17,6 +17,7 @@ STAFF_GITHUB_TOKEN, STAFF_SECRET and STAFF_URL (the public https address).
 Run with: python3 -m staff.app
 """
 import base64
+import copy
 import datetime
 import hashlib
 import hmac
@@ -119,16 +120,24 @@ _write_lock = threading.Lock()
 def save_corrections(edit, message):
     """Reads corrections.json, applies edit(data) and commits it to main.
     Tries again when someone else committed in between."""
+    save_json("races/corrections.json", edit, message, {"changes": []})
+
+
+def save_json(path, edit, message, empty=None):
+    """Reads a JSON file of race-stats, applies edit(data) and commits it to main."""
     with _write_lock:
         for _ in range(3):
-            data, sha = corrections()
+            data, sha = gh_file(path)
+            data = data if data is not None else copy.deepcopy(empty)
+            if data is None:
+                raise ValueError(f"{path} is missing")
             edit(data)
             body = {"message": message, "branch": "main",
                     "content": base64.b64encode((json.dumps(data, indent=2, ensure_ascii=False) + "\n").encode()).decode()}
             if sha:
                 body["sha"] = sha
             try:
-                http(f"https://api.github.com/repos/{REPO}/contents/races/corrections.json", body,
+                http(f"https://api.github.com/repos/{REPO}/contents/{path}", body,
                      headers={**GH, "Authorization": f"Bearer {GITHUB_TOKEN}"}, method="PUT")
                 return
             except urllib.error.HTTPError as e:
@@ -1042,6 +1051,90 @@ def member_change(form, user):
     return f"Linked to {name}. The bot updates their role within 10 minutes."
 
 
+# ---------------------------------------------------------------- setup manager
+# GreMi's versioned in-game setups (race-stats setups/registry.json). The
+# Setup manager page links here: Finish / Reopen a track, or start the Apply
+# run that saves the waiting versions in the game (docs/setup-apply.md).
+SETUP_REGISTRY = "setups/registry.json"
+SETUP_PAGE = SITE
+ROUTINE_ID = os.environ.get("ROUTINE_ID", "")
+ROUTINE_TOKEN = os.environ.get("ROUTINE_FIRE_TOKEN", "")
+SETUP_ACTIONS = {"finish": "Finish setup", "reopen": "Reopen setup", "apply": "Apply in the game"}
+
+
+def fire_apply_run():
+    """Wakes the Race Control routine for the Apply run (computer use on GreMi's PC)."""
+    if not (ROUTINE_ID and ROUTINE_TOKEN):
+        raise ValueError("the routine isn't set up on this server (ROUTINE_ID, ROUTINE_FIRE_TOKEN)")
+    http(f"https://api.anthropic.com/v1/claude_code/routines/{ROUTINE_ID}/fire",
+         {"text": ("Setup Apply run requested by the owner on the Setup manager.\n"
+                   "Follow docs/setup-apply.md in gremigaming/race-stats: save the waiting setup "
+                   "versions of setups/registry.json in F1 25 on GreMi's PC.")},
+         headers={"anthropic-beta": "experimental-cc-routine-2026-04-01", "anthropic-version": "2023-06-01",
+                  "Content-Type": "application/json", "Authorization": f"Bearer {ROUTINE_TOKEN}"})
+
+
+def setup_track(reg, name):
+    t = next((t for t in reg.get("tracks", []) if t["name"] == name), None)
+    if not t:
+        raise ValueError("unknown track")
+    return t
+
+
+def setup_action_page(user, q):
+    if not is_owner(int(user["id"])):
+        return page("Not allowed", "<p>Only GreMi can change his setups.</p>", user)
+    done = q.get("ok", [""])[0]
+    site = q.get("site", [""])[0]
+    site = site if site.startswith(SITE) else SETUP_PAGE
+    back = f"<p><a class=btn href='{e(site)}'>Back to the Setup manager</a></p>"
+    if done:
+        return page("Setup manager", f"<div class=narrow>{back}</div>", user)
+    act, name = q.get("do", [""])[0], q.get("track", [""])[0]
+    if act not in SETUP_ACTIONS:
+        return page("Setup manager", "<p>Unknown action.</p>" + back, user)
+    reg, _ = gh_file(SETUP_REGISTRY)
+    if not reg:
+        return page("Setup manager", "<p>No setup registry yet.</p>" + back, user)
+    if act == "apply":
+        waiting = [f"{t['name']} - {k.upper()} - V{t['kinds'][k]['versions'][-1]['v']}: {t['kinds'][k]['versions'][-1]['text']}"
+                   for t in sorted(reg["tracks"], key=lambda t: t["row"]) for k in ("quali", "race", "wet")
+                   if not t["kinds"][k]["versions"][-1].get("saved")]
+        if not waiting:
+            return page("Setup manager", "<p>Nothing waits: every version is in the game.</p>" + back, user)
+        what = ("<p>Claude starts F1 25 on your PC and saves these versions over the old ones. "
+                "Keep the PC on with the Claude app open, and the game closed.</p><ul>"
+                + "".join(f"<li>{e(w)}</li>" for w in waiting) + "</ul>")
+    else:
+        t = setup_track(reg, name)
+        what = (f"<p>{e(t['name'])}: no new versions after this; the newest saved versions stay.</p>" if act == "finish"
+                else f"<p>{e(t['name'])}: new versions again after the next stream.</p>")
+    form = (f"<form method=post action='/setup-action'><input type=hidden name=csrf value='{csrf_token(user)}'>"
+            f"<input type=hidden name=do value='{e(act)}'><input type=hidden name=track value='{e(name)}'>"
+            f"<input type=hidden name=site value='{e(site)}'>"
+            f"<button class=btn>{e(SETUP_ACTIONS[act])}</button></form>")
+    return page("Setup manager", f"<div class=narrow><h2>{e(SETUP_ACTIONS[act])}</h2>{what}{form}{back}</div>", user)
+
+
+def setup_action_post(form, user):
+    if not is_owner(int(user["id"])):
+        raise ValueError("only GreMi can change his setups")
+    act, name = form.get("do", ""), form.get("track", "")
+    now = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    if act in ("finish", "reopen"):
+        def edit(reg):
+            setup_track(reg, name)["finished"] = now[:10] if act == "finish" else None
+        save_json(SETUP_REGISTRY, edit, f"Setup manager: {name} {'finished' if act == 'finish' else 'reopened'}")
+        return f"{name}: {'finished' if act == 'finish' else 'reopened'}. The page updates in about 3 minutes."
+    if act == "apply":
+        def edit(reg):
+            reg.setdefault("apply", {})["requested"] = now
+        save_json(SETUP_REGISTRY, edit, "Setup manager: Apply run requested")
+        fire_apply_run()
+        return "Apply run started. Claude saves the setups in the game on your PC and reports in Discord."
+    raise ValueError("unknown action")
+
+
 def _grading_helpers():
     return {"e": e, "page": page, "csrf_token": csrf_token, "is_owner": is_owner}
 
@@ -1069,7 +1162,7 @@ def grade_post(form, user):
 
 PAGES = {"/": home, "/grading": grading_page, "/grading/results": grading_results, "/incidents": incidents, "/results": results, "/names": names_page,
          "/members": members_page, "/log": log_page, "/kick": kick_page, "/protests": protests_page,
-         "/setup-key": setup_key_page}
+         "/setup-key": setup_key_page, "/setup-action": setup_action_page}
 
 
 def explain(ex):
@@ -1164,9 +1257,10 @@ class Handler(BaseHTTPRequestHandler):
                 return self.send(200, body)
             user = self.user()
             if not user:
+                login_to = "/login?next=" + urllib.parse.quote(self.path) if url.path == "/setup-action" else "/login"
                 msg = {"denied": "<p class='flash err'>That Discord account isn't on the staff list.</p>"}.get(q.get("m", [""])[0], "")
                 return self.send(200, page("Log in", f"<div class=login><h1>GreMi Gang staff</h1>{msg}"
-                                           f"<p class=muted>For moderators only.</p><a class=btn href='/login'>Log in with Discord</a></div>"))
+                                           f"<p class=muted>For moderators only.</p><a class=btn href='{e(login_to)}'>Log in with Discord</a></div>"))
             if url.path == "/grading/export.json":
                 if not is_owner(int(user["id"])):
                     return self.send(403, page("Not allowed", "<p>Only the owner can export grades.</p>", user))
@@ -1294,6 +1388,9 @@ class Handler(BaseHTTPRequestHandler):
             elif self.path == "/protest-answer":
                 back = "/protests"
                 msg = protest_answer(form, user)
+            elif self.path == "/setup-action":
+                back = "/setup-action?site=" + urllib.parse.quote(form.get("site", ""))
+                msg = setup_action_post(form, user)
             else:
                 return self.send(404, "")
         except (ValueError, KeyError) as ex:
@@ -1309,7 +1406,7 @@ class Handler(BaseHTTPRequestHandler):
                                     "scope": "identify", "state": state})
         nxt = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query).get("next", [""])[0]
         cookies = [f"staff_state={state}; Max-Age=600; Path=/; HttpOnly; Secure; SameSite=Lax"]
-        if nxt.startswith("/protest"):  # a driver logging in to protest
+        if nxt.startswith("/protest") or nxt.startswith("/setup-action"):  # a protest, or GreMi's setup buttons
             cookies.append(f"staff_next={urllib.parse.quote(nxt, safe='')}; Max-Age=600; Path=/; HttpOnly; Secure; SameSite=Lax")
         if setup_back:  # GreMi opening the Setup manager: back to the site afterwards
             if not setup_back.startswith(SITE):
@@ -1335,7 +1432,7 @@ class Handler(BaseHTTPRequestHandler):
             ok = is_owner(uid)
             return self.redirect(back + ("#setup-key=" + urllib.parse.quote(setup_key()) if ok else "#setup-denied"), clear)
         nxt = urllib.parse.unquote(self.cookie("staff_next") or "")
-        nxt = nxt if nxt.startswith("/protest") else ""
+        nxt = nxt if nxt.startswith("/protest") or nxt.startswith("/setup-action") else ""
         name = me.get("global_name") or me.get("username") or "Driver"
         age = f"Max-Age={SESSION_DAYS * 86400}; Path=/; HttpOnly; Secure; SameSite=Lax"
         member = f"member={make_session(uid, name, 'member')}; {age}"
