@@ -1,7 +1,7 @@
 """Incident grading for the staff: calibrates the fault engine with more eyes than GreMi's.
 
-Each batch is a file in staff/grading/ (batch-NN.json, written by Claude from the race
-recordings): incidents with a replay link and the fault engine's call. Staff grade blind
+Batches come from the site (league/grading.json: five picks per stream, written by the site build,
+each with Claude's take that only GreMi sees) and from staff/grading/ (batch-NN.json, made by hand): incidents with a replay link and the fault engine's call. Staff grade blind
 (they never see the engine's call or anyone else's grade), and never grade an incident
 they drove in (their /link). GreMi sees everything on the owner-only results page;
 his grade is final, otherwise the staff majority counts.
@@ -20,14 +20,24 @@ import time
 BATCH_DIR = pathlib.Path(__file__).resolve().parent / "grading"
 GRADES_FILE = pathlib.Path(os.environ.get("STAFF_GRADES_FILE", "/var/lib/race-control/grades.json"))
 NO, RACING = "Not an incident", "Racing incident"
+PICKS = {"low": "low severity", "high": "high severity", "gray": "gray area"}
 
 
 # ---------------------------------------------------------------- data
 
 
+def stream_batches():
+    """The five picks after every stream, from the site (race-stats scripts/telemetry/grading_batch.py)."""
+    try:
+        from staff.app import site_json
+        return [(b.get("title") or b["stream"], b["incidents"]) for b in site_json("league/grading.json", ttl=600) or []]
+    except Exception:
+        return []
+
+
 def batches():
-    """[(batch name, [incident, ...])], newest batch first."""
-    out = []
+    """[(batch name, [incident, ...])], newest batch first: stream picks, then the hand-made batches."""
+    out = stream_batches()
     for p in sorted(BATCH_DIR.glob("batch-*.json"), reverse=True):
         try:
             d = json.loads(p.read_text(encoding="utf-8"))
@@ -165,7 +175,10 @@ def grading_page(user, q, h):
                 f"<details class=card id='{e(i['id'])}'{open_}><summary style='cursor:pointer'>"
                 f"<b>{e(i['id'].upper())}</b> · {e(i['track'])} · {e(i['date'])} · lap {e(i['lap'])} · {e(_drivers(i))}"
                 f"<br>{state}</summary>"
-                f"<p><a class=btn href=\"{e(i['replay'])}\" target=_blank rel=noopener>▶ Open replay</a> "
+                + (f"<details style='margin:0 0 10px'><summary class=muted style='cursor:pointer'>Claude's take "
+                   f"({e(PICKS.get(i.get('pick'), 'pick'))}), only you see this; open it after grading</summary>"
+                   f"<p class=quote>{e(i['claude'])}</p></details>" if owner and i.get("claude") else "")
+                + f"<p><a class=btn href=\"{e(i['replay'])}\" target=_blank rel=noopener>▶ Open replay</a> "
                 f"<span class=muted>starts a few seconds before contact ({e(i.get('race_time', ''))} race time)</span></p>"
                 f"<form method=post action='/grade'>"
                 f"<input type=hidden name=csrf value='{e(h['csrf_token'](user))}'>"
@@ -222,7 +235,9 @@ def results_page(user, q, h):
                 f"<td>{e(s['majority'] or ('tie' if s['votes'] else '–'))}"
                 + (f"<div class=muted>{s['agree']}% of {len(s['staff'])} agree</div>" if s["agree"] is not None else "")
                 + f"</td><td>{mine}</td>"
-                f"<td>{e(s['engine'])}{mark}<div class=muted>{e(eng.get('rule', ''))} · sev {e(eng.get('severity', '–'))}<br>{e(eng.get('why', ''))}</div></td></tr>")
+                f"<td>{e(s['engine'])}{mark}<div class=muted>{e(eng.get('rule', ''))} · sev {e(eng.get('severity', '–'))}<br>{e(eng.get('why', ''))}</div>"
+                + (f"<details><summary class=muted style='cursor:pointer'>Claude's take · {e(PICKS.get(i.get('pick'), ''))}</summary>"
+                   f"<div class=muted>{e(i['claude'])}</div></details>" if i.get("claude") else "") + "</td></tr>")
         head = f"<h2>{e(title)}" + (f" <span class=muted>· engine agrees on {ok} of {decided} decided</span>" if decided else "") + "</h2>"
         out.append(head + "<div class=card style='overflow-x:auto'><table><tr><th>Incident</th><th>Drivers</th><th>Staff grades</th>"
                    "<th>Staff majority</th><th>Your grade</th><th>Fault engine</th></tr>" + "".join(rows) + "</table></div>")
@@ -240,6 +255,7 @@ def export(owner_id):
         for i in incs:
             s = summary(i, grades, owner_id)
             out.append({"batch": title, **{k: i[k] for k in ("id", "track", "date", "lap", "race_time", "replay", "drivers")},
+                        "pick": i.get("pick"), "claude": i.get("claude"),
                         "engine": i.get("engine"), "final": s["final"], "majority": s["majority"], "agree": s["agree"],
                         "avg_severity": s["severity"], "owner": s["owner"],
                         "staff": list(s["staff"].values())})
