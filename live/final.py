@@ -24,6 +24,13 @@ _state = {"pulled": 0.0, "head": None, "mods": None}
 _lock = threading.RLock()  # the background pull never swaps the modules under a running build
 
 
+def _update(git):
+    """Jump to the newest commit. A depth-1 clone can't `pull --ff-only` once main moves on
+    (no shared history), so fetch the tip and reset to it; this checkout is never edited."""
+    subprocess.run(git + ["fetch", "-q", "--depth", "1", "origin", "main"], check=True, timeout=120)
+    subprocess.run(git + ["reset", "-q", "--hard", "FETCH_HEAD"], check=True, timeout=60)
+
+
 def checkout(data_dir, pull=True):
     with _lock:
         return _checkout(data_dir, pull)
@@ -43,9 +50,9 @@ def _checkout(data_dir, pull=True):
     elif not (os.path.isfile(os.path.join(d, "scripts", "build-league-data.mjs"))
               and os.path.isdir(os.path.join(d, "races"))):   # older clones only had scripts/
         subprocess.run(git + ["sparse-checkout", "set", "scripts", "races", "setups"], check=True, timeout=60)
-        subprocess.run(git + ["pull", "-q", "--ff-only", "--depth", "1"], check=True, timeout=120)
+        _update(git)
     elif pull and time.time() - _state["pulled"] > PULL_EVERY:
-        subprocess.run(git + ["pull", "-q", "--ff-only", "--depth", "1"], check=True, timeout=120)
+        _update(git)
     _state["pulled"] = time.time()
     return d
 
