@@ -9,8 +9,14 @@ Keys come from /etc/race-live.env (R2_ACCOUNT_ID, R2_ACCESS_KEY_ID,
 R2_SECRET_ACCESS_KEY), typed in by live/bootstrap.sh.
 """
 
+import concurrent.futures
+import hashlib
 import json
+import mimetypes
 import os
+import posixpath
+import time
+import uuid
 
 BUCKET = os.environ.get("R2_BUCKET", "race-replays")
 SITE = "https://gremigaming.github.io"
@@ -102,3 +108,97 @@ def race_summary(m):
 def put_json(s3, key, value, max_age):
     s3.put_object(Bucket=BUCKET, Key=key, Body=json.dumps(value, separators=(",", ":")).encode(),
                   ContentType="application/json", CacheControl=f"public, max-age={max_age}")
+
+
+def publish_league(folder, pending=False, s3=None):
+    """Publish static-compatible league JSON under league/ with immutable objects.
+
+    A mutable no-store index points at content-hashed assets. Existing assets are
+    reused across generations, so a new race doesn't upload or refetch history.
+    """
+    s3 = s3 or client()
+    index_path = os.path.join(folder, "index.json")
+    with open(index_path, encoding="utf-8") as fh:
+        index = json.load(fh)
+    state_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(folder))), "published-assets.json")
+    try:
+        with open(state_path, encoding="utf-8") as fh:
+            previous = json.load(fh)
+    except (OSError, ValueError):
+        try:
+            previous = json.loads(s3.get_object(Bucket=BUCKET, Key="league/index.json")["Body"].read())
+        except Exception:
+            previous = {}
+    previous_paths = previous.get("assetPaths", {})
+    previous_hashes = previous.get("assetHashes", {})
+
+    files = []
+    for root, _, names in os.walk(folder):
+        for name in names:
+            path = os.path.join(root, name)
+            rel = os.path.relpath(path, folder).replace(os.sep, "/")
+            if rel != "index.json":
+                files.append((rel, path))
+    files.sort()
+
+    asset_paths, asset_hashes = {}, {}
+    uploads = []
+    for rel, path in files:
+        digest = hashlib.sha256()
+        with open(path, "rb") as fh:
+            for block in iter(lambda: fh.read(1024 * 1024), b""):
+                digest.update(block)
+        sha = digest.hexdigest()
+        asset_hashes[rel] = sha
+        if previous_hashes.get(rel) == sha and previous_paths.get(rel):
+            asset_paths[rel] = previous_paths[rel]
+            continue
+        key = f"league/objects/{sha[:2]}/{sha}/{rel}"
+        asset_paths[rel] = key.removeprefix("league/")
+        uploads.append((path, key, rel))
+
+    # A provisional generation may be published before safety/incident analysis
+    # finishes. Keep the previous analysis objects addressable until replacements
+    # are ready, while the new race sessions and results become visible now.
+    if pending:
+        for rel, old in previous_paths.items():
+            if rel not in asset_paths and (rel in ("safety.json", "incidents.json", "awards.json") or rel.startswith("replays/")):
+                asset_paths[rel] = old
+                if rel in previous_hashes:
+                    asset_hashes[rel] = previous_hashes[rel]
+
+    def put(item):
+        path, key, rel = item
+        content_type = mimetypes.guess_type(rel)[0] or "application/octet-stream"
+        with open(path, "rb") as fh:
+            s3.put_object(Bucket=BUCKET, Key=key, Body=fh,
+                          ContentType=content_type,
+                          CacheControl="public, max-age=31536000, immutable")
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=8) as pool:
+        list(pool.map(put, uploads))
+
+    generation = f"{int(time.time() * 1000)}-{uuid.uuid4().hex[:8]}"
+    revisions = {f"sessions/{name}": rev for name, rev in index.get("revisions", {}).items()}
+    session_files = {name: asset_paths[f"sessions/{name}"] for name in index.get("files", [])
+                     if f"sessions/{name}" in asset_paths}
+    live_index = {**index, "generation": generation, "pending": bool(pending),
+                  "publishedAt": datetime_now(), "revisions": revisions,
+                  "sessionFiles": session_files, "assetPaths": asset_paths}
+    body = json.dumps(live_index, separators=(",", ":")).encode()
+    s3.put_object(Bucket=BUCKET, Key="league/index.json", Body=body,
+                  ContentType="application/json", CacheControl="no-store, max-age=0, must-revalidate")
+
+    state = {"generation": generation, "pending": bool(pending),
+             "assetPaths": asset_paths, "assetHashes": asset_hashes}
+    os.makedirs(os.path.dirname(state_path), exist_ok=True)
+    with open(state_path + ".tmp", "w", encoding="utf-8") as fh:
+        json.dump(state, fh, separators=(",", ":"))
+    os.replace(state_path + ".tmp", state_path)
+    return live_index
+
+
+def datetime_now():
+    from datetime import datetime, timezone
+
+    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")

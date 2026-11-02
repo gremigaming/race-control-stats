@@ -1,0 +1,230 @@
+"""Receive finalized race artifacts and publish current league JSON to R2.
+
+Uploads arrive over the existing authenticated live token. Raw race saves,
+recordings and encrypted captures stay in DATA_DIR; only the existing public
+builder outputs are copied to R2. The index is replaced last, so every
+generation is internally consistent.
+"""
+import asyncio
+import hashlib
+import json
+import os
+import re
+import subprocess
+import sys
+import time
+import uuid
+from live import final, publish
+
+RACE_DAY = re.compile(r"^\d{4}_\d{2}_\d{2}$")
+ASSET_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_. -]{0,180}$")
+MAX_RACE = 32 * 1024 * 1024
+MAX_TELEMETRY = 512 * 1024 * 1024
+MAX_CAPTURE = 64 * 1024 * 1024
+PUBLISH_DELAY = 2.0
+_changed = asyncio.Event()
+_loop = None
+
+
+def notify():
+    if _loop is not None:
+        _loop.call_soon_threadsafe(_changed.set)
+    else:
+        _changed.set()
+
+
+def _target(meta, data_dir):
+    if not isinstance(meta, dict) or meta.get("type") != "artifact":
+        raise ValueError("expected an artifact header")
+    kind, name, day = meta.get("kind"), meta.get("name"), meta.get("day")
+    size = meta.get("size")
+    if kind not in ("race", "telemetry", "classification"):
+        raise ValueError("unsupported artifact kind")
+    if not isinstance(name, str) or not ASSET_NAME.fullmatch(name) or os.path.basename(name) != name:
+        raise ValueError("invalid artifact name")
+    if not isinstance(day, str) or not RACE_DAY.fullmatch(day):
+        raise ValueError("invalid race day")
+    if not isinstance(size, int) or size <= 0:
+        raise ValueError("invalid artifact size")
+    suffix, limit = {
+        "race": (".json", MAX_RACE),
+        "telemetry": (".gmtel.gz", MAX_TELEMETRY),
+        "classification": (".gmcls", MAX_CAPTURE),
+    }[kind]
+    if not name.lower().endswith(suffix) or size > limit:
+        raise ValueError("artifact type or size is not allowed")
+    if kind == "race":
+        folder = os.path.join(data_dir, "league", "incoming", "races", day)
+    elif kind == "telemetry":
+        folder = os.path.join(data_dir, "telemetry-cache")
+    else:
+        folder = os.path.join(data_dir, "telemetry-cache", "classification")
+    os.makedirs(folder, exist_ok=True)
+    return os.path.join(folder, name), size
+
+
+async def receive(ws, data_dir):
+    """Read one JSON header then binary frames until exactly the declared size arrives."""
+    header = await ws.recv()
+    if not isinstance(header, str):
+        await ws.send(json.dumps({"ok": False, "error": "artifact header must be text"}))
+        return
+    try:
+        meta = json.loads(header)
+        target, size = _target(meta, data_dir)
+    except (ValueError, TypeError) as ex:
+        await ws.send(json.dumps({"ok": False, "error": str(ex)}))
+        return
+
+    temp = target + ".upload-" + uuid.uuid4().hex
+    received = 0
+    digest = hashlib.sha256()
+    try:
+        with open(temp, "xb") as output:
+            while received < size:
+                chunk = await asyncio.wait_for(ws.recv(), timeout=90)
+                if not isinstance(chunk, bytes) or not chunk or received + len(chunk) > size:
+                    raise ValueError("invalid artifact data frame")
+                output.write(chunk)
+                digest.update(chunk)
+                received += len(chunk)
+            output.flush()
+            os.fsync(output.fileno())
+        hexdigest = digest.hexdigest()
+        duplicate = False
+        if os.path.exists(target):
+            old = hashlib.sha256()
+            with open(target, "rb") as current:
+                for block in iter(lambda: current.read(1024 * 1024), b""):
+                    old.update(block)
+            duplicate = old.hexdigest() == hexdigest
+        if not duplicate:
+            os.replace(temp, target)
+        else:
+            os.remove(temp)
+        notify()
+        await ws.send(json.dumps({"ok": True, "status": "duplicate" if duplicate else "stored", "sha256": hexdigest}))
+    except Exception:
+        try:
+            os.remove(temp)
+        except OSError:
+            pass
+        raise
+
+
+def _head(checkout):
+    try:
+        return subprocess.run(["git", "-C", checkout, "rev-parse", "HEAD"], check=True,
+                              capture_output=True, text=True, timeout=30).stdout.strip()
+    except Exception:
+        return "unknown"
+
+
+def needs_reconcile(data_dir):
+    """A cheap check after the five-minute source pull; corrections/code changes rebuild live data."""
+    checkout = final.checkout(data_dir, pull=False)
+    head = _head(checkout)
+    state_path = os.path.join(data_dir, "league", "publish-state.json")
+    try:
+        old = json.load(open(state_path, encoding="utf-8"))
+    except (OSError, ValueError):
+        old = {}
+    return old.get("source_revision") != head or old.get("pending") is True
+
+
+def _run(cmd, cwd, env, label, timeout=1800):
+    result = subprocess.run(cmd, cwd=cwd, env=env, capture_output=True, text=True,
+                            timeout=timeout, check=False)
+    if result.stdout.strip():
+        print(f"[{label}] {result.stdout.strip()[-5000:]}", flush=True)
+    if result.stderr.strip():
+        print(f"[{label}] {result.stderr.strip()[-3000:]}", flush=True)
+    if result.returncode:
+        raise RuntimeError(f"{label} exited with status {result.returncode}")
+
+
+def rebuild(data_dir, status, note):
+    """Build provisional results, publish them, then enrich and atomically republish."""
+    started = time.time()
+    checkout = final.checkout(data_dir, pull=False)
+    source_revision = _head(checkout)
+    source = os.path.join(checkout, "races")
+    overlay = os.path.join(data_dir, "league", "incoming", "races")
+    output = os.path.join(data_dir, "league", "build", "public", "league")
+    cache = os.path.join(data_dir, "league", "cache")
+    telemetry = os.path.join(data_dir, "telemetry-cache")
+    os.makedirs(cache, exist_ok=True)
+    os.makedirs(os.path.join(telemetry, "classification"), exist_ok=True)
+    os.makedirs(overlay, exist_ok=True)
+
+    env = os.environ.copy()
+    env.update({
+        "LEAGUE_RACES_DIR": source,
+        "LEAGUE_EXTRA_RACES_DIR": overlay,
+        "LEAGUE_OUT_DIR": output,
+        "LEAGUE_SESSIONS_DIR": os.path.join(output, "sessions"),
+        "LEAGUE_CACHE_DIR": cache,
+        "CLASSIFICATION_FILE": os.path.join(cache, "classification.json"),
+        "SR_OUT": output,
+        "SR_VERDICTS": os.path.join(telemetry, "verdicts"),
+        "AWARDS_OUT": os.path.join(output, "awards.json"),
+        "SR_RULES": "v2.1",
+    })
+    py = sys.executable
+
+    # Get result JSON onto R2 first; network OCR and historical telemetry work
+    # can continue while the visitor sees the new race as provisional.
+    _run(["node", os.path.join(source, "scripts", "build-league-data.mjs")], checkout, env, "league results")
+    first = publish.publish_league(output, pending=True)
+    status.update({"league_pending": True, "league_generation": first["generation"],
+                   "league_last_publish": time.time(), "league_stage": "analysis"})
+
+    # Captures may arrive after the race JSON. Apply OCR and publish hidden-name
+    # joins as a second provisional generation before fault analysis completes.
+    _run([py, os.path.join(source, "scripts", "telemetry", "classification_ocr.py"),
+          telemetry, env["CLASSIFICATION_FILE"]], checkout, env, "classification OCR", timeout=300)
+    _run(["node", os.path.join(source, "scripts", "build-league-data.mjs")], checkout, env, "league names")
+    first = publish.publish_league(output, pending=True)
+    status.update({"league_generation": first["generation"], "league_last_publish": time.time()})
+
+    _run([py, os.path.join(source, "scripts", "telemetry", "fault_engine.py"), telemetry], checkout, env, "fault engine")
+    _run([py, os.path.join(source, "scripts", "safety_rating.py")], checkout, env, "safety rating")
+    _run([py, os.path.join(source, "scripts", "awards.py")], checkout, env, "awards")
+    _run([py, os.path.join(source, "scripts", "telemetry", "incident_replays.py"), telemetry], checkout, env, "incident replays")
+    result = publish.publish_league(output, pending=False)
+
+    state_path = os.path.join(data_dir, "league", "publish-state.json")
+    with open(state_path + ".tmp", "w", encoding="utf-8") as fh:
+        json.dump({"source_revision": source_revision, "generation": result["generation"],
+                   "pending": False, "published_at": time.time()}, fh)
+    os.replace(state_path + ".tmp", state_path)
+    status.update({"league_pending": False, "league_generation": result["generation"],
+                   "league_last_publish": time.time(), "league_stage": "ready",
+                   "league_duration_s": round(time.time() - started, 1)})
+    print(f"live league generation {result['generation']} published in {time.time() - started:.1f}s", flush=True)
+    return result
+
+
+async def publish_worker(data_dir, status, note):
+    """Coalesce near-simultaneous uploads and retry failed or newly pulled sources."""
+    global _loop
+    _loop = asyncio.get_running_loop()
+    # Reconcile on boot once code and R2 credentials are available.
+    notify()
+    while True:
+        await _changed.wait()
+        _changed.clear()
+        await asyncio.sleep(PUBLISH_DELAY)
+        while _changed.is_set():
+            _changed.clear()
+            await asyncio.sleep(0.5)
+        status["league_stage"] = "building"
+        try:
+            await asyncio.to_thread(rebuild, data_dir, status, note)
+        except Exception as ex:
+            status["league_pending"] = True
+            status["league_stage"] = "error"
+            note(f"live league publish failed: {ex}")
+            # Keep provisional output visible and retry shortly without blocking the server.
+            await asyncio.sleep(30)
+            notify()

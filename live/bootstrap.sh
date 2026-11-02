@@ -5,7 +5,8 @@
 #
 # It locks the server down (key-only SSH, firewall, fail2ban, automatic security
 # updates), installs Caddy (HTTPS for live.gremigaming.com) and the race-live
-# service from this repo, and asks for the three Cloudflare R2 values. The server
+# service from this repo, and asks for the three Cloudflare R2 values plus an
+# optional classification decryption key. The server
 # pulls new code from GitHub by itself every 2 minutes, so nobody needs to log in
 # again to update it. Safe to run again; add --keys to type the R2 values again.
 set -euo pipefail
@@ -29,7 +30,7 @@ echo "== Updating the system (a few minutes the first time)"
 export DEBIAN_FRONTEND=noninteractive
 apt-get update -qq
 apt-get -y -qq -o Dpkg::Options::=--force-confold upgrade >/dev/null
-apt-get install -y -qq git python3-venv ufw fail2ban unattended-upgrades caddy curl >/dev/null
+apt-get install -y -qq git python3-venv nodejs ufw fail2ban unattended-upgrades caddy curl >/dev/null
 
 echo "== Security: key-only SSH, firewall, fail2ban, automatic security updates"
 cat > /etc/ssh/sshd_config.d/01-race-live.conf <<'SSHD'
@@ -70,6 +71,14 @@ if ! grep -q '^INGEST_TOKEN=.' "$ENV_FILE"; then
   NEW_TOKEN=1
 fi
 grep -q '^DATA_DIR=' "$ENV_FILE" || printf 'DATA_DIR=%s\nPORT=8100\n' "$DATA" >> "$ENV_FILE"
+if ! grep -q '^CLASSIFICATION_KEY_B64=.' "$ENV_FILE"; then
+  echo "== Optional: encrypted classification captures can reveal hidden names after a race."
+  echo "   Paste the base64-encoded PEM private key used by race-stats CLASSIFICATION_KEY, or press Enter to skip."
+  read -rsp "Classification key (optional): " CLASSIFICATION_KEY_B64 </dev/tty; echo
+  if [ -n "$CLASSIFICATION_KEY_B64" ]; then
+    printf 'CLASSIFICATION_KEY_B64=%s\n' "$CLASSIFICATION_KEY_B64" >> "$ENV_FILE"
+  fi
+fi
 chown root:"$USER_NAME" "$ENV_FILE"
 chmod 640 "$ENV_FILE"
 
@@ -103,6 +112,10 @@ cd $DIR
 before=\$(sudo -u $USER_NAME git rev-parse HEAD)
 sudo -u $USER_NAME git pull -q --ff-only
 if [ -n "\$(sudo -u $USER_NAME git diff --name-only "\$before" HEAD -- live/)" ]; then
+  if ! command -v node >/dev/null 2>&1; then
+    apt-get update -qq
+    apt-get install -y -qq nodejs >/dev/null
+  fi
   sudo -u $USER_NAME $DIR/.venv/bin/pip install -q -r live/requirements.txt
   systemctl restart race-live
 fi

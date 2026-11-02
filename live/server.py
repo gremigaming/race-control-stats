@@ -1,6 +1,7 @@
 """Live Race Viewer server (Hetzner, https://live.gremigaming.com behind Caddy).
 
-    wss://live.gremigaming.com/ingest   the racing PC's uplink (Authorization: Bearer INGEST_TOKEN)
+    wss://live.gremigaming.com/ingest   the racing PC's live telemetry uplink
+    wss://live.gremigaming.com/publish  finalized race artifacts (same Bearer INGEST_TOKEN)
     https://live.gremigaming.com/status what is coming in, for checking without SSH (no names, no keys)
     wss://live.gremigaming.com/watch    live viewers (race-stats src/viewer/live.ts), see watch()
     https://live.gremigaming.com/live.json                  sessions streaming now
@@ -35,7 +36,7 @@ from websockets.datastructures import Headers
 from websockets.exceptions import ConnectionClosed
 from websockets.http11 import Response
 
-from live import final, maps, publish
+from live import final, league, maps, publish
 from live.race import Session, records
 
 DATA_DIR = os.environ.get("DATA_DIR", "/var/lib/race-live")
@@ -52,7 +53,8 @@ MESSAGE = struct.Struct("<QIQ")
 log = logging.getLogger("race-live")
 sessions = {}
 state = {"started": time.time(), "uplink": False, "last_batch": 0.0, "batches": 0, "errors": [], "maps": [],
-         "rejected": 0, "last_rejected": 0.0}
+         "rejected": 0, "last_rejected": 0.0, "league_pending": False,
+         "league_generation": None, "league_last_publish": None, "league_stage": "idle"}
 watchers = {}  # websocket -> uid it watches (None: only the list of live sessions)
 
 
@@ -102,6 +104,8 @@ async def handler(ws):
     path = ws.request.path.split("?", 1)[0]
     if path == "/watch":
         await watch(ws)
+    elif path == "/publish":
+        await league.receive(ws, DATA_DIR)
     else:
         await ingest(ws)
 
@@ -215,6 +219,9 @@ def status():
             "batches": state["batches"], "errors": state["errors"], "maps_copied": state["maps"],
             "uplink_rejected": state["rejected"],
             "last_rejected_s_ago": round(now - state["last_rejected"], 1) if state["last_rejected"] else None,
+            "league_pending": state["league_pending"], "league_generation": state["league_generation"],
+            "league_last_publish_s_ago": round(now - state["league_last_publish"], 1) if state["league_last_publish"] else None,
+            "league_stage": state["league_stage"], "league_duration_s": state.get("league_duration_s"),
             "live_viewers": len(watchers), "live": [r["uid"] for r in live_sessions()],
             "sessions": [{"uid": s.meta["uid"], "track": s.manifest()["track"], "session": s.manifest()["session"],
                           "chunks": len(s.meta["chunks"]), "cars": len(s.meta["participants"]),
@@ -254,7 +261,7 @@ def session_file(path, query):
 
 async def process_request(connection, request):
     path, _, query = request.path.partition("?")
-    if path == "/ingest":
+    if path in ("/ingest", "/publish"):
         auth = request.headers.get("Authorization", "")
         if not TOKEN or not hmac.compare_digest(auth, f"Bearer {TOKEN}"):
             state["rejected"] += 1
@@ -345,6 +352,8 @@ async def housekeeping():
 def warm():
     try:
         final.modules(DATA_DIR)
+        if league.needs_reconcile(DATA_DIR):
+            league.notify()
     except Exception as ex:
         note(f"race-stats code for incidents not ready: {ex}")
 
@@ -377,8 +386,10 @@ async def main():
                      ping_interval=20, ping_timeout=40):
         log.info("listening on 127.0.0.1:%d", PORT)
         push = asyncio.create_task(pusher())
+        league_push = asyncio.create_task(league.publish_worker(DATA_DIR, state, note))
         await housekeeping()
         push.cancel()
+        league_push.cancel()
 
 
 if __name__ == "__main__":
