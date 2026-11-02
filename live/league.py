@@ -174,23 +174,23 @@ def rebuild(data_dir, status, note):
 
     # Get result JSON onto R2 first; network OCR and historical telemetry work
     # can continue while the visitor sees the new race as provisional.
-    _run(["node", os.path.join(source, "scripts", "build-league-data.mjs")], checkout, env, "league results")
+    _run(["node", os.path.join(checkout, "scripts", "build-league-data.mjs")], checkout, env, "league results")
     first = publish.publish_league(output, pending=True)
     status.update({"league_pending": True, "league_generation": first["generation"],
                    "league_last_publish": time.time(), "league_stage": "analysis"})
 
     # Captures may arrive after the race JSON. Apply OCR and publish hidden-name
     # joins as a second provisional generation before fault analysis completes.
-    _run([py, os.path.join(source, "scripts", "telemetry", "classification_ocr.py"),
+    _run([py, os.path.join(checkout, "scripts", "telemetry", "classification_ocr.py"),
           telemetry, env["CLASSIFICATION_FILE"]], checkout, env, "classification OCR", timeout=300)
-    _run(["node", os.path.join(source, "scripts", "build-league-data.mjs")], checkout, env, "league names")
+    _run(["node", os.path.join(checkout, "scripts", "build-league-data.mjs")], checkout, env, "league names")
     first = publish.publish_league(output, pending=True)
     status.update({"league_generation": first["generation"], "league_last_publish": time.time()})
 
-    _run([py, os.path.join(source, "scripts", "telemetry", "fault_engine.py"), telemetry], checkout, env, "fault engine")
-    _run([py, os.path.join(source, "scripts", "safety_rating.py")], checkout, env, "safety rating")
-    _run([py, os.path.join(source, "scripts", "awards.py")], checkout, env, "awards")
-    _run([py, os.path.join(source, "scripts", "telemetry", "incident_replays.py"), telemetry], checkout, env, "incident replays")
+    _run([py, os.path.join(checkout, "scripts", "telemetry", "fault_engine.py"), telemetry], checkout, env, "fault engine")
+    _run([py, os.path.join(checkout, "scripts", "safety_rating.py")], checkout, env, "safety rating")
+    _run([py, os.path.join(checkout, "scripts", "awards.py")], checkout, env, "awards")
+    _run([py, os.path.join(checkout, "scripts", "telemetry", "incident_replays.py"), telemetry], checkout, env, "incident replays")
     result = publish.publish_league(output, pending=False)
 
     state_path = os.path.join(data_dir, "league", "publish-state.json")
