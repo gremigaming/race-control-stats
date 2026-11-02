@@ -169,6 +169,9 @@ def rebuild(data_dir, status, note):
         "SR_VERDICTS": os.path.join(telemetry, "verdicts"),
         "AWARDS_OUT": os.path.join(output, "awards.json"),
         "SR_RULES": "v2.1",
+        # Incident replays scan whole recordings; the first run on an empty cache can take
+        # hours. Stop starting new race days after 15 min; the next build picks up the rest.
+        "REPLAY_BUDGET_S": "900",
     })
     py = sys.executable
 
