@@ -146,7 +146,7 @@ def _run(cmd, cwd, env, label, timeout=1800):
 def rebuild(data_dir, status, note):
     """Build provisional results, publish them, then enrich and atomically republish."""
     started = time.time()
-    checkout = final.checkout(data_dir, pull=False)
+    checkout = final.checkout(data_dir)   # league builds need the current scripts + races
     source_revision = _head(checkout)
     source = os.path.join(checkout, "races")
     overlay = os.path.join(data_dir, "league", "incoming", "races")

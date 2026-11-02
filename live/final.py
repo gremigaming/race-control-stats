@@ -40,8 +40,10 @@ def _checkout(data_dir, pull=True):
         subprocess.run(["git", "clone", "-q", "--depth", "1", "--filter=blob:none", "--sparse", REPO, d],
                        check=True, timeout=120)
         subprocess.run(git + ["sparse-checkout", "set", "scripts", "races", "setups"], check=True, timeout=60)
-    elif not os.path.isfile(os.path.join(d, "scripts", "build-league-data.mjs")):
+    elif not (os.path.isfile(os.path.join(d, "scripts", "build-league-data.mjs"))
+              and os.path.isdir(os.path.join(d, "races"))):   # older clones only had scripts/
         subprocess.run(git + ["sparse-checkout", "set", "scripts", "races", "setups"], check=True, timeout=60)
+        subprocess.run(git + ["pull", "-q", "--ff-only", "--depth", "1"], check=True, timeout=120)
     elif pull and time.time() - _state["pulled"] > PULL_EVERY:
         subprocess.run(git + ["pull", "-q", "--ff-only", "--depth", "1"], check=True, timeout=120)
     _state["pulled"] = time.time()
