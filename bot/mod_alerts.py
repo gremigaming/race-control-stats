@@ -222,7 +222,7 @@ class Feeds:
             detail = await self.json(API + "commits/" + sha, self.gh) or {}
             paths += [f["filename"] for f in detail.get("files", [])
                       if f.get("status") == "added" and f["filename"].endswith(".json")
-                      and not f["filename"].endswith(("aliases.json", "corrections.json"))]
+                      and not f["filename"].endswith(("aliases.json", "corrections.json", "decisions.json"))]
         return paths, newest
 
 

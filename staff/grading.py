@@ -15,6 +15,7 @@ import json
 import os
 import pathlib
 import re
+import threading
 import time
 
 BATCH_DIR = pathlib.Path(__file__).resolve().parent / "grading"
@@ -246,6 +247,51 @@ def results_page(user, q, h):
                    + "".join(f"<tr><td>{e(n)}</td><td>{d}</td><td>{f'{round(100 * a / c)}% of {c}' if c else '–'}</td></tr>"
                              for n, (d, c, a) in sorted(graders.items(), key=lambda x: -x[1][0])) + "</table></div>")
     return h["page"]("Grading results", "".join(out), user, "grading")
+
+
+def decisions(grades, owner_id):
+    """The final call on every graded incident, for the fault engine's precedents (race-stats
+    grading/decisions.json): GreMi's grade when he gave one, else the staff majority. No staff
+    names or Discord ids; GreMi's note is kept because it says why."""
+    out = {}
+    for _, incs in batches():
+        for i in incs:
+            s = summary(i, grades, owner_id)
+            if not s["final"] or i["id"] in out:
+                continue
+            o = s["owner"]
+            if o:
+                d = {"by": "GreMi", "real": o["real"], "at_fault": o["at_fault"], "severity": o["severity"],
+                     "note": o.get("note", ""), "at": o.get("at")}
+            else:
+                g = next(g for g in s["staff"].values() if verdict_of(g) == s["final"])
+                d = {"by": "staff", "real": g["real"], "at_fault": g["at_fault"], "severity": s["severity"] or 0,
+                     "note": "", "votes": len(s["staff"]), "agree": s["agree"]}
+            out[i["id"]] = {"verdict": s["final"], **d, "drivers": i["drivers"], "track": i.get("track"),
+                            "date": i.get("date"), "race_file": i.get("race_file"), "recording": i.get("recording"),
+                            "replay": i.get("replay"), "engine": i.get("engine")}
+    return out
+
+
+DECISIONS = "grading/decisions.json"
+_sync_lock = threading.Lock()
+
+
+def sync_decisions(owner_id, gh_file, save_json):
+    """Commits the final calls to race-stats when they changed (the site build reads them)."""
+    with _sync_lock:
+        new = decisions(read_grades(), owner_id)
+        data, _ = gh_file(DECISIONS)
+        if data is not None and data.get("decisions") == new:
+            return False
+
+        def edit(d):
+            d.clear()
+            d.update({"about": "Final calls on graded incidents (GreMi's grade, else the staff majority). "
+                               "Written by the staff page; the fault engine uses them as precedents.",
+                      "decisions": new})
+        save_json(DECISIONS, edit, f"Graded incidents: {len(new)} final calls", {})
+        return True
 
 
 def export(owner_id):

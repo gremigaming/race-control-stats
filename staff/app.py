@@ -1135,6 +1135,23 @@ def setup_action_post(form, user):
     raise ValueError("unknown action")
 
 
+def owner_id():
+    try:
+        return int(json.loads(STAFF_FILE.read_text()).get("owner") or 0)
+    except Exception:
+        return 0
+
+
+def sync_decisions():
+    """Final calls on graded incidents -> race-stats grading/decisions.json (fault engine precedents)."""
+    from staff import grading
+    try:
+        if owner_id() and GITHUB_TOKEN and grading.sync_decisions(owner_id(), gh_file, save_json):
+            print("grading: decisions saved to race-stats", flush=True)
+    except Exception as ex:
+        print("grading: decisions not saved:", ex, flush=True)
+
+
 def _grading_helpers():
     return {"e": e, "page": page, "csrf_token": csrf_token, "is_owner": is_owner}
 
@@ -1157,6 +1174,7 @@ def grade_post(form, user):
     if grading.involved(inc, grading.linked_driver(int(user["id"]))):
         raise ValueError("you drove in this incident, so another steward grades it")
     g = grading.save(inc, int(user["id"]), user["name"], form)
+    threading.Thread(target=sync_decisions, daemon=True).start()
     return f"Saved {inc['id'].upper()}: {grading.verdict_of(g)}."
 
 
@@ -1459,6 +1477,7 @@ def reload_on_change():
 
 def main():
     threading.Thread(target=reload_on_change, daemon=True).start()
+    threading.Thread(target=sync_decisions, daemon=True).start()   # grades made before this existed
     missing = [k for k in ("DISCORD_CLIENT_SECRET", "STAFF_GITHUB_TOKEN", "STAFF_SECRET") if not os.environ.get(k)]
     if missing:
         print("staff page: missing " + ", ".join(missing), flush=True)
