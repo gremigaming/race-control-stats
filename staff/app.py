@@ -97,11 +97,26 @@ def site_json(path, ttl=60):
 GH = {"Accept": "application/vnd.github+json", "X-GitHub-Api-Version": "2022-11-28"}
 
 
+def gh_call(url, data=None, method=None, tries=4):
+    """A GitHub API call that tries again when GitHub has a hiccup (5xx, timeouts).
+    GitHub answers 500/502/503 now and then, mostly when several commits land on
+    main at the same moment (the site build, the grading sync, a staff save)."""
+    for n in range(tries):
+        try:
+            return http(url, data, headers={**GH, "Authorization": f"Bearer {GITHUB_TOKEN}"}, method=method)
+        except urllib.error.HTTPError as e:
+            if e.code < 500 or n == tries - 1:
+                raise
+        except (urllib.error.URLError, TimeoutError, ConnectionError):
+            if n == tries - 1:
+                raise
+        time.sleep(1.5 * 2 ** n)
+
+
 def gh_file(path):
     """(parsed json, sha) of a file in the race-stats repo, or (None, None)."""
     try:
-        r = http(f"https://api.github.com/repos/{REPO}/contents/{path}?ref=main",
-                 headers={**GH, "Authorization": f"Bearer {GITHUB_TOKEN}"})
+        r = gh_call(f"https://api.github.com/repos/{REPO}/contents/{path}?ref=main")
     except urllib.error.HTTPError as e:
         if e.code == 404:
             return None, None
@@ -126,7 +141,7 @@ def save_corrections(edit, message):
 def save_json(path, edit, message, empty=None):
     """Reads a JSON file of race-stats, applies edit(data) and commits it to main."""
     with _write_lock:
-        for _ in range(3):
+        for attempt in range(5):
             data, sha = gh_file(path)
             data = data if data is not None else copy.deepcopy(empty)
             if data is None:
@@ -137,12 +152,12 @@ def save_json(path, edit, message, empty=None):
             if sha:
                 body["sha"] = sha
             try:
-                http(f"https://api.github.com/repos/{REPO}/contents/{path}", body,
-                     headers={**GH, "Authorization": f"Bearer {GITHUB_TOKEN}"}, method="PUT")
+                gh_call(f"https://api.github.com/repos/{REPO}/contents/{path}", body, method="PUT")
                 return
             except urllib.error.HTTPError as e:
-                if e.code not in (409, 422):
+                if e.code not in (409, 422):   # someone else committed in between: read again
                     raise
+                time.sleep(1 + attempt)
         raise RuntimeError("Could not save: the file kept changing. Try again.")
 
 
@@ -423,7 +438,7 @@ def incident_detail(user, sr, file):
         car = it["id"].split("|")[1]
         form = change_form(user, back, {"type": "incident", "id": it["id"], "file": file, "driver": name, "car": car,
                                         "was": it.get("orig", it["pts"])},
-                           f'<input type=number name=pts step=0.5 min=-25 max=10 value="{e(it["pts"])}" title="New points">')
+                           f'<input type=number name=pts step=0.5 min=-50 max=10 value="{e(it["pts"])}" title="New points">')
         html_rows += (f"<tr><td class='mono {pts_class(it['pts'])}'>{signed(it['pts'])}</td><td><b>{e(name)}</b>"
                       f"{' · lap ' + e(it['lap']) if it.get('lap') else ''} · {e(it['cat'])}{note}<div class=muted>{e(it['text'])}</div>"
                       f"<details><summary class=muted style='cursor:pointer'>Change</summary>{form}</details></td></tr>")
@@ -432,13 +447,40 @@ def incident_detail(user, sr, file):
                    if not AI_NAME.search(n))
     add = change_form(user, back, {"type": "add", "file": file},
                       f'<select name=car required>{opts}</select>'
-                      f'<input type=number name=pts step=0.5 min=-25 max=10 value="-2" title="Points (minus for a penalty)">'
+                      f'<input type=number name=pts step=0.5 min=-50 max=10 value="-2" title="Points (minus for a penalty)">'
                       f'<input type=number name=lap min=1 max=99 placeholder="Lap" title="Lap (optional)">'
                       f'<input name=text placeholder="What happened" required maxlength=120>', "Add")
-    return (f"<div class=card><h2 style='margin-top:0'>{e(label(file))}</h2>"
-            f"<p class=muted>Set the new points (0 cancels it) and say why. Clearing a driver's only penalty in a race gives them their clean-lap points back.</p>"
+    return (collisions_card(file) +
+            f"<div class=card><h2 style='margin-top:0'>{e(label(file))}: points</h2>"
+            f"<p class=muted>Points on the live SR v2.2 scale (penalties are double the old ones). Set the new points (0 cancels it) and say why. Clearing a driver's only penalty in a race gives them their clean-lap points back.</p>"
             f"<table>{html_rows or '<tr><td class=muted>No points in this session.</td></tr>'}</table></div>"
             f"<div class=card><h2 style='margin-top:0'>Add a penalty or bonus</h2>{add}</div>")
+
+
+def collisions_card(file):
+    """Every collision in the session (also the ones that cost nobody points), as on the site's race view."""
+    try:
+        incs = [i for i in site_json("league/incidents.json", ttl=300).get("incidents", []) if i.get("file") == file]
+    except Exception as ex:
+        return f"<div class=card><p class=muted>Collisions could not be loaded: {e(explain(ex))}</p></div>"
+    incs.sort(key=lambda i: (i.get("lap") or 0, i.get("where") or ""))
+    rows = ""
+    for i in incs:
+        sides = ""
+        for n, (pts, why) in (i.get("lines") or {}).items():
+            sides += (f"<div><span class='mono {pts_class(pts)}'>{signed(pts)}</span> <b>{e(n)}</b>"
+                      f"{' · <span class=muted>' + e(why) + '</span>' if why else ''}</div>")
+        if not sides:
+            sides = "<div class=muted>" + e(" vs ".join(i.get("names") or [])) + "</div>"
+        sev = i.get("sev")
+        rows += (f"<tr><td class=mono>{'L' + e(i['lap']) if i.get('lap') else ''}</td>"
+                 f"<td><b>{e(i.get('where') or 'Contact')}</b>"
+                 f"{f' · <span class=muted>severity {e(sev)}</span>' if sev not in (None, '') else ''}"
+                 f"{' · <span class=tag>replay on the site</span>' if i.get('replay') else ''}{sides}</td></tr>")
+    return (f"<div class=card><h2 style='margin-top:0'>{e(label(file))}: incidents ({len(incs)})</h2>"
+            f"<p class=muted>Every collision the telemetry found, with each driver's points and why. "
+            f"Change a driver's points in the list below.</p>"
+            f"<table>{rows or '<tr><td class=muted>No collisions in this session.</td></tr>'}</table></div>")
 
 
 def results(user, q):
@@ -556,9 +598,9 @@ def build_change(form, user):
          "at": datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")}
     if t == "incident":
         c.update(id=form["id"], file=form["file"], driver=form.get("driver", ""), car=int(form["car"]),
-                 pts=num(form["pts"], -25, 10), was=num(form.get("was", 0), -100, 100))
+                 pts=num(form["pts"], -50, 10), was=num(form.get("was", 0), -100, 100))
     elif t == "add":
-        c.update(file=form["file"], car=int(form["car"]), pts=num(form["pts"], -25, 10),
+        c.update(file=form["file"], car=int(form["car"]), pts=num(form["pts"], -50, 10),
                  text=(form.get("text") or "").strip()[:120] or "Staff decision")
         if form.get("lap"):
             c["lap"] = int(num(form["lap"], 1, 99))
@@ -615,6 +657,8 @@ def apply_change(c):
             if linked:
                 ch[:] = [x for x in ch if x not in linked]
                 return
+        if c in ch:   # already saved by a try that GitHub answered with an error
+            return
         ch.append(c)
     save_corrections(edit, f"Staff: {describe(c)}"[:120])
 
@@ -757,7 +801,7 @@ def protest_card(p, staff=None):
         out += (f"<p class=muted style='margin-bottom:0'>Your answer is shown to the driver. Accepting saves the new points like a change under Incidents. "
                 f"<a href='/incidents?file={urllib.parse.quote(p['file'])}'>All incidents in this race</a></p>"
                 f'<form method=post action="/protest-answer" class="inline">{base}{field("action", "accept")}'
-                f'<input type=number name=pts step=0.5 min=-25 max=0 value="0" title="New points (0 cancels the penalty)">'
+                f'<input type=number name=pts step=0.5 min=-50 max=0 value="0" title="New points (0 cancels the penalty)">'
                 f'<input name=answer placeholder="Answer to the driver" required maxlength=300 style="flex:1;min-width:180px">'
                 f'<button>Accept, set points</button></form>'
                 f'<form method=post action="/protest-answer" class="inline">{base}{field("action", "reject")}'
@@ -788,7 +832,7 @@ def protest_answer(form, user):
     if not p or p["status"] != "open":
         raise ValueError("That protest was already answered.")
     if action == "accept":
-        pts = num(form.get("pts", 0), -25, 0)
+        pts = num(form.get("pts", 0), -50, 0)
         c = {"id": p["item"], "type": "incident", "file": p["file"], "driver": p["driver"], "car": int(p["item"].split("|")[1]),
              "pts": pts, "was": p["pts"], "reason": f"Protest accepted: {answer}"[:200], "by": user["id"],
              "at": datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")}
@@ -1191,9 +1235,14 @@ def explain(ex):
             return (f"Discord refused the login ({ex.code}). Check the Discord client secret and that the redirect "
                     f"{BASE_URL}/callback is saved on the Discord OAuth2 page. To type the secret again: "
                     "run the setup script with --keys.")
-        if "api.github.com" in url:
+        if "api.github.com" in url and ex.code >= 500:
+            return (f"GitHub had a temporary problem ({ex.code}), also after trying again for half a minute. "
+                    "Nothing was changed. Try again in a few minutes.")
+        if "api.github.com" in url and ex.code in (401, 403):
             return (f"GitHub refused the token ({ex.code}). Make a new token with access to race-stats "
                     "(Contents: read and write) and run the setup script with --keys.")
+        if "api.github.com" in url:
+            return f"GitHub said {ex.code} ({url.split('?')[0].split('/repos/', 1)[-1]})."
         if "discord.com" in url:
             return f"Discord said {ex.code} ({url.split('/api/v10', 1)[-1].split('?')[0]})."
         return f"{url.split('?')[0]} said {ex.code}."
