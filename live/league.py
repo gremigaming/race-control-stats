@@ -67,13 +67,13 @@ async def receive(ws, data_dir):
     """Read one JSON header then binary frames until exactly the declared size arrives."""
     header = await ws.recv()
     if not isinstance(header, str):
-        await ws.send(json.dumps({"ok": False, "error": "artifact header must be text"}))
+        await ws.send(json.dumps({"ok": False, "error": "artifact header must be text"}, separators=(",", ":")))
         return
     try:
         meta = json.loads(header)
         target, size = _target(meta, data_dir)
     except (ValueError, TypeError) as ex:
-        await ws.send(json.dumps({"ok": False, "error": str(ex)}))
+        await ws.send(json.dumps({"ok": False, "error": str(ex)}, separators=(",", ":")))
         return
 
     temp = target + ".upload-" + uuid.uuid4().hex
@@ -103,7 +103,7 @@ async def receive(ws, data_dir):
         else:
             os.remove(temp)
         notify()
-        await ws.send(json.dumps({"ok": True, "status": "duplicate" if duplicate else "stored", "sha256": hexdigest}))
+        await ws.send(json.dumps({"ok": True, "status": "duplicate" if duplicate else "stored", "sha256": hexdigest}, separators=(",", ":")))
     except Exception:
         try:
             os.remove(temp)
