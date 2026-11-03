@@ -112,12 +112,26 @@ async def receive(ws, data_dir):
         raise
 
 
+LEAGUE_CODE = 2   # bump to make the live server rebuild its league data after a change here
+
+
 def _head(checkout):
     try:
         return subprocess.run(["git", "-C", checkout, "rev-parse", "HEAD"], check=True,
                               capture_output=True, text=True, timeout=30).stdout.strip()
     except Exception:
         return "unknown"
+
+
+def sr_rules(checkout):
+    """The SR rule set the site build uses (race-stats site.yml), so live data never runs older rules."""
+    try:   # the checkout is sparse (no .github folder), so read the file from git
+        yml = subprocess.run(["git", "-C", checkout, "show", "HEAD:.github/workflows/site.yml"], check=True,
+                             capture_output=True, text=True, timeout=60).stdout
+        m = re.search(r"SR_RULES:\s*([\w.]+)", yml)
+        return m.group(1) if m else "v2.2"
+    except Exception:
+        return "v2.2"
 
 
 def needs_reconcile(data_dir):
@@ -129,7 +143,8 @@ def needs_reconcile(data_dir):
         old = json.load(open(state_path, encoding="utf-8"))
     except (OSError, ValueError):
         old = {}
-    return old.get("source_revision") != head or old.get("pending") is True
+    return (old.get("source_revision") != head or old.get("pending") is True
+            or old.get("sr_rules") != sr_rules(checkout) or old.get("league_code") != LEAGUE_CODE)
 
 
 def _run(cmd, cwd, env, label, timeout=1800):
@@ -168,7 +183,7 @@ def rebuild(data_dir, status, note):
         "SR_OUT": output,
         "SR_VERDICTS": os.path.join(telemetry, "verdicts"),
         "AWARDS_OUT": os.path.join(output, "awards.json"),
-        "SR_RULES": "v2.1",
+        "SR_RULES": sr_rules(checkout),
         # Incident replays scan whole recordings; the first run on an empty cache can take
         # hours. Stop starting new race days after 15 min; the next build picks up the rest.
         "REPLAY_BUDGET_S": "900",
@@ -198,7 +213,8 @@ def rebuild(data_dir, status, note):
 
     state_path = os.path.join(data_dir, "league", "publish-state.json")
     with open(state_path + ".tmp", "w", encoding="utf-8") as fh:
-        json.dump({"source_revision": source_revision, "generation": result["generation"],
+        json.dump({"source_revision": source_revision, "sr_rules": env["SR_RULES"], "league_code": LEAGUE_CODE,
+                   "generation": result["generation"],
                    "pending": False, "published_at": time.time()}, fh)
     os.replace(state_path + ".tmp", state_path)
     status.update({"league_pending": False, "league_generation": result["generation"],
