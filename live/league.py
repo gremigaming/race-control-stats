@@ -112,7 +112,7 @@ async def receive(ws, data_dir):
         raise
 
 
-LEAGUE_CODE = 2   # bump to make the live server rebuild its league data after a change here
+LEAGUE_CODE = 3   # bump to make the live server rebuild its league data after a change here
 
 
 def _head(checkout):
@@ -206,6 +206,13 @@ def rebuild(data_dir, status, note):
     status.update({"league_generation": first["generation"], "league_last_publish": time.time()})
 
     _run([py, os.path.join(checkout, "scripts", "telemetry", "fault_engine.py"), telemetry], checkout, env, "fault engine")
+    # Graded incidents as precedents (race-stats grading/), the same step as the site build,
+    # so the website (live data) and the Pages build / staff page give the same points.
+    try:
+        _run([py, os.path.join(checkout, "scripts", "telemetry", "precedents.py"), "apply", telemetry],
+             checkout, env, "precedents", timeout=900)
+    except Exception as ex:
+        print("precedents not applied, verdicts are the rulebook's:", ex, flush=True)
     _run([py, os.path.join(checkout, "scripts", "safety_rating.py")], checkout, env, "safety rating")
     _run([py, os.path.join(checkout, "scripts", "awards.py")], checkout, env, "awards")
     _run([py, os.path.join(checkout, "scripts", "telemetry", "incident_replays.py"), telemetry], checkout, env, "incident replays")

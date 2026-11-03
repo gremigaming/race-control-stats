@@ -46,10 +46,11 @@ def _checkout(data_dir, pull=True):
         shutil.rmtree(d, ignore_errors=True)
         subprocess.run(["git", "clone", "-q", "--depth", "1", "--filter=blob:none", "--sparse", REPO, d],
                        check=True, timeout=120)
-        subprocess.run(git + ["sparse-checkout", "set", "scripts", "races", "setups"], check=True, timeout=60)
+        subprocess.run(git + ["sparse-checkout", "set", "scripts", "races", "setups", "grading"], check=True, timeout=60)
     elif not (os.path.isfile(os.path.join(d, "scripts", "build-league-data.mjs"))
-              and os.path.isdir(os.path.join(d, "races"))):   # older clones only had scripts/
-        subprocess.run(git + ["sparse-checkout", "set", "scripts", "races", "setups"], check=True, timeout=60)
+              and os.path.isdir(os.path.join(d, "races"))
+              and os.path.isdir(os.path.join(d, "grading"))):   # older clones lacked races/ or grading/ (precedents)
+        subprocess.run(git + ["sparse-checkout", "set", "scripts", "races", "setups", "grading"], check=True, timeout=60)
         _update(git)
     elif pull and time.time() - _state["pulled"] > PULL_EVERY:
         _update(git)

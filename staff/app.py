@@ -79,14 +79,50 @@ _cache = {}
 _cache_lock = threading.Lock()
 
 
+LIVE_LEAGUE = "https://replays.gremigaming.com/league/"
+
+
+def live_url(path):
+    """Where the site reads this league file right now: the live server (R2) when it has it,
+    else None (GitHub Pages). The website reads the live server first, so the staff page
+    does too: both then show the same SR points."""
+    if not path.startswith("league/"):
+        return None
+    now = time.time()
+    with _cache_lock:
+        hit = _cache.get("#live-index")
+    if not hit or now - hit[0] > 30:
+        try:
+            idx = http(LIVE_LEAGUE + f"index.json?t={int(now)}")
+            if not (idx.get("files") or idx.get("generation")):
+                idx = {}
+        except Exception:
+            idx = {}
+        hit = (now, idx)
+        with _cache_lock:
+            _cache["#live-index"] = hit
+    mapped = (hit[1].get("assetPaths") or {}).get(urllib.parse.unquote(path[len("league/"):]))
+    if not mapped:
+        return None
+    return mapped if mapped.startswith("http") else LIVE_LEAGUE + urllib.parse.quote(mapped.lstrip("/"), safe="/")
+
+
 def site_json(path, ttl=60):
-    """A file from the published site, cached for ttl seconds."""
+    """A league file as the website shows it (live server first, then the Pages build), cached for ttl seconds."""
     now = time.time()
     with _cache_lock:
         hit = _cache.get(path)
         if hit and now - hit[0] < ttl:
             return hit[1]
-    data = http(SITE + path + f"?t={int(now)}")
+    data = None
+    url = live_url(path)
+    if url:
+        try:
+            data = http(url)
+        except Exception:
+            data = None
+    if data is None:
+        data = http(SITE + path + f"?t={int(now)}")
     with _cache_lock:
         if len(_cache) > 60:
             _cache.clear()
@@ -450,24 +486,40 @@ def incident_detail(user, sr, file):
                       f'<input type=number name=pts step=0.5 min=-50 max=10 value="-2" title="Points (minus for a penalty)">'
                       f'<input type=number name=lap min=1 max=99 placeholder="Lap" title="Lap (optional)">'
                       f'<input name=text placeholder="What happened" required maxlength=120>', "Add")
-    return (collisions_card(file) +
+    return (collisions_card(file, sr) +
             f"<div class=card><h2 style='margin-top:0'>{e(label(file))}: points</h2>"
             f"<p class=muted>Points on the live SR v2.2 scale (penalties are double the old ones). Set the new points (0 cancels it) and say why. Clearing a driver's only penalty in a race gives them their clean-lap points back.</p>"
             f"<table>{html_rows or '<tr><td class=muted>No points in this session.</td></tr>'}</table></div>"
             f"<div class=card><h2 style='margin-top:0'>Add a penalty or bonus</h2>{add}</div>")
 
 
-def collisions_card(file):
+def collisions_card(file, sr=None):
     """Every collision in the session (also the ones that cost nobody points), as on the site's race view."""
     try:
         incs = [i for i in site_json("league/incidents.json", ttl=300).get("incidents", []) if i.get("file") == file]
     except Exception as ex:
         return f"<div class=card><p class=muted>Collisions could not be loaded: {e(explain(ex))}</p></div>"
     incs.sort(key=lambda i: (i.get("lap") or 0, i.get("where") or ""))
+    # the points list (safety.json, with staff changes) wins over the raw collision line,
+    # exactly as on the website
+    items = {}
+    for d in (sr or {}).get("drivers", []):
+        for se in d.get("sessions", []):
+            if se["file"] == file:
+                for it in se["items"]:
+                    if it.get("cat") == "contact":
+                        items.setdefault(it.get("replay") or (d["name"], it.get("lap"), it["text"].split(":", 1)[0]), {})[d["name"]] = it
     rows = ""
     for i in incs:
+        names = i.get("names") or []
         sides = ""
         for n, (pts, why) in (i.get("lines") or {}).items():
+            other = next((x for x in names if x != n), "")
+            it = (items.get(i.get("replay")) or {}).get(n) if i.get("replay") else None
+            it = it or (items.get((n, i.get("lap"), f"{i.get('where')}, with {other}")) or {}).get(n)
+            if it:
+                pts = it["pts"]
+                why = it["text"].split(": ", 1)[-1] + (f" (staff: {it['staff']})" if it.get("staff") else "")
             sides += (f"<div><span class='mono {pts_class(pts)}'>{signed(pts)}</span> <b>{e(n)}</b>"
                       f"{' · <span class=muted>' + e(why) + '</span>' if why else ''}</div>")
         if not sides:
