@@ -55,7 +55,23 @@ CLIPS_TOTAL = 3 * 1024 ** 3   # all clips together, so the disk can't fill up
 CLIP_TYPES = {"video/mp4": "mp4", "video/webm": "webm", "video/quicktime": "mov", "video/x-matroska": "mkv"}
 UA = "DiscordBot (https://github.com/gremigaming/race-control-stats, 1.0)"
 SESSION_DAYS = 14
-AI_NAME = re.compile(r" #\d+$")  # AI and hidden names
+AI_NAME_RE = re.compile(r" #\d+$")  # AI and hidden names look like "Ferrari '26 #21"
+
+
+class _AiName:
+    """AI_NAME.search(name): an AI car or hidden name, but not a real driver whose name ends in "#13"
+    (league/names.json lists every shown name, from the game's own flags)."""
+    @staticmethod
+    def search(n):
+        if not AI_NAME_RE.search(n or ""):
+            return False
+        try:
+            return n not in set(site_json("league/names.json", ttl=600).get("names", []))
+        except Exception:
+            return True
+
+
+AI_NAME = _AiName()
 
 # ---------------------------------------------------------------- outside calls
 
@@ -474,7 +490,11 @@ def incident_detail(user, sr, file):
         car = it["id"].split("|")[1]
         form = change_form(user, back, {"type": "incident", "id": it["id"], "file": file, "driver": name, "car": car,
                                         "was": it.get("orig", it["pts"])},
-                           f'<input type=number name=pts step=0.5 min=-50 max=10 value="{e(it["pts"])}" title="New points">')
+                           f'<input type=number name=pts step=0.5 min=-50 max=10 value="{e(it["pts"])}" title="New points">'
+                           + ('<label class=muted style="font-size:12px" title="The fault engine learns from this change: '
+                              'it judged this contact wrongly. Untick for leniency (the call was right, the points are softened).">'
+                              '<input type=checkbox name=learn value=1 checked> engine got it wrong (learn)</label>'
+                              if it.get("cat") == "contact" else ""))
         html_rows += (f"<tr><td class='mono {pts_class(it['pts'])}'>{signed(it['pts'])}</td><td><b>{e(name)}</b>"
                       f"{' · lap ' + e(it['lap']) if it.get('lap') else ''} · {e(it['cat'])}{note}<div class=muted>{e(it['text'])}</div>"
                       f"<details><summary class=muted style='cursor:pointer'>Change</summary>{form}</details></td></tr>")
@@ -651,6 +671,9 @@ def build_change(form, user):
     if t == "incident":
         c.update(id=form["id"], file=form["file"], driver=form.get("driver", ""), car=int(form["car"]),
                  pts=num(form["pts"], -50, 10), was=num(form.get("was", 0), -100, 100))
+        if "|contact|" in c["id"]:
+            c["learn"] = form.get("learn") == "1"
+            lesson_fields(c, user["id"])
     elif t == "add":
         c.update(file=form["file"], car=int(form["car"]), pts=num(form["pts"], -50, 10),
                  text=(form.get("text") or "").strip()[:120] or "Staff decision")
@@ -697,6 +720,60 @@ def build_change(form, user):
     else:
         raise ValueError
     return c
+
+
+def sr_item(item_id):
+    """The SR item of the live data with this id (contact items carry their incident: time + pair)."""
+    for d in site_json("league/safety.json").get("drivers", []):
+        for s_ in d.get("sessions", []):
+            for it in s_.get("items", []):
+                if it.get("id") == item_id:
+                    return it
+    return None
+
+
+def lesson_fields(c, uid):
+    """A change of contact points is also a lesson for the fault engine (race-stats precedents.py):
+    keep which contact it was (it survives renumbered items) and whether GreMi made it."""
+    try:
+        it = sr_item(c["id"])
+    except Exception:
+        it = None
+    if it and it.get("inc"):
+        c["inc"] = it["inc"]
+        c.setdefault("text", (it.get("text") or "")[:200])
+    c["owner"] = is_owner(int(uid or 0))
+
+
+def backfill_lessons():
+    """Older contact changes get their contact and the learn flag once (GreMi 3 Nov 2026: changes
+    made that day were leniency, not wrong calls, so they don't teach the engine)."""
+    if not GITHUB_TOKEN:
+        return
+    try:
+        data, _ = corrections()
+        todo = [c for c in data.get("changes", []) if c.get("type") == "incident" and "|contact|" in c.get("id", "")
+                and ("learn" not in c or "owner" not in c)]
+        if not todo:
+            return
+        refs = {c["id"]: sr_item(c["id"]) for c in todo if "inc" not in c}
+
+        def edit(d):
+            for c in d.get("changes", []):
+                if c.get("type") != "incident" or "|contact|" not in c.get("id", ""):
+                    continue
+                if "learn" not in c:
+                    c["learn"] = not (c.get("at") or "").startswith("2026-11-03")
+                it = refs.get(c["id"])
+                if "inc" not in c and it and it.get("inc"):
+                    c["inc"] = it["inc"]
+                    c.setdefault("text", (it.get("text") or "")[:200])
+                if "owner" not in c:
+                    c["owner"] = is_owner(int(c.get("by") or 0))
+        save_corrections(edit, f"Staff: {len(todo)} contact changes kept as fault-engine lessons")
+        print("staff page: contact changes backfilled as lessons", flush=True)
+    except Exception as ex:
+        print("staff page: lessons not backfilled:", ex, flush=True)
 
 
 def apply_change(c):
@@ -888,6 +965,9 @@ def protest_answer(form, user):
         c = {"id": p["item"], "type": "incident", "file": p["file"], "driver": p["driver"], "car": int(p["item"].split("|")[1]),
              "pts": pts, "was": p["pts"], "reason": f"Protest accepted: {answer}"[:200], "by": user["id"],
              "at": datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")}
+        if "|contact|" in c["id"]:
+            c["learn"] = True   # an accepted protest = the engine judged it wrongly
+            lesson_fields(c, user["id"])
         apply_change(c)
 
     def edit(data):
@@ -1582,6 +1662,7 @@ def reload_on_change():
 def main():
     threading.Thread(target=reload_on_change, daemon=True).start()
     threading.Thread(target=sync_decisions, daemon=True).start()   # grades made before this existed
+    threading.Thread(target=backfill_lessons, daemon=True).start()
     missing = [k for k in ("DISCORD_CLIENT_SECRET", "STAFF_GITHUB_TOKEN", "STAFF_SECRET") if not os.environ.get(k)]
     if missing:
         print("staff page: missing " + ", ".join(missing), flush=True)
