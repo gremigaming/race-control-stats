@@ -2,7 +2,7 @@
 
 Race Control posts there when:
 - a driver crosses a safety rating kick line (20+ lost in a race, 40+ in a stream);
-- a driver's SR goes below 0 (banned);
+- a driver is banned (SR below 0; from SR v2.2 on: SR 0);
 - a driver protests a penalty, or a hidden car was merged into a named driver;
 - a new session arrives (the uploader sends every save right after it ends) with
   a driver who was kicked before (and how often), a banned driver (must leave),
@@ -87,7 +87,7 @@ def session_alerts(file, cars, kicks, banned, combos):
         if c["hidden"]:
             continue
         if key in banned:
-            out.append((f"banned|{day}|{key}", f"🚫 **{c['name']}** is banned (SR below 0) and is in the lobby ({where}). They have to leave."))
+            out.append((f"banned|{day}|{key}", f"🚫 **{c['name']}** is banned (SR 0) and is in the lobby ({where}). They have to leave."))
         elif key in kicks:
             name, n, last = kicks[key]
             times = "once" if n == 1 else f"{n} times"
