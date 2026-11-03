@@ -1452,11 +1452,14 @@ class Handler(BaseHTTPRequestHandler):
         url = urllib.parse.urlparse(self.path)
         if url.path == "/api/protest-clip":
             return self.api_clip(urllib.parse.parse_qs(url.query))
-        length = min(int(self.headers.get("Content-Length") or 0), 20000)
+        length = min(int(self.headers.get("Content-Length") or 0), 60000)
         multi = urllib.parse.parse_qs(self.rfile.read(length).decode())
         form = {k: v[0] for k, v in multi.items()}
         form["cars"] = "\n".join(multi.get("cars", []))
         form["fault"] = "\n".join(multi.get("fault", []))
+        for k, v in multi.items():   # grading: reason tags of every split part
+            if k.endswith("_tag"):
+                form[k] = "\n".join(v)
         if self.path == "/protest":
             member = self.member()
             back = "/protest?item=" + urllib.parse.quote(form.get("item", ""))
