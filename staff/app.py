@@ -508,7 +508,7 @@ def incident_detail(user, sr, file):
                       f'<input name=text placeholder="What happened" required maxlength=120>', "Add")
     return (collisions_card(file, sr) +
             f"<div class=card><h2 style='margin-top:0'>{e(label(file))}: points</h2>"
-            f"<p class=muted>Points on the live SR v2.2 scale (penalties are double the old ones). Set the new points (0 cancels it) and say why. Clearing a driver's only penalty in a race gives them their clean-lap points back.</p>"
+            f"<p class=muted>Points are typed on the v2.2 scale, as before (contacts 1 / 3 / 6 / 10, R9 20, track limits 1). The live SR v2.5 converts them: contacts x0.75 (0.75 / 2.25 / 4.5 / 7.5, R9 15), track limits / pit exit / DNF x1.5, bonuses x2, and the site shows the converted points. Set the new points (0 cancels it) and say why. Clearing a driver's only penalty in a race gives them their clean-lap points back.</p>"
             f"<table>{html_rows or '<tr><td class=muted>No points in this session.</td></tr>'}</table></div>"
             f"<div class=card><h2 style='margin-top:0'>Add a penalty or bonus</h2>{add}</div>")
 

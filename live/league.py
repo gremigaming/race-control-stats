@@ -112,7 +112,7 @@ async def receive(ws, data_dir):
         raise
 
 
-LEAGUE_CODE = 3   # bump to make the live server rebuild its league data after a change here
+LEAGUE_CODE = 4   # bump to make the live server rebuild its league data after a change here
 
 
 def _head(checkout):
