@@ -347,7 +347,7 @@ def page(title, body, user=None, tab=""):
     if user:
         n = open_protests()
         links = [("", "Home"), ("protests", "Protests" + (f"<span class=badge>{n}</span>" if n else "")),
-                 ("incidents", "Incidents"), ("grading", "Grading"), ("results", "Results"), ("kick", "Kick"), ("names", "Names"),
+                 ("incidents", "Incidents"), ("grading", "Grading"), ("results", "Results"), ("kick", "Kick"), ("names", "Names"), ("sr-settings", "SR settings"),
                  ("members", "Members"), ("log", "All changes")]
         nav = "<nav>" + "".join(f'<a href="/{p}" class="{"on" if p == tab else ""}">{t}</a>' for p, t in links) + "</nav>"
         nav += f'<span class="me">{e(user["name"])} · <a href="/logout">log out</a></span>'
@@ -1354,9 +1354,37 @@ def grade_post(form, user):
     return f"Saved {inc['id'].upper()}: {grading.verdict_of(g)}."
 
 
+def sr_settings_page(user, q):
+    from staff import sr_settings
+    data, _ = gh_file(sr_settings.PATH)
+    try:
+        live = site_json("league/safety.json", ttl=30).get("settings") or {}
+    except Exception:
+        live = None
+    return page("SR settings", sr_settings.page_body(e, data or {}, live, is_owner(int(user["id"])), csrf_token(user)),
+                user, "sr-settings")
+
+
+def sr_settings_post(form, user):
+    from staff import sr_settings
+    if not is_owner(int(user["id"])):
+        raise ValueError("only GreMi can change the SR settings")
+    done = {}
+
+    def edit(data):
+        done.clear()
+        done.update(sr_settings.post(form, data, user["name"]))
+    if not form.get("do"):   # bad values: stop before anything goes to GitHub
+        sr_settings.from_form(form, sr_settings.current(None))
+    save_json(sr_settings.PATH, edit, f"SR settings: {(form.get('reason') or '').strip()[:80]} ({user['name']})", {"values": {}})
+    if not done:
+        return "Nothing changed."
+    return f"Saved {len(done)} change{'s' if len(done) > 1 else ''}. The website updates in about 3 minutes, the live data within about 10."
+
+
 PAGES = {"/": home, "/grading": grading_page, "/grading/results": grading_results, "/incidents": incidents, "/results": results, "/names": names_page,
          "/members": members_page, "/log": log_page, "/kick": kick_page, "/protests": protests_page,
-         "/setup-key": setup_key_page, "/setup-action": setup_action_page}
+         "/setup-key": setup_key_page, "/setup-action": setup_action_page, "/sr-settings": sr_settings_page}
 
 
 def explain(ex):
@@ -1590,6 +1618,9 @@ class Handler(BaseHTTPRequestHandler):
             elif self.path == "/protest-answer":
                 back = "/protests"
                 msg = protest_answer(form, user)
+            elif self.path == "/sr-settings":
+                back = "/sr-settings"
+                msg = sr_settings_post(form, user)
             elif self.path == "/setup-action":
                 back = "/setup-action?site=" + urllib.parse.quote(form.get("site", ""))
                 msg = setup_action_post(form, user)
@@ -1646,7 +1677,7 @@ class Handler(BaseHTTPRequestHandler):
 
 def reload_on_change():
     """The bot pulls main when new code arrives; start again when this file changed."""
-    files = [pathlib.Path(__file__), pathlib.Path(__file__).with_name("grading.py")]
+    files = [pathlib.Path(__file__), pathlib.Path(__file__).with_name("grading.py"), pathlib.Path(__file__).with_name("sr_settings.py")]
     stamp = lambda: [f.stat().st_mtime if f.exists() else 0 for f in files]  # noqa: E731
     seen = stamp()
     while True:
