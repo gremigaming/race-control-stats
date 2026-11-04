@@ -112,7 +112,7 @@ async def receive(ws, data_dir):
         raise
 
 
-LEAGUE_CODE = 4   # bump to make the live server rebuild its league data after a change here
+LEAGUE_CODE = 5   # bump to make the live server rebuild its league data after a change here
 
 
 def _head(checkout):
@@ -154,8 +154,11 @@ def _run(cmd, cwd, env, label, timeout=1800):
         print(f"[{label}] {result.stdout.strip()[-5000:]}", flush=True)
     if result.stderr.strip():
         print(f"[{label}] {result.stderr.strip()[-3000:]}", flush=True)
-    if result.returncode:
-        raise RuntimeError(f"{label} exited with status {result.returncode}")
+    if result.returncode:   # the last error line goes into /status, so a crash can be read without the server logs
+        lines = [x.strip() for x in (result.stderr or "").strip().splitlines() if x.strip()]
+        where = [x for x in lines if x.startswith("File ")][-1:]
+        tail = " | ".join(where + lines[-1:])
+        raise RuntimeError(f"{label} exited with status {result.returncode}: {tail[-400:]}")
 
 
 def rebuild(data_dir, status, note):
@@ -213,7 +216,13 @@ def rebuild(data_dir, status, note):
              checkout, env, "precedents", timeout=900)
     except Exception as ex:
         print("precedents not applied, verdicts are the rulebook's:", ex, flush=True)
-    _run([py, os.path.join(checkout, "scripts", "safety_rating.py")], checkout, env, "safety rating")
+    try:
+        _run([py, os.path.join(checkout, "scripts", "safety_rating.py")], checkout, env, "safety rating")
+    except RuntimeError as ex:   # a new SR rule set that crashes here must not stop live publishing
+        if env["SR_RULES"] == "v2.2":
+            raise
+        note(f"SR {env['SR_RULES']} failed, published with v2.2 instead: {ex}")
+        _run([py, os.path.join(checkout, "scripts", "safety_rating.py")], checkout, dict(env, SR_RULES="v2.2"), "safety rating v2.2")
     _run([py, os.path.join(checkout, "scripts", "awards.py")], checkout, env, "awards")
     _run([py, os.path.join(checkout, "scripts", "telemetry", "incident_replays.py"), telemetry], checkout, env, "incident replays")
     result = publish.publish_league(output, pending=False)
