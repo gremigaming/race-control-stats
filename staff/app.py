@@ -1758,7 +1758,8 @@ class Handler(BaseHTTPRequestHandler):
 
 def reload_on_change():
     """The bot pulls main when new code arrives; start again when this file changed."""
-    files = [pathlib.Path(__file__), pathlib.Path(__file__).with_name("grading.py"), pathlib.Path(__file__).with_name("sr_settings.py")]
+    files = [pathlib.Path(__file__), pathlib.Path(__file__).with_name("grading.py"), pathlib.Path(__file__).with_name("sr_settings.py"),
+             pathlib.Path(__file__).with_name("calls.py")]
     stamp = lambda: [f.stat().st_mtime if f.exists() else 0 for f in files]  # noqa: E731
     seen = stamp()
     while True:
