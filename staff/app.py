@@ -35,6 +35,8 @@ import urllib.request
 from http.cookies import SimpleCookie
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
+from staff import calls
+
 CLIENT_ID = os.environ.get("DISCORD_CLIENT_ID", "1532679389429502012")
 CLIENT_SECRET = os.environ.get("DISCORD_CLIENT_SECRET", "")
 BOT_TOKEN = os.environ.get("DISCORD_BOT_TOKEN", "")
@@ -317,6 +319,9 @@ header{display:flex;flex-wrap:wrap;gap:16px;align-items:center;padding:12px 20px
 header b{font-size:15px;margin-right:8px}header nav{display:flex;gap:4px;flex-wrap:wrap}
 header nav a{padding:6px 10px;border-radius:8px;color:#a1a1aa}header nav a.on{background:#27272a;color:#fff}
 header .me{margin-left:auto;color:#71717a;font-size:12px}
+header nav .grp{display:flex;gap:2px;align-items:center;padding-left:8px;margin-left:4px;border-left:1px solid #27272a}
+header nav a{padding:5px 8px;font-size:13px}
+header nav .gl{font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:#52525b;margin-right:4px}
 main{max-width:1100px;margin:0 auto;padding:20px}
 h1{font-size:20px;margin:0 0 4px}h2{font-size:15px;margin:24px 0 8px;color:#d4d4d8}
 .muted{color:#71717a;font-size:12px}.card{background:#18181b;border-radius:14px;padding:16px;margin:12px 0}
@@ -346,13 +351,19 @@ def page(title, body, user=None, tab=""):
     nav = ""
     if user:
         n = open_protests()
-        links = [("", "Home"), ("protests", "Protests" + (f"<span class=badge>{n}</span>" if n else "")),
-                 ("incidents", "Incidents"), ("grading", "Grading"), ("results", "Results"), ("kick", "Kick"), ("names", "Names"), ("sr-settings", "SR settings"),
-                 ("members", "Members"), ("log", "All changes")]
-        nav = "<nav>" + "".join(f'<a href="/{p}" class="{"on" if p == tab else ""}">{t}</a>' for p, t in links) + "</nav>"
+        # three groups (GreMi, 5 Nov 2026): what needs doing, running the races, and setup
+        groups = [("To do", [("protests", "Protests" + (f"<span class=badge>{n}</span>" if n else "")), ("grading", "Grading"),
+                             ("grading/learned", "What I learned")]),
+                  ("Race control", [("incidents", "Incidents"), ("results", "Results"), ("kick", "Kick"), ("drivers", "Drivers")]),
+                  ("Admin", [("names", "Names"), ("members", "Members"), ("sr-settings", "SR settings"), ("log", "All changes")])]
+        on = {"learned": "grading/learned"}.get(tab, tab)
+        nav = (f'<nav><a href="/" class="{"on" if tab == "" else ""}">Home</a>'
+               + "".join(f'<span class=grp><span class=gl>{g}</span>'
+                         + "".join(f'<a href="/{p}" class="{"on" if p == on else ""}">{t}</a>' for p, t in links) + "</span>"
+                         for g, links in groups) + "</nav>")
         nav += f'<span class="me">{e(user["name"])} · <a href="/logout">log out</a></span>'
     return (f"<!doctype html><html lang=en><head><meta charset=utf-8><meta name=viewport content='width=device-width,initial-scale=1'>"
-            f"<title>{e(title)} · GreMi Gang staff</title><style>{CSS}</style></head><body>"
+            f"<title>{e(title)} · GreMi Gang staff</title><style>{CSS}</style>{calls.STYLE}{calls.SCRIPT}</head><body>"
             + (f"<header><b>GreMi Gang staff</b>{nav}</header>" if user else "")
             + f"<main>{body}</main></body></html>")
 
@@ -423,6 +434,8 @@ def describe(c):
     who = c.get("driver") or ""
     if t == "incident":
         return f"SR item for {who} in {label(c.get('file', ''))}: {signed(c.get('was', 0))} → {signed(c['pts'])}"
+    if t == "confirm":
+        return f"Call kept for {who} in {label(c.get('file', ''))} ({signed(c.get('pts', 0))}): protest rejected"
     if t == "add":
         return f"{'Penalty' if float(c['pts']) < 0 else 'Bonus'} {signed(c['pts'])} for {who} in {label(c['file'])}: {c.get('text', '')}"
     if t == "result":
@@ -488,15 +501,26 @@ def incident_detail(user, sr, file):
         elif p:
             note = f'<span class=tag>saved: {signed(p["pts"])}, live soon</span>'
         car = it["id"].split("|")[1]
+        if it.get("cat") == "contact":
+            # GreMi, 5 Nov 2026: change a contact like grading it (type, blame, severity), points follow; override kept
+            kind = it.get("type") or calls.guess_type(None, it.get("text"))
+            inner = (calls.picker(e, kind, "shared" if "shared" in (it.get("text") or "") else "fault",
+                                  calls.severity_in(it.get("text")), it["pts"], guessed=bool(kind))
+                     + "<div class=muted style='font-size:12px;width:100%'>Pick <i>Not at fault</i> to cancel the penalty. "
+                       "Severity 1-3 = 1 point, 4-5 = 3, 6-7 = 6, 8-10 = 10 (v2.2 scale), shared = half, retaliation at 10 = 20.</div>")
+        else:
+            inner = f'<input type=number name=pts step=0.5 min=-50 max=10 value="{e(it["pts"])}" title="New points">'
         form = change_form(user, back, {"type": "incident", "id": it["id"], "file": file, "driver": name, "car": car,
                                         "was": it.get("orig", it["pts"])},
-                           f'<input type=number name=pts step=0.5 min=-50 max=10 value="{e(it["pts"])}" title="New points">'
+                           inner
                            + ('<label class=muted style="font-size:12px" title="The fault engine learns from this change: '
                               'it judged this contact wrongly. Untick for leniency (the call was right, the points are softened).">'
                               '<input type=checkbox name=learn value=1 checked> engine got it wrong (learn)</label>'
                               if it.get("cat") == "contact" else ""))
+        extra = ((f"<span class=tag>{e(it['type'])}</span>" if it.get("type") else "") + calls.weather_badge(e, it.get("weather"))
+                 + (f" <a href=\"{e(it['watch'])}\" target=_blank rel=noopener class=muted>▶ replay</a>" if it.get("watch") else ""))
         html_rows += (f"<tr><td class='mono {pts_class(it['pts'])}'>{signed(it['pts'])}</td><td><b>{e(name)}</b>"
-                      f"{' · lap ' + e(it['lap']) if it.get('lap') else ''} · {e(it['cat'])}{note}<div class=muted>{e(it['text'])}</div>"
+                      f"{' · lap ' + e(it['lap']) if it.get('lap') else ''} · {e(it['cat'])}{note}{extra}<div class=muted>{e(it['text'])}</div>"
                       f"<details><summary class=muted style='cursor:pointer'>Change</summary>{form}</details></td></tr>")
     names, _ = car_names(file)
     opts = "".join(f'<option value="{i}">{e(n)}</option>' for i, n in sorted(names.items(), key=lambda x: x[1].lower())
@@ -545,9 +569,13 @@ def collisions_card(file, sr=None):
         if not sides:
             sides = "<div class=muted>" + e(" vs ".join(i.get("names") or [])) + "</div>"
         sev = i.get("sev")
+        badge = (f"<span class=tag>{e(i['type'])}</span>" if i.get("type") else "") + calls.weather_badge(e, i.get("weather"))
+        if i.get("watch"):
+            badge += f" <a href=\"{e(i['watch'])}\" target=_blank rel=noopener class=muted>▶ replay</a>"
         rows += (f"<tr><td class=mono>{'L' + e(i['lap']) if i.get('lap') else ''}</td>"
                  f"<td><b>{e(i.get('where') or 'Contact')}</b>"
                  f"{f' · <span class=muted>severity {e(sev)}</span>' if sev not in (None, '') else ''}"
+                 f"{badge}"
                  f"{' · <span class=tag>replay on the site</span>' if i.get('replay') else ''}{sides}</td></tr>")
     return (f"<div class=card><h2 style='margin-top:0'>{e(label(file))}: incidents ({len(incs)})</h2>"
             f"<p class=muted>Every collision the telemetry found, with each driver's points and why. "
@@ -669,8 +697,13 @@ def build_change(form, user):
     c = {"id": secrets.token_hex(6), "type": t, "reason": reason, "by": user["id"],
          "at": datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")}
     if t == "incident":
+        if form.get("fault"):   # the picker: type, blame, severity -> points (or the override)
+            call, pts = calls.read_call(form, -50, 10)
+            c["call"] = call
+        else:
+            pts = num(form["pts"], -50, 10)
         c.update(id=form["id"], file=form["file"], driver=form.get("driver", ""), car=int(form["car"]),
-                 pts=num(form["pts"], -50, 10), was=num(form.get("was", 0), -100, 100))
+                 pts=pts, was=num(form.get("was", 0), -100, 100))
         if "|contact|" in c["id"]:
             c["learn"] = form.get("learn") == "1"
             lesson_fields(c, user["id"])
@@ -899,7 +932,7 @@ KINDS = ["Contact", "Divebomb or late lunge", "Pushed off track", "Unsafe rejoin
 ANSWER = {"open": "Waiting for the stewards", "accepted": "Accepted", "rejected": "Not accepted"}
 
 
-def protest_card(p, staff=None):
+def protest_card(p, staff=None, back="/protests"):
     """One protest; with staff set, the steward's buttons too."""
     head = (f"<b>{e(p['driver'])}</b> · {e(label(p['file']))}{' · lap ' + e(p['lap']) if p.get('lap') else ''}"
             f" · <span class='mono neg'>{signed(p['pts'])}</span>")
@@ -926,19 +959,41 @@ def protest_card(p, staff=None):
     if p["status"] != "open":
         out += f"<p><b>{e(ANSWER[p['status']])}</b>{': ' + e(p['answer']) if p.get('answer') else ''}</p>"
     elif staff:
-        base = f'{field("csrf", csrf_token(staff))}{field("id", p["id"])}'
-        out += (f"<p class=muted style='margin-bottom:0'>Your answer is shown to the driver. Accepting saves the new points like a change under Incidents. "
-                f"<a href='/incidents?file={urllib.parse.quote(p['file'])}'>All incidents in this race</a></p>"
-                f'<form method=post action="/protest-answer" class="inline">{base}{field("action", "accept")}'
-                f'<input type=number name=pts step=0.5 min=-50 max=0 value="0" title="New points (0 cancels the penalty)">'
-                f'<input name=answer placeholder="Answer to the driver" required maxlength=300 style="flex:1;min-width:180px">'
-                f'<button>Accept, set points</button></form>'
-                f'<form method=post action="/protest-answer" class="inline">{base}{field("action", "reject")}'
-                f'<input name=answer placeholder="Why not" required maxlength=300 style="flex:1;min-width:180px">'
-                f'<button class=red>Reject</button></form>')
+        out += protest_grade_form(p, staff, back)
     else:
         out += f"<p class=muted>{e(ANSWER['open'])}</p>"
     return out + "</div>"
+
+
+def protest_grade_form(p, staff, back="/protests"):
+    """Grade the protested incident like any other (GreMi, 5 Nov 2026): type, blame and severity
+    for the penalised driver. Accept = the points follow from the call (or the override);
+    reject = the engine's call stays. Both teach the fault engine."""
+    try:
+        found = find_item(p["item"])
+    except Exception:
+        found = None
+    it = found[2] if found else {}
+    text = it.get("text") or p.get("what") or ""
+    kind = it.get("type") or calls.guess_type(None, text)
+    head = ((f"<span class=tag>{e(kind)}</span>" if kind else "") + calls.weather_badge(e, it.get("weather"))
+            + (f" <a class=btn href=\"{e(it['watch'])}\" target=_blank rel=noopener>▶ Open replay</a>" if it.get("watch") else ""))
+    data = calls.profiles()
+    profs = "".join(calls.profile_html(e, calls.profile_of(n, data), short=True) for n in dict.fromkeys(involved(p["driver"], it or {"text": text})))
+    base = f'{field("csrf", csrf_token(staff))}{field("id", p["id"])}{field("back", back)}'
+    sev = calls.severity_in(text)
+    return (f"<div style='margin-top:8px'>{head}</div>"
+            + (f"<details><summary class=muted style='cursor:pointer'>Driver summaries (for context, never for the call)</summary>{profs}</details>" if profs else "")
+            + f"<form method=post action='/protest-answer'>{base}"
+            f"<p class=muted style='margin:8px 0 0'>Grade the call on <b>{e(p['driver'])}</b> as you see it on the replay. "
+            f"<b>Accept</b> sets the points from your call (pick <i>Not at fault</i> to cancel the penalty); <b>Reject</b> keeps the "
+            f"current points. Either way the fault engine learns from it, and the driver sees your answer. "
+            f"<a href='/incidents?file={urllib.parse.quote(p['file'])}'>All incidents in this race</a></p>"
+            + calls.picker(e, kind, "fault", sev, p.get("pts"), guessed=bool(kind), lo=-50, hi=0)
+            + "<div class=inline style='display:flex;gap:6px;flex-wrap:wrap'>"
+            "<input name=answer placeholder='Answer to the driver' required maxlength=300 style='flex:1;min-width:220px'>"
+            "<button name=action value=accept>Accept, set points from the call</button>"
+            "<button name=action value=reject class=red>Reject, keep the points</button></div></form>")
 
 
 def protests_page(user, q):
@@ -960,15 +1015,33 @@ def protest_answer(form, user):
     p = next((x for x in protests() if x["id"] == pid), None)
     if not p or p["status"] != "open":
         raise ValueError("That protest was already answered.")
-    if action == "accept":
+    call = None
+    if form.get("fault"):   # the grading picker (older forms send only points)
+        call, pts = calls.read_call(form, -50, 0)
+    else:
         pts = num(form.get("pts", 0), -50, 0)
+    if action == "reject" and call and call["fault"] == "clear":
+        raise ValueError("Rejecting keeps the penalty: pick At fault or Shared blame, or accept the protest.")
+    now = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    if action == "accept":
         c = {"id": p["item"], "type": "incident", "file": p["file"], "driver": p["driver"], "car": int(p["item"].split("|")[1]),
-             "pts": pts, "was": p["pts"], "reason": f"Protest accepted: {answer}"[:200], "by": user["id"],
-             "at": datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")}
+             "pts": pts, "was": p["pts"], "reason": f"Protest accepted: {answer}"[:200], "by": user["id"], "at": now,
+             **({"call": call} if call else {})}
         if "|contact|" in c["id"]:
             c["learn"] = True   # an accepted protest = the engine judged it wrongly
             lesson_fields(c, user["id"])
         apply_change(c)
+    elif "|contact|" in p["item"]:
+        # GreMi, 5 Nov 2026: a rejected protest teaches the engine too (its call was right). Kept as a
+        # "confirm" change: the safety rating ignores it, race-stats precedents.py learns from it.
+        c = {"id": p["item"], "type": "confirm", "file": p["file"], "driver": p["driver"], "car": int(p["item"].split("|")[1]),
+             "pts": p["pts"], "was": p["pts"], "reason": f"Protest rejected: {answer}"[:200], "by": user["id"], "at": now,
+             "learn": True, **({"call": {k: v for k, v in call.items() if k != "override"}} if call else {})}
+        lesson_fields(c, user["id"])
+        try:
+            apply_change(c)
+        except Exception as ex:   # the answer to the driver matters more than the lesson
+            print("protest: rejected call not kept as a lesson:", ex, flush=True)
 
     def edit(data):
         for x in data:
@@ -1328,8 +1401,14 @@ def sync_decisions():
         print("grading: decisions not saved:", ex, flush=True)
 
 
+def open_protest_cards(user):
+    """Open protests for the top of the grading page (GreMi: the incidents we don't agree on matter most)."""
+    ps = sorted((p for p in protests() if p["status"] == "open"), key=lambda p: p["at"])
+    return "".join(protest_card(p, user, "/grading") for p in ps)
+
+
 def _grading_helpers():
-    return {"e": e, "page": page, "csrf_token": csrf_token, "is_owner": is_owner}
+    return {"e": e, "page": page, "csrf_token": csrf_token, "is_owner": is_owner, "protests": open_protest_cards}
 
 
 def grading_page(user, q):
@@ -1382,7 +1461,9 @@ def sr_settings_post(form, user):
     return f"Saved {len(done)} change{'s' if len(done) > 1 else ''}. The website updates in about 3 minutes, the live data within about 10."
 
 
-PAGES = {"/": home, "/grading": grading_page, "/grading/results": grading_results, "/incidents": incidents, "/results": results, "/names": names_page,
+PAGES = {"/": home, "/grading": grading_page, "/grading/results": grading_results,
+         "/grading/learned": lambda user, q: calls.learned_page(user, q, _grading_helpers()),
+         "/drivers": lambda user, q: calls.drivers_page(user, q, _grading_helpers()), "/incidents": incidents, "/results": results, "/names": names_page,
          "/members": members_page, "/log": log_page, "/kick": kick_page, "/protests": protests_page,
          "/setup-key": setup_key_page, "/setup-action": setup_action_page, "/sr-settings": sr_settings_page}
 
@@ -1616,7 +1697,7 @@ class Handler(BaseHTTPRequestHandler):
                 back = "/grading?id=" + urllib.parse.quote(form.get("id", ""))
                 msg = grade_post(form, user)
             elif self.path == "/protest-answer":
-                back = "/protests"
+                back = back if back.startswith("/grading") else "/protests"
                 msg = protest_answer(form, user)
             elif self.path == "/sr-settings":
                 back = "/sr-settings"

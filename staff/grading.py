@@ -25,6 +25,8 @@ import re
 import threading
 import time
 
+from staff import calls
+
 BATCH_DIR = pathlib.Path(__file__).resolve().parent / "grading"
 GRADES_FILE = pathlib.Path(os.environ.get("STAFF_GRADES_FILE", "/var/lib/race-control/grades.json"))
 NO, RACING = "Not an incident", "Racing incident"
@@ -199,7 +201,8 @@ def parse_parts(inc, form):
         if sum(d["call"] != "out" for d in drivers) < 2:
             raise ValueError(f"incident {len(parts) + 1}: at least two drivers must be involved")
         tags = [t for t in (form.get(f"p{n}_tag") or "").split("\n") if t in TAGS]
-        parts.append({"t0": t0, "t1": t1, "real": real, "drivers": drivers, "tags": tags,
+        kind = calls.read_type(form, f"p{n}_type") or (None if real else "Not an incident")
+        parts.append({"t0": t0, "t1": t1, "real": real, "drivers": drivers, "tags": tags, **({"kind": kind} if kind else {}),
                       "note": (form.get(f"p{n}_pnote") or "").strip()[:500]})
     return sorted(parts, key=lambda p: p["t0"])
 
@@ -295,6 +298,8 @@ def _part_html(i, n, p, e):
     tags = "".join(f"<label class=tag><input type=checkbox name=p{n}_tag value=\"{e(t)}\"{' checked' if t in (p.get('tags') or []) else ''}> {e(t)}</label>"
                    for t in TAGS)
     real = p.get("real")
+    kind = p.get("kind") or i.get("type") or calls.guess_type((i.get("engine") or {}).get("rule"), (i.get("engine") or {}).get("why"))
+    guessed = not p.get("kind") and bool(kind)
     return (f"<fieldset class=part data-n={n}><legend><b>Incident <span class=pn>{n + 1}</span></b> "
             f"<button type=button class=link onclick='rmPart(this)'>remove</button></legend>"
             f"<p>From <input type=number step=0.1 name=p{n}_t0 value='{e(p.get('t0', ''))}' required style='width:80px'> to "
@@ -302,6 +307,7 @@ def _part_html(i, n, p, e):
             f"<span class=muted>seconds on the replay clock</span></p>"
             f"<p><b>Real incident?</b> <label><input type=radio name=p{n}_real value=yes required{' checked' if real is True else ''}> Yes</label> "
             f"<label><input type=radio name=p{n}_real value=no{' checked' if real is False else ''}> No, just contact without consequence</label></p>"
+            f"<p><b>Type</b> <span>{calls.type_select(e, f'p{n}_type', kind, guessed)}</span></p>"
             f"<div style='overflow-x:auto'><table class=drv><tr><th>Driver</th><th>Call</th><th>Severity</th><th>Note</th></tr>{''.join(rows)}</table></div>"
             f"<p class=muted style='font-size:12px'>Severity: 1 = tiny, 10 = wrecked a race on purpose. Give one to every driver at fault or sharing the blame; "
             f"each driver can get a different one. Shared blame costs half the points.</p>"
@@ -354,6 +360,11 @@ def grading_page(user, q, h):
             "time window, drivers, call and severity per driver. Mark drivers who had nothing to do with it as <i>Not involved</i>.</p>"]
     if owner:
         body.append("<p><a href='/grading/results'>See all staff grades and the engine comparison →</a></p>")
+    body.append("<p class=muted>The <b>Type</b> is filled in with the engine's guess: change it if it's wrong, or pick "
+                "<i>+ new type</i> to add one. <a href='/grading/learned'>What the engine learned from your grades →</a></p>")
+    prot = h.get("protests", lambda u: "")(user)
+    if prot:
+        body.append("<h2>Protests · grade these first <span class=muted>· drivers who don't agree with a call</span></h2>" + prot)
     want = q.get("id", [""])[0]
     for title, incs in batches():
         mine = [i for i in incs if not involved(i, me)]
@@ -372,6 +383,7 @@ def grading_page(user, q, h):
             body.append(
                 f"<details class=card id='{e(i['id'])}'{open_}><summary style='cursor:pointer'>"
                 f"<b>{e(i['id'].upper())}</b> · {e(i['track'])} · {e(i['date'])} · lap {e(i['lap'])} · {e(_drivers(i))}"
+                f"{calls.weather_badge(e, i.get('weather'))}"
                 f"<br>{state}</summary>"
                 + (f"<details style='margin:0 0 10px'><summary class=muted style='cursor:pointer'>Claude's take "
                    f"({e(PICKS.get(i.get('pick'), 'pick'))}), only you see this; open it after grading</summary>"
@@ -476,6 +488,7 @@ def decisions(grades, owner_id):
                      "note": "", "votes": len(s["staff"]), "agree": s["agree"]}
             if g.get("parts"):
                 d["parts"] = decision_parts(i, g["parts"], o is not None)
+                d["kind"] = next((p["kind"] for p in g["parts"] if p.get("real") and p.get("kind")), None) or g["parts"][0].get("kind")
             out[i["id"]] = {"verdict": s["final"], **d, "drivers": i["drivers"], "track": i.get("track"),
                             "date": i.get("date"), "race_file": i.get("race_file"), "recording": i.get("recording"),
                             "replay": i.get("replay"), "engine": i.get("engine")}
@@ -488,6 +501,7 @@ def decision_parts(i, parts, notes):
     out = []
     for p in parts:
         out.append({"t0": p["t0"], "t1": p["t1"], "real": p["real"], "verdict": part_verdict(p), "tags": p.get("tags") or [],
+                    **({"kind": p["kind"]} if p.get("kind") else {}),
                     "note": p.get("note", "") if notes else "",
                     "drivers": [{"car": car[d["name"]], "name": d["name"], "call": d["call"],
                                  **({"severity": d["severity"]} if d.get("severity") else {}),
