@@ -98,13 +98,15 @@ def parse_participants(b):
         out[i] = {"name": r[name_at:name_at + 32].split(b"\0", 1)[0].decode("utf-8", "replace"),
                   "ai": r[0], "race_number": r[name_at - 2],
                   "team": struct.unpack_from("<H", r, 5)[0] if per >= 60 else r[3],
-                  "public": r[name_at + 32]}
+                  "public": r[name_at + 32], "shown": r[name_at + 33] if len(r) > name_at + 33 else None}
     return out
 
 
 def shown_name(p):
     """The name the public viewer gets: hidden-name players (and the game's anonymous "Player") only by race number (GreMi's rule)."""
-    if (p.get("ai") or p.get("public")) and p.get("name") not in (None, "", "Player"):
+    # hidden = the game hides the name (showOnlineNames off), not a restricted telemetry setting
+    shown = p.get("shown") if p.get("shown") is not None else p.get("public")
+    if (p.get("ai") or shown) and p.get("name") not in (None, "", "Player"):
         return p["name"]
     return f"Car #{p.get('race_number', 0)}"
 
