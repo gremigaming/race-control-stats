@@ -36,6 +36,7 @@ from http.cookies import SimpleCookie
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 from staff import calls
+from staff import races
 
 CLIENT_ID = os.environ.get("DISCORD_CLIENT_ID", "1532679389429502012")
 CLIENT_SECRET = os.environ.get("DISCORD_CLIENT_SECRET", "")
@@ -354,7 +355,7 @@ def page(title, body, user=None, tab=""):
         # three groups (GreMi, 5 Nov 2026): what needs doing, running the races, and setup
         groups = [("To do", [("protests", "Protests" + (f"<span class=badge>{n}</span>" if n else "")), ("grading", "Grading"),
                              ("grading/learned", "What I learned")]),
-                  ("Race control", [("incidents", "Incidents"), ("results", "Results"), ("kick", "Kick"), ("drivers", "Drivers")]),
+                  ("Race control", [("races", "Races"), ("drivers", "Drivers")]),
                   ("Admin", [("names", "Names"), ("members", "Members"), ("sr-settings", "SR settings"), ("log", "All changes")])]
         on = {"learned": "grading/learned"}.get(tab, tab)
         nav = (f'<nav><a href="/" class="{"on" if tab == "" else ""}">Home</a>'
@@ -422,9 +423,7 @@ def home(user, q):
     return page("Home", f"""{alert}
 <h1>Hi {e(user['name'])}</h1>
 <p class=muted>Changes go live on the site about 2 minutes after you save them. Every change can be undone under All changes.</p>
-<div class=card><b><a href="/incidents">Incidents</a></b><div class=muted>Change or cancel the safety rating points of an incident, or add a penalty or bonus the game missed.</div></div>
-<div class=card><b><a href="/results">Results</a></b><div class=muted>Give a time penalty, disqualify someone or set a finishing position.</div></div>
-<div class=card><b><a href="/kick">Kick</a></b><div class=muted>Remove a driver who was kicked from the lobby from a stream: their results go, and so does every incident with them, for everyone.</div></div>
+<div class=card><b><a href="/races">Races</a></b><div class=muted>Everything about one race: remove a test race, fix the results, make the call on every incident (all drivers in one row), other points and kicks.</div></div>
 <div class=card><b><a href="/names">Names</a></b><div class=muted>Link an old online name to a driver's current one, or split names that were linked by mistake.</div></div>
 <h2>Latest changes</h2><div class=card><table>{rows}</table></div>""", user, "")
 
@@ -603,7 +602,7 @@ def result_detail(user, file):
     _, d = car_names(file)
     data, _ = corrections()
     pend = [c for c in data.get("changes", []) if c.get("type") == "result" and c.get("file") == file]
-    back = f"/results?file={urllib.parse.quote(file)}"
+    back = f"/races?file={urllib.parse.quote(file)}#results"
     rows = sorted((c for c in d.get("classification-data", []) if c.get("final-classification")),
                   key=lambda c: c["final-classification"]["position"])
     trs = ""
@@ -619,7 +618,7 @@ def result_detail(user, file):
                 f"{' · +' + e(fc.get('penalties-time')) + ' s penalties' if fc.get('penalties-time') else ''} · {e(fc.get('points', 0))} pts</div>"
                 f"<details><summary class=muted style='cursor:pointer'>Change</summary>{form}</details></td></tr>")
     pend_html = "".join(change_row(user, c) for c in pend)
-    return (f"<div class=card><h2 style='margin-top:0'>{e(label(file))}</h2><table>{trs}</table></div>"
+    return (f"<div class=card><h2 style='margin-top:0'>Results</h2><table>{trs}</table></div>"
             + (f"<h2>Changes to this race</h2><div class=card><table>{pend_html}</table></div>" if pend else ""))
 
 
@@ -977,7 +976,8 @@ def protest_grade_form(p, staff, back="/protests"):
     text = it.get("text") or p.get("what") or ""
     kind = it.get("type") or calls.guess_type(None, text)
     head = ((f"<span class=tag>{e(kind)}</span>" if kind else "") + calls.weather_badge(e, it.get("weather"))
-            + (f" <a class=btn href=\"{e(it['watch'])}\" target=_blank rel=noopener>▶ Open replay</a>" if it.get("watch") else ""))
+            + (f" <a class=btn href=\"{e(races.viewer_url(p['file'], it.get('lap'), involved(p['driver'], it)))}\" target=_blank rel=noopener>▶ Incident viewer</a>"
+               if p.get("file") and it else ""))
     data = calls.profiles()
     profs = "".join(calls.profile_html(e, calls.profile_of(n, data), short=True) for n in dict.fromkeys(involved(p["driver"], it or {"text": text})))
     base = f'{field("csrf", csrf_token(staff))}{field("id", p["id"])}{field("back", back)}'
@@ -988,7 +988,7 @@ def protest_grade_form(p, staff, back="/protests"):
             f"<p class=muted style='margin:8px 0 0'>Grade the call on <b>{e(p['driver'])}</b> as you see it on the replay. "
             f"<b>Accept</b> sets the points from your call (pick <i>Not at fault</i> to cancel the penalty); <b>Reject</b> keeps the "
             f"current points. Either way the fault engine learns from it, and the driver sees your answer. "
-            f"<a href='/incidents?file={urllib.parse.quote(p['file'])}'>All incidents in this race</a></p>"
+            f"<a href='/races?file={urllib.parse.quote(p['file'])}#incidents'>All incidents in this race</a></p>"
             + calls.picker(e, kind, "fault", sev, p.get("pts"), guessed=bool(kind), lo=-50, hi=0)
             + "<div class=inline style='display:flex;gap:6px;flex-wrap:wrap'>"
             "<input name=answer placeholder='Answer to the driver' required maxlength=300 style='flex:1;min-width:220px'>"
@@ -1463,7 +1463,7 @@ def sr_settings_post(form, user):
 
 PAGES = {"/": home, "/grading": grading_page, "/grading/results": grading_results,
          "/grading/learned": lambda user, q: calls.learned_page(user, q, _grading_helpers()),
-         "/drivers": lambda user, q: calls.drivers_page(user, q, _grading_helpers()), "/incidents": incidents, "/results": results, "/names": names_page,
+         "/drivers": lambda user, q: calls.drivers_page(user, q, _grading_helpers()), "/races": races.races_page, "/names": names_page,
          "/members": members_page, "/log": log_page, "/kick": kick_page, "/protests": protests_page,
          "/setup-key": setup_key_page, "/setup-action": setup_action_page, "/sr-settings": sr_settings_page}
 
@@ -1577,6 +1577,9 @@ class Handler(BaseHTTPRequestHandler):
                                  "Content-Disposition": "attachment; filename=staff-grades.json"})
             if url.path.startswith("/clip/"):
                 return self.send_clip(url.path[6:])
+            if url.path in ("/incidents", "/results"):   # merged into Races (GreMi, 6 Nov 2026)
+                f = q.get("file", [""])[0]
+                return self.redirect("/races" + (f"?file={urllib.parse.quote(f)}" + ("#incidents" if url.path == "/incidents" else "#results") if f else ""))
             fn = PAGES.get(url.path)
             if not fn:
                 return self.send(404, page("Not found", "<p>Not found.</p>", user))
@@ -1687,6 +1690,14 @@ class Handler(BaseHTTPRequestHandler):
                 c = build_change(form, user)
                 apply_change(c)
                 msg = "Saved. The site updates in about 2 minutes."
+            elif self.path == "/incident-call":
+                msg = races.incident_post(form, user)
+            elif self.path == "/race-remove":
+                msg = races.remove_post(form, user)
+                back = "/races?removed=1"
+            elif self.path == "/race-restore":
+                msg = races.restore_post(form, user)
+                back = "/races?removed=1"
             elif self.path == "/member":
                 back = "/members"
                 msg = member_change(form, user)
@@ -1711,8 +1722,9 @@ class Handler(BaseHTTPRequestHandler):
             msg = f"Not saved: {str(ex) or 'check the values'}"
         except Exception as ex:
             msg = f"Not saved: {explain(ex)}"
+        back, _, frag = back.partition("#")   # the flash goes before the #spot on the page
         sep = "&" if "?" in back else "?"
-        self.redirect(f"{back}{sep}ok={urllib.parse.quote(msg)}")
+        self.redirect(f"{back}{sep}ok={urllib.parse.quote(msg)}" + (f"#{frag}" if frag else ""))
 
     def login(self, setup_back=""):
         state = secrets.token_urlsafe(16)
@@ -1759,7 +1771,7 @@ class Handler(BaseHTTPRequestHandler):
 def reload_on_change():
     """The bot pulls main when new code arrives; start again when this file changed."""
     files = [pathlib.Path(__file__), pathlib.Path(__file__).with_name("grading.py"), pathlib.Path(__file__).with_name("sr_settings.py"),
-             pathlib.Path(__file__).with_name("calls.py")]
+             pathlib.Path(__file__).with_name("calls.py"), pathlib.Path(__file__).with_name("races.py")]
     stamp = lambda: [f.stat().st_mtime if f.exists() else 0 for f in files]  # noqa: E731
     seen = stamp()
     while True:

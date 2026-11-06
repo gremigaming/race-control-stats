@@ -102,6 +102,35 @@ def points(kind, fault, sev):
     return -(pts / 2 if fault == "shared" else pts)
 
 
+def live_pts(pts, scale, cat="contact"):
+    """Points as the live safety rating counts them (race-stats scripts/sr_v24.py v25_pts, from the
+    "scale" in league/safety.json, i.e. races/sr-settings.json). Staff still type the v2.2 scale."""
+    pts = float(pts or 0)
+    if not scale or pts == 0:
+        return pts
+    if pts > 0:
+        return pts * float(scale.get("bonus") or 1) * float((scale.get("bonusCat") or {}).get(cat, 1))
+    if cat in ("contact", "staff"):
+        t, p = scale.get("contact") or {}, -pts
+        k, k2 = f"{p:g}", f"{p * 2:g}"
+        return -(float(t[k]) if k in t else float(t[k2]) / 2 if k2 in t else p * float(scale.get("contactElse") or 1))
+    return pts * float((scale.get("otherCat") or {}).get(cat, scale.get("other") or 1))
+
+
+def scale_text(scale):
+    """The severity -> points table as the live safety rating has it, for the staff pages."""
+    if not scale:
+        return "Severity 1-3 = 1 point, 4-5 = 3, 6-7 = 6, 8-10 = 10, retaliation at 10 = 20; shared = half."
+    lp = lambda v: f"{abs(live_pts(-v, scale)):g}"  # noqa: E731
+    return (f"Live points: severity 1-3 = {lp(1)}, 4-5 = {lp(3)}, 6-7 = {lp(6)}, 8-10 = {lp(10)}, "
+            f"retaliation at 10 = {lp(20)}; shared = half. Not at fault = no points.")
+
+
+def scale_script(scale):
+    """Gives the picker's live points the same table (window.SR_SCALE)."""
+    return f"<script>window.SR_SCALE={json.dumps(scale or None)};</script>"
+
+
 def severity_in(text):
     m = re.search(r"severity (\d+)/10", text or "")
     return int(m.group(1)) if m else None
@@ -166,16 +195,27 @@ function kindNew(s){const i=s.parentNode.querySelector('input[name$=_new]');if(!
  i.required=s.value==='__new';calc(s);}
 function pts(kind,fault,sev){if(fault==='clear'||kind==='Not an incident')return 0;sev=Math.max(1,Math.min(10,+sev||1));
  let p=(kind==='Retaliation'&&sev>=10)?20:sev<=3?1:sev<=5?3:sev<=7?6:10;return -(fault==='shared'?p/2:p);}
-function calc(el){const f=el.closest('.picker');if(!f)return;const o=f.querySelector('[name=override]').checked;
- f.querySelector('.ovr').style.display=o?'':'none';
+function livePts(p){const s=window.SR_SCALE;if(!s||!p)return p;if(p>0)return p*(s.bonus||1);const t=s.contact||{},a=-p,k=String(a),k2=String(a*2);
+ return -(k in t?t[k]:k2 in t?t[k2]/2:a*(s.contactElse||1));}
+function fmtPts(p){p=Math.round(p*100)/100;return (p>0?'+':p<0?'−':'±')+Math.abs(p);}
+function calc(el){const f=el.closest('.picker');if(!f)return;const o=f.querySelector('[name=override]');if(!o)return;
+ f.querySelector('.ovr').style.display=o.checked?'':'none';
  const p=pts(f.querySelector('[name=kind]').value,f.querySelector('[name=fault]').value,f.querySelector('[name=sev]').value);
- f.querySelector('.calc').textContent=o?'':'= '+(p>0?'+':'')+p+' pts';}
+ f.querySelector('.calc').textContent=o.checked?'':'= '+fmtPts(livePts(p))+' SR';}
+function rowCalc(row){const k=row.querySelector('[name=kind]'),sv=row.querySelector('[name=sev]');if(!k||!sv)return;
+ row.querySelectorAll('.drv').forEach(d=>{const fs=d.querySelector('select[name^=fault_]');if(!fs)return;const ov=d.querySelector('input[name^=pts_]');
+  const c=d.querySelector('.calc');if(!c)return;
+  if(ov&&ov.value!==''){c.textContent='= '+fmtPts(livePts(+ov.value))+' SR (typed)';return;}
+  c.textContent=fs.value?'= '+fmtPts(livePts(pts(k.value,fs.value,sv.value)))+' SR':'';});}
+document.addEventListener('input',ev=>{const r=ev.target.closest&&ev.target.closest('.incrow');if(r)rowCalc(r);});
+document.addEventListener('change',ev=>{const r=ev.target.closest&&ev.target.closest('.incrow');if(r)rowCalc(r);});
+document.addEventListener('DOMContentLoaded',()=>document.querySelectorAll('.incrow').forEach(rowCalc));
 document.addEventListener('input',ev=>{if(ev.target.closest&&ev.target.closest('.picker'))calc(ev.target);});
 document.addEventListener('change',ev=>{if(ev.target.closest&&ev.target.closest('.picker'))calc(ev.target);});
 document.addEventListener('DOMContentLoaded',()=>document.querySelectorAll('.picker [name=sev]').forEach(calc));
 </script>"""
 
-STYLE = ("<style>.btn{display:inline-block;background:#3f3f46;color:#fff;padding:6px 12px;border-radius:8px}.picker{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:6px 0}.picker label{white-space:nowrap}"
+STYLE = ("<style>.incrow{border-top:1px solid #27272a;padding:12px 0}.incrow .drv{margin:6px 0 6px 12px}.incrow .ovd{display:inline-block;margin-left:6px}.incrow .ovd summary{cursor:pointer}.incrow .ovd input{width:80px;margin-left:4px}.btn{display:inline-block;background:#3f3f46;color:#fff;padding:6px 12px;border-radius:8px}.picker{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:6px 0}.picker label{white-space:nowrap}"
          ".wx{display:inline-block;font-size:11px;padding:1px 6px;border-radius:99px;background:#27272a;color:#d4d4d8;margin-left:6px}"
          ".wx.wet{background:#1e3a8a;color:#bfdbfe}.prof{font-size:13px;margin:6px 0}.prof li{margin:2px 0}"
          ".stat{display:inline-block;margin:0 14px 6px 0}.stat b{display:block;font-size:16px}</style>")
@@ -324,3 +364,61 @@ def learned_page(user, q, h):
             f"<div class=card><b>{e(r['date'])} · {e(r['version'])}</b> <span class=muted>from {e(r.get('from', ''))}</span><ul>"
             + "".join(f"<li>{e(x)}</li>" for x in r.get("changes") or []) + "</ul></div>" for r in rb))
     return h["page"]("What I learned", STYLE + "".join(out), user, "learned")
+
+
+# ---------------------------------------------------------------- one incident, every driver
+
+
+def incident_editor(e, row, csrf, back, scale=None, addable=None, action="/incident-call", extra_html="", button="Save call"):
+    """The call on one incident as one row (GreMi, 6 Nov 2026): type and severity for the incident, a
+    call per driver (at fault / shared / not at fault), the live points they give, a driver the
+    telemetry missed, and the learn tick. row: staff/races.py incident_rows(). Form fields:
+    file, t, kind (+kind_new), sev, fault_<car> / pts_<car> per driver, add_car + fault_add / pts_add,
+    learn, reason, csrf, back; extra_html goes inside the form (e.g. a protest id). Posts to action."""
+    def live(p):
+        v = live_pts(p, scale)
+        return f"{'+' if v > 0 else '−' if v < 0 else '±'}{abs(round(v, 2)):g}"
+    drivers = ""
+    for d in row["drivers"]:
+        if d.get("ai"):
+            drivers += (f"<div class=drv><b>{e(d['name'])}</b> <span class=muted>AI or hidden name: no SR</span></div>")
+            continue
+        fx = d.get("fix") or {}
+        opts = "".join(f"<option value={k}{' selected' if k == d['fault'] else ''}>{e(v)}</option>" for k, v in FAULTS.items())
+        typed = fx.get("pts") if (fx.get("call") or {}).get("override") else ""
+        now = (f"<span class=muted>now {live(d['pts'])} SR</span>"
+               + (f" <span class=tag>staff: {e(fx.get('reason', ''))[:60]}</span>" if fx else ""))
+        drivers += (f"<div class=drv><b>{e(d['name'])}</b> <select name=fault_{d['car']}>{opts}</select> <span class='mono calc'></span> {now}"
+                    f"<details class=ovd><summary class=muted>points by hand</summary><input type=number name=pts_{d['car']} step=0.5 min=-50 max=10 "
+                    f"value='{e(typed)}' placeholder='v2.2' title='Leave empty: the points follow from the call'></details>"
+                    + (f"<div class=muted style='font-size:12px'>{e(d['why'])}</div>" if d.get("why") else "") + "</div>")
+    have = {d["car"] for d in row["drivers"]}
+    add = ""
+    if addable:
+        opts = "".join(f"<option value={c}>{e(n)}</option>" for c, n in sorted(addable.items(), key=lambda x: x[1].lower()) if c not in have)
+        if opts:
+            fopts = "".join(f"<option value={k}>{e(v)}</option>" for k, v in FAULTS.items())
+            add = (f"<details class=drv><summary class=muted style='cursor:pointer'>+ driver the telemetry missed</summary>"
+                   f"<select name=add_car><option value=''>pick a driver</option>{opts}</select> "
+                   f"<select name=fault_add><option value=''>call</option>{fopts}</select> <span class='mono calc'></span>"
+                   f"<input type=number name=pts_add step=0.5 min=-50 max=10 placeholder='points by hand' style='width:110px'></details>")
+    sev = row.get("sev")
+    head = (f"<b>{e(row['where'])}</b>{' · lap ' + e(row['lap']) if row.get('lap') else ''}"
+            + (f" · <span class=muted>engine severity {e(row['sev'])}</span>" if row.get("sev") not in (None, "") else "")
+            + weather_badge(e, row.get("weather"))
+            + (" <span class=tag>staff call</span>" if row.get("staff") else "")
+            + (f" <a href=\"{e(row['viewer'])}\" target=_blank rel=noopener class=btn style='padding:2px 8px;margin-left:6px'>▶ incident viewer</a>"
+               if row.get("viewer") else ""))
+    return (f"<form method=post action='{e(action)}' class=incrow id='inc-{row['t']:.1f}'>"
+            f"<input type=hidden name=csrf value='{e(csrf)}'><input type=hidden name=back value='{e(back)}'>"
+            f"<input type=hidden name=file value='{e(row['file'])}'><input type=hidden name=t value='{row['t']:.1f}'>{extra_html}"
+            f"<div>{head}</div>"
+            f"<div class=picker><label>Type {type_select(e, 'kind', row.get('kind'), row.get('guessed'))}</label> "
+            f"<label>Severity <input type=number name=sev min=1 max=10 value='{e(sev or '')}' placeholder='1-10'></label></div>"
+            f"{drivers}{add}"
+            f"<div class=inline style='display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-top:6px'>"
+            f"<label class=muted style='font-size:12px' title='Untick when the engine was right and you only soften the points.'>"
+            f"<input type=checkbox name=learn value=1 checked> engine learns from this</label>"
+            f"<input name=reason placeholder='Reason (shown on the site)' required maxlength=200 style='flex:1;min-width:180px'>"
+            f"<button>{e(button)}</button></div></form>")
+
