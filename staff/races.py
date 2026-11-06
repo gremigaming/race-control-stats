@@ -169,6 +169,15 @@ def sr_items(sr, file):
     return out
 
 
+def engine_sev(i, drivers):
+    """The engine's severity as a number: "sev" can be a word (HIGH), the 1-10 is in the call text."""
+    if isinstance(i.get("sev"), (int, float)) and not isinstance(i.get("sev"), bool):
+        return int(i["sev"])
+    found = [calls.severity_in(d.get("why")) or calls.severity_in((d.get("item") or {}).get("text")) for d in drivers]
+    found = [x for x in found if x]
+    return max(found) if found else None
+
+
 def incident_rows(file, sr=None, data=None):
     """Every incident of one session as the editor shows it: where, lap, severity, type, weather,
     the incident viewer link, and each driver with their car, current points (v2.2 scale), their
@@ -214,7 +223,7 @@ def incident_rows(file, sr=None, data=None):
             drivers.append({"car": car, "name": n, "pts": pts, "why": why, "item": it, "fix": fx, "fault": fault,
                             "ai": bool(app.AI_NAME.search(n))})
         sev = next((int((d["fix"] or {}).get("call", {}).get("severity") or 0) for d in drivers
-                    if (d["fix"] or {}).get("call", {}).get("severity")), None) or i.get("sev")
+                    if (d["fix"] or {}).get("call", {}).get("severity")), None) or engine_sev(i, drivers)
         guessed = not kind
         kind = kind or calls.guess_type(None, " ".join(d["why"] or "" for d in drivers))
         rows.append({"file": file, "t": t, "inc": inc, "lap": i.get("lap"), "where": i.get("where") or "Contact", "sev": sev,
