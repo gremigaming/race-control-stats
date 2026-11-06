@@ -36,6 +36,7 @@ from http.cookies import SimpleCookie
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 from staff import calls
+from staff import learned
 from staff import races
 
 CLIENT_ID = os.environ.get("DISCORD_CLIENT_ID", "1532679389429502012")
@@ -313,38 +314,63 @@ def staff_name(uid):
 e = lambda s: html.escape(str(s if s is not None else ""), quote=True)
 
 CSS = """
-:root{color-scheme:dark}*{box-sizing:border-box}
-body{margin:0;background:#09090b;color:#e4e4e7;font:14px/1.5 system-ui,-apple-system,Segoe UI,sans-serif}
-a{color:#fca5a5;text-decoration:none}a:hover{color:#fecaca}
-header{display:flex;flex-wrap:wrap;gap:16px;align-items:center;padding:12px 20px;background:#18181b;position:sticky;top:0;z-index:2}
-header b{font-size:15px;margin-right:8px}header nav{display:flex;gap:4px;flex-wrap:wrap}
-header nav a{padding:6px 10px;border-radius:8px;color:#a1a1aa}header nav a.on{background:#27272a;color:#fff}
+:root{color-scheme:dark;--brand-red:#e11d48;--brand-violet:#7c3aed;--brand-wine:#4c0519;--canvas:#08080b;--card:rgba(24,24,27,.7);
+--line:rgba(255,255,255,.07);--mono:"Geist Mono",ui-monospace,SFMono-Regular,Menlo,monospace}
+*{box-sizing:border-box}
+body{margin:0;background:var(--canvas);color:#e4e4e7;font:14px/1.55 "Geist",system-ui,-apple-system,Segoe UI,sans-serif;
+background-image:radial-gradient(ellipse at 0% 0%,rgba(190,24,93,.10),transparent 45%),radial-gradient(ellipse at 100% 0%,rgba(124,58,237,.08),transparent 40%);background-attachment:fixed}
+a{color:#fecdd3;text-decoration:none}a:hover{color:#fff}
+header{display:flex;flex-wrap:wrap;gap:14px;align-items:center;padding:10px 20px;background:rgba(13,9,12,.95);backdrop-filter:blur(16px);
+border-bottom:1px solid var(--line);box-shadow:0 10px 30px rgba(0,0,0,.18);position:sticky;top:0;z-index:5}
+header .brand{display:flex;align-items:center;gap:10px;margin-right:6px}header .brand img{width:34px;height:34px;border-radius:10px;object-fit:cover;box-shadow:0 6px 16px rgba(76,5,25,.4)}
+header .brand b{font-size:15px;font-weight:700;letter-spacing:-.01em;color:#fff;display:block;line-height:1.1}
+header .brand small{font-family:var(--mono);font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.18em;color:rgba(254,205,211,.7)}
+header nav{display:flex;gap:4px;flex-wrap:wrap;align-items:center}
+header nav a{padding:6px 10px;border-radius:10px;color:#a1a1aa;font-size:13px;font-weight:500;transition:background .15s,color .15s}
+header nav a:hover{background:rgba(255,255,255,.06);color:#f4f4f5}
+header nav a.on{background:rgba(76,5,25,.55);color:#fff;box-shadow:inset 0 0 0 1px rgba(225,29,72,.25)}
 header .me{margin-left:auto;color:#71717a;font-size:12px}
-header nav .grp{display:flex;gap:2px;align-items:center;padding-left:8px;margin-left:4px;border-left:1px solid #27272a}
-header nav a{padding:5px 8px;font-size:13px}
-header nav .gl{font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:#52525b;margin-right:4px}
-main{max-width:1100px;margin:0 auto;padding:20px}
-h1{font-size:20px;margin:0 0 4px}h2{font-size:15px;margin:24px 0 8px;color:#d4d4d8}
-.muted{color:#71717a;font-size:12px}.card{background:#18181b;border-radius:14px;padding:16px;margin:12px 0}
+header nav .grp{display:flex;gap:2px;align-items:center;padding-left:10px;margin-left:4px;border-left:1px solid var(--line)}
+header nav .gl{font-family:var(--mono);font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.18em;color:#52525b;margin-right:4px}
+main{max-width:1120px;margin:0 auto;padding:24px 20px 60px}
+h1{font-size:24px;line-height:1.3;font-weight:700;letter-spacing:-.02em;color:#fff;margin:0 0 6px}
+h2{font-size:15px;font-weight:650;margin:28px 0 10px;color:#f4f4f5}
+.muted{color:#8b8b94;font-size:12px}
+.card{background:var(--card);border-radius:16px;padding:18px;margin:12px 0;box-shadow:inset 0 1px 0 rgba(255,255,255,.05)}
 .grid{display:grid;grid-template-columns:240px 1fr;gap:16px}@media(max-width:800px){.grid{grid-template-columns:1fr}}
-.list a{display:block;padding:5px 8px;border-radius:6px;color:#d4d4d8;font-size:13px}.list a.on{background:#27272a;color:#fff}
-.list .day{margin:12px 0 4px;color:#71717a;font-size:11px;text-transform:uppercase;letter-spacing:.06em}
-table{width:100%;border-collapse:collapse}td,th{padding:6px 8px;text-align:left;vertical-align:top;border-top:1px solid #27272a}
+.list a{display:block;padding:6px 10px;border-radius:10px;color:#d4d4d8;font-size:13px}.list a:hover{background:rgba(255,255,255,.05)}
+.list a.on{background:rgba(76,5,25,.55);color:#fff;box-shadow:inset 0 0 0 1px rgba(225,29,72,.25)}
+.list .day{margin:14px 0 4px;font-family:var(--mono);color:#71717a;font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.18em}
+table{width:100%;border-collapse:collapse}td,th{padding:7px 8px;text-align:left;vertical-align:top;border-top:1px solid var(--line)}
 th{color:#71717a;font-weight:500;font-size:12px;border:0}
-.neg{color:#fca5a5}.pos{color:#86efac}.zero{color:#71717a}.mono{font-family:ui-monospace,monospace}
-input,select{background:#09090b;color:#e4e4e7;border:1px solid #3f3f46;border-radius:6px;padding:4px 6px;font:inherit;font-size:13px}
-input[type=number]{width:70px}button{background:#3f3f46;color:#fff;border:0;border-radius:6px;padding:5px 10px;font:inherit;font-size:13px;cursor:pointer}
-button:hover{background:#52525b}button.red{background:#991b1b}button.red:hover{background:#b91c1c}
+.neg{color:#fda4af}.pos{color:#86efac}.zero{color:#71717a}.mono{font-family:var(--mono)}
+input,select,textarea{background:rgba(9,9,11,.8);color:#e4e4e7;border:1px solid rgba(255,255,255,.1);border-radius:10px;padding:6px 9px;font:inherit;font-size:13px}
+input:focus,select:focus,textarea:focus{outline:none;border-color:rgba(225,29,72,.6);box-shadow:0 0 0 3px rgba(225,29,72,.15)}
+input[type=number]{width:74px}input[type=checkbox],input[type=radio]{accent-color:var(--brand-red)}
+button{background:linear-gradient(90deg,var(--brand-red),var(--brand-violet));color:#fff;border:0;border-radius:10px;padding:7px 14px;font:inherit;
+font-size:13px;font-weight:600;cursor:pointer;box-shadow:0 8px 20px rgba(76,5,25,.25)}
+button:hover{filter:brightness(1.1)}button.red{background:#7f1d1d;box-shadow:none}button.red:hover{background:#991b1b}
 form.inline{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin:4px 0 0}
-.tag{display:inline-block;font-size:11px;padding:1px 6px;border-radius:99px;background:#1e3a8a;color:#bfdbfe;margin-left:6px}
-.flash{background:#14532d;color:#bbf7d0;padding:10px 14px;border-radius:10px;margin-bottom:12px}
-.err{background:#7f1d1d;color:#fecaca}
+.tag{display:inline-block;font-size:11px;padding:1px 8px;border-radius:99px;background:rgba(124,58,237,.18);color:#ddd6fe;margin-left:6px}
+.flash{background:rgba(22,101,52,.35);color:#bbf7d0;padding:10px 14px;border-radius:12px;margin-bottom:12px;box-shadow:inset 0 0 0 1px rgba(74,222,128,.2)}
+.err{background:rgba(127,29,29,.45);color:#fecaca;box-shadow:inset 0 0 0 1px rgba(248,113,113,.25)}
 .login{max-width:380px;margin:12vh auto;text-align:center}
-.login a.btn{display:inline-block;margin-top:16px;background:#5865f2;color:#fff;padding:10px 18px;border-radius:10px;font-weight:600}
-.badge{display:inline-block;min-width:18px;padding:0 5px;margin-left:4px;border-radius:99px;background:#dc2626;color:#fff;font-size:11px;text-align:center}
-.alert{background:#7f1d1d;color:#fecaca;padding:10px 14px;border-radius:10px;margin-bottom:12px}.alert a{color:#fff;font-weight:600}
-textarea{width:100%;min-height:120px;background:#09090b;color:#e4e4e7;border:1px solid #3f3f46;border-radius:8px;padding:8px;font:inherit}
-.narrow{max-width:640px;margin:0 auto}.quote{white-space:pre-wrap;border-left:3px solid #3f3f46;padding:4px 10px;margin:8px 0}
+.login a.btn{display:inline-block;margin-top:16px;background:#5865f2;color:#fff;padding:10px 18px;border-radius:12px;font-weight:600}
+.badge{display:inline-block;min-width:18px;padding:0 5px;margin-left:4px;border-radius:99px;background:var(--brand-red);color:#fff;font-size:11px;text-align:center}
+.alert{background:linear-gradient(100deg,rgba(76,5,25,.8),rgba(46,16,101,.5));color:#fecdd3;padding:12px 16px;border-radius:14px;margin-bottom:12px;box-shadow:inset 0 0 0 1px rgba(225,29,72,.25)}.alert a{color:#fff;font-weight:600}
+textarea{width:100%;min-height:120px}
+.narrow{max-width:640px;margin:0 auto}.quote{white-space:pre-wrap;border-left:3px solid rgba(225,29,72,.5);padding:4px 12px;margin:8px 0;color:#d4d4d8}
+details summary{cursor:pointer}
+::-webkit-scrollbar{width:10px;height:8px}::-webkit-scrollbar-track{background:#0b080d}
+::-webkit-scrollbar-thumb{border:2px solid #0b080d;border-radius:99px;background:linear-gradient(180deg,var(--brand-red),var(--brand-violet))}
+"""
+
+# after calls.STYLE: the editor's own bits in the same look (DDRK's site refresh, 5 Nov 2026)
+THEME = """
+.btn{display:inline-block;background:rgba(255,255,255,.06);color:#f4f4f5;padding:6px 12px;border-radius:10px;font-size:13px;font-weight:500;
+box-shadow:inset 0 0 0 1px rgba(255,255,255,.08)}.btn:hover{background:rgba(225,29,72,.15);color:#fff;box-shadow:inset 0 0 0 1px rgba(251,113,133,.3)}
+.incrow{border-top:1px solid var(--line)}.wx{background:rgba(255,255,255,.06)}.wx.wet{background:rgba(30,58,138,.5)}
+.protest-result{margin:6px 0;font-size:13px;display:flex;gap:10px;flex-wrap:wrap;align-items:center}
 """
 
 
@@ -364,8 +390,12 @@ def page(title, body, user=None, tab=""):
                          for g, links in groups) + "</nav>")
         nav += f'<span class="me">{e(user["name"])} · <a href="/logout">log out</a></span>'
     return (f"<!doctype html><html lang=en><head><meta charset=utf-8><meta name=viewport content='width=device-width,initial-scale=1'>"
-            f"<title>{e(title)} · GreMi Gang staff</title><style>{CSS}</style>{calls.STYLE}{calls.SCRIPT}</head><body>"
-            + (f"<header><b>GreMi Gang staff</b>{nav}</header>" if user else "")
+            f"<title>{e(title)} · GreMi Gang staff</title>"
+            "<link rel=preconnect href=https://fonts.googleapis.com><link rel=preconnect href=https://fonts.gstatic.com crossorigin>"
+            "<link rel=stylesheet href='https://fonts.googleapis.com/css2?family=Geist:wght@400..700&family=Geist+Mono:wght@400..600&display=swap'>"
+            f"<link rel=icon href='{SITE}favicon.png'><style>{CSS}</style>{calls.STYLE}<style>{THEME}</style>{calls.SCRIPT}</head><body>"
+            + (f"<header><a class=brand href='/'><img src='{SITE}gremigaming-logo.jpg' alt=''><span><b>GreMi Gang</b>"
+               f"<small>Race control staff</small></span></a>{nav}</header>" if user else "")
             + f"<main>{body}</main></body></html>")
 
 
@@ -779,33 +809,44 @@ def lesson_fields(c, uid):
 
 def backfill_lessons():
     """Older contact changes get their contact and the learn flag once (GreMi 3 Nov 2026: changes
-    made that day were leniency, not wrong calls, so they don't teach the engine)."""
+    made that day were leniency, not wrong calls, so they don't teach the engine). Until 6 Nov 2026
+    the site dropped each item's contact, so changes made since then had none and the engine never
+    learned from them: they get it here as soon as the site has it (tried again every hour)."""
     if not GITHUB_TOKEN:
         return
     try:
         data, _ = corrections()
-        todo = [c for c in data.get("changes", []) if c.get("type") == "incident" and "|contact|" in c.get("id", "")
-                and ("learn" not in c or "owner" not in c)]
+        todo = [c for c in data.get("changes", []) if c.get("type") in ("incident", "confirm") and "|contact|" in c.get("id", "")
+                and ("learn" not in c or "owner" not in c or ("inc" not in c and c.get("learn") is not False))]
         if not todo:
             return
         refs = {c["id"]: sr_item(c["id"]) for c in todo if "inc" not in c}
+        filled = sum(1 for c in todo if "inc" not in c and (refs.get(c["id"]) or {}).get("inc"))
+        if not filled and all("learn" in c and "owner" in c for c in todo):
+            return
 
         def edit(d):
             for c in d.get("changes", []):
-                if c.get("type") != "incident" or "|contact|" not in c.get("id", ""):
+                if c.get("type") not in ("incident", "confirm") or "|contact|" not in c.get("id", ""):
                     continue
                 if "learn" not in c:
                     c["learn"] = not (c.get("at") or "").startswith("2026-11-03")
                 it = refs.get(c["id"])
                 if "inc" not in c and it and it.get("inc"):
-                    c["inc"] = it["inc"]
+                    c["inc"] = {k: it["inc"][k] for k in ("t", "pair") if k in it["inc"]}
                     c.setdefault("text", (it.get("text") or "")[:200])
                 if "owner" not in c:
                     c["owner"] = is_owner(int(c.get("by") or 0))
-        save_corrections(edit, f"Staff: {len(todo)} contact changes kept as fault-engine lessons")
-        print("staff page: contact changes backfilled as lessons", flush=True)
+        save_corrections(edit, f"Staff: {filled or len(todo)} contact changes kept as fault-engine lessons")
+        print("staff page: contact changes backfilled as lessons:", filled, flush=True)
     except Exception as ex:
         print("staff page: lessons not backfilled:", ex, flush=True)
+
+
+def backfill_loop():
+    while True:
+        backfill_lessons()
+        time.sleep(3600)
 
 
 def apply_change(c):
@@ -958,10 +999,57 @@ def protest_card(p, staff=None, back="/protests"):
     if p["status"] != "open":
         out += f"<p><b>{e(ANSWER[p['status']])}</b>{': ' + e(p['answer']) if p.get('answer') else ''}</p>"
     elif staff:
-        out += protest_grade_form(p, staff, back)
+        row = protest_row(p)
+        out += protest_editor(p, staff, back, row) if row else protest_grade_form(p, staff, back)
     else:
         out += f"<p class=muted>{e(ANSWER['open'])}</p>"
     return out + "</div>"
+
+
+def protest_row(p):
+    """The whole incident of a protest as the incident editor shows it (staff/races.py incident_rows),
+    or None when the data has no such incident any more."""
+    try:
+        it = sr_item(p["item"]) or {}
+        rows = races.incident_rows(p["file"])
+    except Exception as ex:
+        print("protest: incident not loaded:", ex, flush=True)
+        return None
+    t = (it.get("inc") or {}).get("t")
+    if t is not None:
+        row = next((r for r in rows if abs(r["t"] - round(t, 1)) < 0.05), None)
+        if row:
+            return row
+    # older data without the contact: the incident on that lap with the protesting driver in it
+    mine = [r for r in rows if any(d["name"].lower() == p["driver"].lower() for d in r["drivers"])
+            and (not p.get("lap") or str(r.get("lap")) == str(p.get("lap")))]
+    other = other_in(p.get("what"))
+    best = [r for r in mine if other and any(d["name"].lower() == other.lower() for d in r["drivers"])] or mine
+    return best[0] if len(best) == 1 else None
+
+
+def protest_editor(p, staff, back, row):
+    """The protest as the whole incident (GreMi, 6 Nov 2026): everyone in it, a call per driver
+    (penalise the others too, or nobody), the same editor as the Races tab. One save writes every
+    driver's call, answers the driver and teaches the fault engine."""
+    names, _ = car_names(p["file"])
+    addable = {c: n for c, n in names.items() if not AI_NAME.search(n)}
+    scale = (site_json("league/safety.json") or {}).get("scale")
+    extra = (field("id", p["id"])
+             + "<div class=protest-result><span class=muted>Protest:</span> "
+             "<label><input type=radio name=outcome value=auto checked> from the call "
+             f"(accepted when {e(p['driver'])}'s penalty goes down)</label> "
+             "<label><input type=radio name=outcome value=accept> accepted</label> "
+             "<label><input type=radio name=outcome value=reject> not accepted</label></div>")
+    data = calls.profiles()
+    profs = "".join(calls.profile_html(e, calls.profile_of(d["name"], data), short=True) for d in row["drivers"] if not d.get("ai"))
+    return ((f"<details><summary class=muted style='cursor:pointer'>Driver summaries (for context, never for the call)</summary>{profs}</details>" if profs else "")
+            + f"<p class=muted style='margin:8px 0 4px'>The whole incident, with everyone in it. Set the call for each driver "
+            f"(penalise someone else, or nobody); your reason is the answer {e(p['driver'])} sees. "
+            f"<a href='/races?file={urllib.parse.quote(p['file'])}#incidents'>All incidents in this race</a></p>"
+            + calls.scale_script(scale)
+            + calls.incident_editor(e, row, csrf_token(staff), back, scale, addable, action="/protest-answer", extra_html=extra,
+                                    button="Save the call and answer"))
 
 
 def protest_grade_form(p, staff, back="/protests"):
@@ -1008,6 +1096,8 @@ def protests_page(user, q):
 
 
 def protest_answer(form, user):
+    if form.get("file") and form.get("t"):
+        return protest_answer_incident(form, user)
     pid, action = form.get("id", ""), form.get("action")
     answer = (form.get("answer") or "").strip()[:300]
     if action not in ("accept", "reject") or not answer:
@@ -1050,6 +1140,43 @@ def protest_answer(form, user):
                          closed_at=datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"))
     save_protests(edit)
     return "Answered. The site updates in about 2 minutes." if action == "accept" else "Answered."
+
+
+def protest_answer_incident(form, user):
+    """A protest answered with the whole incident's call (protest_editor): the call goes in like any
+    incident call (races.incident_post, which also teaches the engine), then the protest closes:
+    accepted when the protesting driver's penalty went down (or as staff picked)."""
+    pid = form.get("id", "")
+    p = next((x for x in protests() if x["id"] == pid), None)
+    if not p or p["status"] != "open":
+        raise ValueError("That protest was already answered.")
+    answer = (form.get("reason") or "").strip()[:300]
+    if not answer:
+        raise ValueError("Please write a reason: it is the answer the driver sees.")
+    row = protest_row(p)
+    me = next((d for d in (row or {}).get("drivers", []) if d["name"].lower() == p["driver"].lower()), None)
+    msg = races.incident_post(form, user)
+    outcome = form.get("outcome") or "auto"
+    if outcome == "auto":
+        new = None
+        if me:
+            kind = calls.read_type(form, "kind")
+            fault = "clear" if kind == "Not an incident" else form.get(f"fault_{me['car']}") or ""
+            typed = (form.get(f"pts_{me['car']}") or "").strip().replace(",", ".")
+            try:
+                sev = int(form.get("sev") or 0) or None
+                new = num(typed, -50, 10) if typed and kind != "Not an incident" else calls.points(kind, fault, sev)
+            except ValueError:
+                new = None
+        outcome = "accept" if new is not None and new > float(p["pts"]) else "reject"
+
+    def edit(data):
+        for x in data:
+            if x["id"] == pid:
+                x.update(status="accepted" if outcome == "accept" else "rejected", answer=answer, closed_by=user["id"],
+                         closed_at=datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"))
+    save_protests(edit)
+    return f"Protest {'accepted' if outcome == 'accept' else 'not accepted'}. {msg}"
 
 
 def protest_page(member, q):
@@ -1462,7 +1589,7 @@ def sr_settings_post(form, user):
 
 
 PAGES = {"/": home, "/grading": grading_page, "/grading/results": grading_results,
-         "/grading/learned": lambda user, q: calls.learned_page(user, q, _grading_helpers()),
+         "/grading/learned": lambda user, q: learned.learned_page(user, q, _grading_helpers()),
          "/drivers": lambda user, q: calls.drivers_page(user, q, _grading_helpers()), "/races": races.races_page, "/names": names_page,
          "/members": members_page, "/log": log_page, "/kick": kick_page, "/protests": protests_page,
          "/setup-key": setup_key_page, "/setup-action": setup_action_page, "/sr-settings": sr_settings_page}
@@ -1707,6 +1834,9 @@ class Handler(BaseHTTPRequestHandler):
             elif self.path == "/grade":
                 back = "/grading?id=" + urllib.parse.quote(form.get("id", ""))
                 msg = grade_post(form, user)
+            elif self.path == "/learned-distinct":
+                back = "/grading/learned#alike"
+                msg = learned.distinct_post(form, user)
             elif self.path == "/protest-answer":
                 back = back if back.startswith("/grading") else "/protests"
                 msg = protest_answer(form, user)
@@ -1771,7 +1901,8 @@ class Handler(BaseHTTPRequestHandler):
 def reload_on_change():
     """The bot pulls main when new code arrives; start again when this file changed."""
     files = [pathlib.Path(__file__), pathlib.Path(__file__).with_name("grading.py"), pathlib.Path(__file__).with_name("sr_settings.py"),
-             pathlib.Path(__file__).with_name("calls.py"), pathlib.Path(__file__).with_name("races.py")]
+             pathlib.Path(__file__).with_name("calls.py"), pathlib.Path(__file__).with_name("races.py"),
+             pathlib.Path(__file__).with_name("learned.py")]
     stamp = lambda: [f.stat().st_mtime if f.exists() else 0 for f in files]  # noqa: E731
     seen = stamp()
     while True:
@@ -1787,7 +1918,7 @@ def reload_on_change():
 def main():
     threading.Thread(target=reload_on_change, daemon=True).start()
     threading.Thread(target=sync_decisions, daemon=True).start()   # grades made before this existed
-    threading.Thread(target=backfill_lessons, daemon=True).start()
+    threading.Thread(target=backfill_loop, daemon=True).start()
     missing = [k for k in ("DISCORD_CLIENT_SECRET", "STAFF_GITHUB_TOKEN", "STAFF_SECRET") if not os.environ.get(k)]
     if missing:
         print("staff page: missing " + ", ".join(missing), flush=True)
