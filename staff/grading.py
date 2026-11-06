@@ -347,6 +347,18 @@ def _timeline(i, e):
             + "</details>")
 
 
+def replay(i):
+    """The race viewer link of a graded incident; links made before the game scopes start with /f1/."""
+    return (i.get("replay") or "").replace("/race-stats/f1/", "/race-stats/all/")
+
+
+def viewer(i):
+    """The incident viewer at a graded incident (GreMi, 6 Nov 2026: every staff link opens it)."""
+    from staff import races
+    names = [re.sub(r"^#\d+\s+", "", d["name"]) for d in i.get("drivers") or []]
+    return races.viewer_url(i["race_file"], i.get("lap"), names) if i.get("race_file") else replay(i)
+
+
 def grading_page(user, q, h):
     """h: helpers from app.py (e, page, csrf_token, is_owner)."""
     e, uid = h["e"], int(user["id"])
@@ -388,8 +400,9 @@ def grading_page(user, q, h):
                 + (f"<details style='margin:0 0 10px'><summary class=muted style='cursor:pointer'>Claude's take "
                    f"({e(PICKS.get(i.get('pick'), 'pick'))}), only you see this; open it after grading</summary>"
                    f"<p class=quote>{e(i['claude'])}</p></details>" if owner and i.get("claude") else "")
-                + f"<p><a class=btn href=\"{e(i['replay'])}\" target=_blank rel=noopener>▶ Open replay</a> "
-                f"<span class=muted>starts a few seconds before contact ({e(i.get('race_time', ''))} race time)</span></p>"
+                + f"<p><a class=btn href=\"{e(viewer(i))}\" target=_blank rel=noopener>▶ Incident viewer</a> "
+                f"<a href=\"{e(replay(i))}\" target=_blank rel=noopener class=muted>full race replay</a> "
+                f"<span class=muted>({e(i.get('race_time', ''))} race time)</span></p>"
                 + _timeline(i, e)
                 + f"<form method=post action='/grade'>"
                 f"<input type=hidden name=csrf value='{e(h['csrf_token'](user))}'>"
@@ -448,7 +461,7 @@ def results_page(user, q, h):
             eng = i.get("engine") or {}
             mark = "" if s["engine_ok"] is None else ("<span class=pos> ✓</span>" if s["engine_ok"] else "<span class=neg> ✗</span>")
             rows.append(
-                f"<tr><td><b>{e(i['id'].upper())}</b><br><a href=\"{e(i['replay'])}\" target=_blank rel=noopener>replay</a>"
+                f"<tr><td><b>{e(i['id'].upper())}</b><br><a href=\"{e(viewer(i))}\" target=_blank rel=noopener>incident viewer</a>"
                 f"<div class=muted>{e(i['track'])} {e(i['date'])} L{e(i['lap'])}</div></td>"
                 f"<td>{e(_drivers(i))}</td><td>{staff}</td>"
                 f"<td>{e(s['majority'] or ('tie' if s['votes'] else '–'))}"

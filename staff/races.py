@@ -49,7 +49,7 @@ def viewer_url(file, lap=None, names=()):
     q = "file=" + urllib.parse.quote(f) + (f"&lap={lap}" if lap else "")
     if names:
         q += "&with=" + urllib.parse.quote("|".join(names))
-    return f"{A().SITE}f1/incidents?{q}"
+    return f"{A().SITE}all/incidents?{q}"
 
 
 # ---------------------------------------------------------------- removed races

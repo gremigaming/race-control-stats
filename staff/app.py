@@ -547,7 +547,8 @@ def incident_detail(user, sr, file):
                               '<input type=checkbox name=learn value=1 checked> engine got it wrong (learn)</label>'
                               if it.get("cat") == "contact" else ""))
         extra = ((f"<span class=tag>{e(it['type'])}</span>" if it.get("type") else "") + calls.weather_badge(e, it.get("weather"))
-                 + (f" <a href=\"{e(it['watch'])}\" target=_blank rel=noopener class=muted>▶ replay</a>" if it.get("watch") else ""))
+                 + (f" <a href=\"{e(races.viewer_url(file, it.get('lap'), involved(name, it)))}\" target=_blank rel=noopener class=muted>▶ incident viewer</a>"
+                    if it.get("cat") == "contact" else ""))
         html_rows += (f"<tr><td class='mono {pts_class(it['pts'])}'>{signed(it['pts'])}</td><td><b>{e(name)}</b>"
                       f"{' · lap ' + e(it['lap']) if it.get('lap') else ''} · {e(it['cat'])}{note}{extra}<div class=muted>{e(it['text'])}</div>"
                       f"<details><summary class=muted style='cursor:pointer'>Change</summary>{form}</details></td></tr>")
@@ -599,8 +600,9 @@ def collisions_card(file, sr=None):
             sides = "<div class=muted>" + e(" vs ".join(i.get("names") or [])) + "</div>"
         sev = i.get("sev")
         badge = (f"<span class=tag>{e(i['type'])}</span>" if i.get("type") else "") + calls.weather_badge(e, i.get("weather"))
-        if i.get("watch"):
-            badge += f" <a href=\"{e(i['watch'])}\" target=_blank rel=noopener class=muted>▶ replay</a>"
+        if i.get("file"):
+            badge += (f" <a href=\"{e(races.viewer_url(i['file'], i.get('lap'), i.get('names') or []))}\" target=_blank rel=noopener "
+                      f"class=muted>▶ incident viewer</a>")
         rows += (f"<tr><td class=mono>{'L' + e(i['lap']) if i.get('lap') else ''}</td>"
                  f"<td><b>{e(i.get('where') or 'Contact')}</b>"
                  f"{f' · <span class=muted>severity {e(sev)}</span>' if sev not in (None, '') else ''}"
