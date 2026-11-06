@@ -237,7 +237,7 @@ def incident_post(form, user):
         raise ValueError("Please give a reason.")
     sr = app.site_json("league/safety.json")
     data, _ = app.corrections()
-    row = next((r for r in incident_rows(file, sr, data) if abs(r["t"] - t) < 0.05), None)
+    row = next((r for r in incident_rows(file, sr, data) if (r["inc"] or {}).get("t") and abs(r["t"] - t) < 0.05), None)
     if not row:
         raise ValueError("That incident is not in the data any more. Open the race again.")
     kind = calls.read_type(form, "kind")
@@ -367,7 +367,13 @@ def incidents_card(user, file, sr, data, scale):
     names, _ = app.car_names(file)
     addable = {c: n for c, n in names.items() if not app.AI_NAME.search(n)}
     csrf = app.csrf_token(user)
-    html_rows = "".join(calls.incident_editor(e, r, csrf, back + f"#inc-{r['t']:.1f}", scale, addable) for r in rows)
+    def one(r):
+        if not (r["inc"] or {}).get("t"):   # data from before the contact time was kept: can't be matched safely
+            return (f"<div class=incrow><b>{e(r['where'])}</b>{' · lap ' + e(r['lap']) if r.get('lap') else ''} · "
+                    + e(" vs ".join(d["name"] for d in r["drivers"]))
+                    + "<div class=muted>Editable after the next site build (this data has no contact time yet).</div></div>")
+        return calls.incident_editor(e, r, csrf, back + f"#inc-{r['t']:.1f}", scale, addable)
+    html_rows = "".join(one(r) for r in rows)
     return (f"<div class=card id=incidents><h2 style='margin-top:0'>Incidents ({len(rows)})</h2>"
             f"<p class=muted>One row per incident with everyone in it. Pick what happened, how bad it was and who was to blame; "
             f"the points follow. {e(calls.scale_text(scale))} Add a driver the telemetry missed with <i>+ driver</i>. "
