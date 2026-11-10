@@ -35,10 +35,13 @@ FLAGS = {
     "Netherlands": "🇳🇱", "Monza": "🇮🇹", "Madrid": "🇪🇸", "Azerbaijan": "🇦🇿",
     "Singapore": "🇸🇬", "Austin": "🇺🇸", "Mexico": "🇲🇽", "Brazil": "🇧🇷", "Las Vegas": "🇺🇸",
     "Qatar": "🇶🇦", "Abu Dhabi": "🇦🇪",
+    "Austria Reverse": "🇦🇹", "Great Britain Reverse": "🇬🇧", "Netherlands Reverse": "🇳🇱",
 }
 # Forum tag per post when the name isn't a tag itself
 TAGS = {"Barcelona": "Spain", "Madrid": "Spain", "Monza": "Italy", "Emilia-Romagna": "Italy",
-        "Miami": "United States", "Austin": "United States", "Las Vegas": "United States"}
+        "Miami": "United States", "Austin": "United States", "Las Vegas": "United States",
+        "Austria Reverse": "Austria", "Great Britain Reverse": "Great Britain",
+        "Netherlands Reverse": "Netherlands"}
 
 
 def file_name(card, text=""):
