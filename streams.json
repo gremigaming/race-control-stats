@@ -1,0 +1,22 @@
+{
+ "about": "GreMi's Twitch streams (stream_log.py); races outside these windows are not stream races",
+ "since": "2026-10-28T18:00:26Z",
+ "streams": [
+  {
+   "start": "2026-10-28T18:00:26Z",
+   "end": "2026-10-28T20:08:56Z"
+  },
+  {
+   "start": "2026-10-30T13:35:55Z",
+   "end": "2026-10-30T16:00:25Z"
+  },
+  {
+   "start": "2026-11-02T18:02:05Z",
+   "end": "2026-11-02T19:59:15Z"
+  },
+  {
+   "start": "2026-11-04T18:00:19Z",
+   "end": "2026-11-04T19:58:49Z"
+  }
+ ]
+}
