@@ -1452,6 +1452,19 @@ def fire_apply_run():
                   "Content-Type": "application/json", "Authorization": f"Bearer {ROUTINE_TOKEN}"})
 
 
+def apply_fire_error(ex):
+    """Short reason for a failed routine fire, for the log and the owner's notice."""
+    if isinstance(ex, urllib.error.HTTPError):
+        try:
+            detail = ex.read().decode("utf-8", "replace")[:200]
+        except Exception:
+            detail = ""
+        hint = {401: "routine token rejected", 403: "routine token not allowed",
+                404: "routine not found", 429: "routine busy"}.get(ex.code, "routine error")
+        return f"{hint}, HTTP {ex.code}" + (f": {detail}" if detail else "")
+    return str(ex) or ex.__class__.__name__
+
+
 def setup_track(reg, name):
     t = next((t for t in reg.get("tracks", []) if t["name"] == name), None)
     if not t:
@@ -1508,7 +1521,14 @@ def setup_action_post(form, user):
         def edit(reg):
             reg.setdefault("apply", {})["requested"] = now
         save_json(SETUP_REGISTRY, edit, "Setup manager: Apply run requested")
-        fire_apply_run()
+        try:
+            fire_apply_run()
+        except Exception as ex:  # the request is saved; only the automatic start failed
+            why = apply_fire_error(ex)
+            print("setup apply: routine fire failed:", why, flush=True)
+            return ("Apply request saved, but Claude couldn't be started automatically "
+                    f"({why}). Ask Claude in the Race stats project to do the Apply run: "
+                    "the waiting setups are listed there.")
         return "Apply run started. Claude saves the setups in the game on your PC and reports in Discord."
     raise ValueError("unknown action")
 
