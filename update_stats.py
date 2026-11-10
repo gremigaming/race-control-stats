@@ -358,12 +358,18 @@ def update_setups(stat):
     setups_post.update(sys.modules[__name__])
 
 
+def update_stream_log(stat):
+    import stream_log
+    import sys
+    stream_log.update(sys.modules[__name__])
+
+
 def main():
     stat = find_stat_channels()
     failed = False
     for task in (update_members, update_status, update_live_role, update_twitch,
                  update_youtube, update_tiktok, update_socials_board,
-                 update_stream_schedule, update_leaderboard, update_setups):
+                 update_stream_schedule, update_leaderboard, update_setups, update_stream_log):
         try:
             task(stat)
         except Exception as e:

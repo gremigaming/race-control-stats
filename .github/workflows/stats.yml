@@ -64,6 +64,17 @@ jobs:
           git commit -m "Follower counts for $(date -u +%F)"
           git pull --rebase origin main && git push
 
+      # Twitch stream windows (stream_log.py): the race stats site keeps only races driven during a stream
+      - name: Save stream log
+        if: always()
+        run: |
+          if [ -z "$(git status --porcelain streams.json)" ]; then exit 0; fi
+          git config user.name "github-actions"
+          git config user.email "github-actions@users.noreply.github.com"
+          git add streams.json
+          git commit -m "Stream log"
+          git pull --rebase origin main && git push
+
       # TikTok can hand out a new login token on each run; store it or the next run fails
       - name: Save new TikTok login
         if: always()

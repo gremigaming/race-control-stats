@@ -15,6 +15,7 @@ os.environ.setdefault("DISCORD_BOT_TOKEN", "test-discord-token")
 os.environ.setdefault("GUILD_ID", "111")
 
 import update_stats  # noqa: E402
+import stream_log  # noqa: E402
 
 B = update_stats.bold_caps
 CATEGORY = {"id": "900", "type": 4, "name": "\U0001F4CA " + B("stats")}
@@ -108,6 +109,8 @@ class FakeHttp:
             return {"data": [{"type": "live"}] if self.live else []}
         if "/helix/users" in url:
             return {"data": [{"id": "42"}] if self.twitch_user_found else []}
+        if "/helix/videos" in url:  # stream_log.py: no past broadcasts
+            return {"data": []}
         if "/helix/schedule" in url:  # stream_schedule.py: nothing planned
             return {"data": {"segments": []}}
         if "/helix/channels/followers" in url:
@@ -163,6 +166,8 @@ class UpdaterTest(unittest.TestCase):
             stack.enter_context(mock.patch.object(update_stats, "http", http))
             stack.enter_context(mock.patch.object(update_stats, "TIKTOK_FILE",
                                                   self.tiktok_file))
+            stack.enter_context(mock.patch.object(stream_log, "PATH",
+                                                  os.path.join(os.path.dirname(self.tiktok_file), "streams.json")))
             stack.enter_context(mock.patch.object(update_stats,
                                                   "TIKTOK_REFRESH_TOKEN_OUT", refresh_out))
             for name in ALL_CONFIG_NAMES:
