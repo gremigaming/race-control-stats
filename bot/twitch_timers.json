@@ -122,6 +122,21 @@
       },
       "text": "💜 Subs get no ads, extra giveaway entries and their own welcome sound.",
       "ask_text": "💜 Why sub? No ads on stream, extra entries in the weekly giveaway on Discord, the subs-only chat on Discord, and your own custom welcome sound and alert every time you join the stream!"
+    },
+    {
+      "id": "moza",
+      "commands": [
+        "!moza"
+      ],
+      "text": "Looking for a Simracing Wheel?!? I’m a MOZA affiliate! 🚗 Support my channel by buying via https://mozaracing.com/?ref=gremigaming 💙 Show me your ordernumber & get a FREE sub!"
+    },
+    {
+      "id": "nlr",
+      "commands": [
+        "!nlr",
+        "!nextlevelracing"
+      ],
+      "text": "Looking for Sim Cockpit or Wheelstand?!? I’m a Next Level Racing affiliate! 🏎️ Support my channel by buying via https://bit.ly/4nWq6C0 & use code GREMI for 5% OFF! 💙 Show me your ordernumber & get a FREE sub!"
     }
   ],
   "ads": {

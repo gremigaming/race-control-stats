@@ -166,6 +166,18 @@ async def handle(yt, items, answered):
             room.talked("yt:" + (author.get("channelId") or ""))
             if not text.startswith("!"):
                 room.chat.append(time.time())
+        if not author.get("isChatOwner"):
+            from bot import lobby_queue  # waitlist: wants to join the lobby (GreMi 2026-11-11)
+            joined, answer = lobby_queue.chat_line(
+                "youtube", author.get("channelId") or author.get("displayName"),
+                (author.get("displayName") or "").lstrip("@"), text.lower(),
+                room.game if room is not None else None)
+            if answer:
+                await asyncio.sleep(twitch_chat.REPLY_DELAY)
+                await yt.say(answer)
+                log.info("YouTube chat: lobby waitlist answer")
+            if joined:
+                continue
         hit = twitch_chat.chat_match(config, text.lower())
         if hit is None or time.time() - answered.get(hit[0], 0) <= twitch_chat.COMMAND_GAP:
             continue

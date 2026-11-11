@@ -619,6 +619,17 @@ async def listen_chat(bot, room, ads_command):
                                 room.asked = True
                             continue
                         room.talked("tw:" + (ev.get("chatter_user_id") or ""))
+                        if "broadcaster" not in badges:
+                            from bot import lobby_queue  # waitlist: wants to join the lobby (GreMi 2026-11-11)
+                            joined, answer = lobby_queue.chat_line(
+                                "twitch", ev.get("chatter_user_login") or ev.get("chatter_user_id"),
+                                ev.get("chatter_user_name"), text, room.game)
+                            if answer:
+                                asyncio.create_task(answer_later(bot.say, answer))
+                                log.info("Twitch chat: lobby waitlist answer")
+                            if joined:
+                                room.chat.append(time.time())
+                                continue
                         hit = chat_match(load_timers(), text)
                         if hit:
                             i, message = hit

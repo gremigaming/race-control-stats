@@ -1,0 +1,337 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Lobby Dock</title>
+<!-- GreMi's OBS custom browser dock (GreMi 2026-11-11), served by the staff page at /dock.
+     Lobby: the drivers of the current game session (live.gremigaming.com, from the racing PC's
+     live uplink) with their safety rating from the league data (live R2 first, Pages as fallback):
+     SR, change this stream, kick line warnings, banned, kicked before.
+     Waitlist: the last 10 chatters who want to join. Twitch + YouTube come from Race Control
+     (/dock.json); TikTok chat is read here, from TikFinity on the same PC (ws://localhost:21213),
+     and answered through Streamer.bot's websocket server (DoAction, ws://127.0.0.1:8080).
+     Options: ?tikfinity=PORT ?sb=PORT ?sbpass=PASSWORD ?demo -->
+<style>
+:root { --bg:#0e1116; --panel:#161b22; --line:#262d36; --text:#e6edf3; --dim:#8b949e;
+        --green:#3fb950; --red:#f85149; --amber:#d29922; --blue:#58a6ff;
+        --tw:#9146ff; --yt:#ff3b3b; --tt:#25f4ee; }
+* { box-sizing:border-box; }
+html,body { margin:0; background:var(--bg); color:var(--text);
+            font:13px/1.35 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif; }
+header { display:flex; align-items:center; gap:8px; padding:8px 10px; border-bottom:1px solid var(--line);
+         position:sticky; top:0; background:var(--bg); z-index:2; }
+h2 { margin:0; font-size:12px; letter-spacing:.08em; text-transform:uppercase; color:var(--dim); }
+.sub { color:var(--dim); font-size:12px; margin-left:auto; text-align:right; }
+section { padding:6px 8px 10px; }
+.row { display:grid; grid-template-columns:1fr auto auto; gap:2px 8px; align-items:center;
+       background:var(--panel); border:1px solid var(--line); border-left:3px solid var(--line);
+       border-radius:6px; padding:6px 8px; margin:4px 0; }
+.row.ban { border-left-color:var(--red); background:#2a1215; }
+.row.kick { border-left-color:var(--red); }
+.row.warn { border-left-color:var(--amber); }
+.row.ok { border-left-color:var(--green); }
+.name { font-weight:600; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.sr { font-size:18px; font-weight:700; font-variant-numeric:tabular-nums; text-align:right; min-width:38px; }
+.chg { font-variant-numeric:tabular-nums; text-align:right; min-width:46px; font-weight:600; }
+.up { color:var(--green); } .down { color:var(--red); } .flat { color:var(--dim); }
+.tags { grid-column:1 / -1; display:flex; flex-wrap:wrap; gap:4px; }
+.tag { font-size:11px; padding:1px 6px; border-radius:10px; background:#21262d; color:var(--dim); }
+.tag.red { background:var(--red); color:#fff; font-weight:700; }
+.tag.amber { background:#3b2e0a; color:var(--amber); font-weight:600; }
+.tag.blue { background:#0d2a4a; color:var(--blue); }
+.empty { color:var(--dim); padding:10px 4px; }
+.wait { display:grid; grid-template-columns:auto 1fr auto; gap:0 8px; align-items:center; cursor:pointer;
+        background:var(--panel); border:1px solid var(--line); border-radius:6px; padding:5px 8px; margin:4px 0; }
+.wait.done { opacity:.4; } .wait.done .name { text-decoration:line-through; }
+.wait .msg { grid-column:2 / -1; color:var(--dim); font-size:11px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.pf { min-width:24px; text-align:center; font-size:10px; font-weight:800; padding:1px 5px; border-radius:4px; color:#000; }
+.pf.twitch { background:var(--tw); color:#fff; } .pf.youtube { background:var(--yt); color:#fff; } .pf.tiktok { background:var(--tt); }
+.ago { color:var(--dim); font-size:11px; }
+footer { display:flex; gap:10px; flex-wrap:wrap; padding:6px 10px 10px; color:var(--dim); font-size:11px; border-top:1px solid var(--line); }
+.dot { display:inline-block; width:7px; height:7px; border-radius:50%; background:var(--red); margin-right:4px; }
+.dot.on { background:var(--green); }
+</style>
+</head>
+<body>
+<header><h2>Lobby</h2><div class="sub" id="session">Waiting for a session…</div></header>
+<section id="lobby"><div class="empty">No session yet. Drivers show up once you're in a session.</div></section>
+<header><h2>Waitlist</h2><div class="sub">click a name once invited</div></header>
+<section id="waitlist"><div class="empty">Nobody asked to join yet.</div></section>
+<footer>
+  <span><span class="dot" id="d-live"></span>Session</span>
+  <span><span class="dot" id="d-sr"></span>SR data</span>
+  <span><span class="dot" id="d-chat"></span>Twitch/YouTube</span>
+  <span><span class="dot" id="d-tt"></span>TikTok</span>
+  <span><span class="dot" id="d-sb"></span>Streamer.bot</span>
+</footer>
+<script>
+const q = new URLSearchParams(location.search);
+const LIVE = "https://live.gremigaming.com";
+const LEAGUE_LIVE = "https://replays.gremigaming.com/league/";
+const LEAGUE_PAGES = "https://gremigaming.github.io/race-stats/league/";
+const RAW = "https://raw.githubusercontent.com/gremigaming/race-stats/main/races/";
+const TIKFINITY = "ws://localhost:" + (q.get("tikfinity") || 21213);
+const SB = "ws://127.0.0.1:" + (q.get("sb") || 8080) + "/";
+const HOSTS = /^gremi[ _]?gaming$/i;   // GreMi's own car
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const norm = (n) => String(n || "").replace(/[\s ]+/g, " ").trim().toLowerCase();
+const store = {
+  get(k, d) { try { const v = localStorage.getItem("dock:" + k); return v ? JSON.parse(v) : d; } catch (e) { return d; } },
+  set(k, v) { try { localStorage.setItem("dock:" + k, JSON.stringify(v)); } catch (e) {} },
+};
+const dot = (id, on) => $(id).classList.toggle("on", !!on);
+
+async function getJson(url, ms = 10000) {
+  const c = new AbortController(); const t = setTimeout(() => c.abort(), ms);
+  try { const r = await fetch(url, { cache: "no-store", signal: c.signal }); if (!r.ok) throw new Error(r.status); return await r.json(); }
+  finally { clearTimeout(t); }
+}
+
+// ---------------------------------------------------------------- SR data
+let league = { drivers: new Map(), settings: {}, cur: -1, kicks: new Map(), aliases: new Map() };
+
+function currentStream(streams) {
+  if (!streams || !streams.length) return -1;
+  const last = streams[streams.length - 1].date, now = new Date();
+  const day = (d) => d.toLocaleDateString("en-CA", { timeZone: "Europe/Amsterdam" });
+  const today = day(now), yesterday = day(new Date(now - 86400000));
+  const hour = +now.toLocaleString("en-GB", { timeZone: "Europe/Amsterdam", hour: "2-digit", hour12: false });
+  return last === today || (last === yesterday && hour < 8) ? streams.length - 1 : -1;
+}
+
+async function loadLeague() {
+  let safety = null;
+  try {
+    const idx = await getJson(LEAGUE_LIVE + "index.json?t=" + Date.now(), 6000);
+    const p = idx.assetPaths && idx.assetPaths["safety.json"];
+    if (p) safety = await getJson(/^https?:/.test(p) ? p : LEAGUE_LIVE + p.replace(/^\//, ""));
+  } catch (e) {}
+  if (!safety) { try { safety = await getJson(LEAGUE_PAGES + "safety.json?t=" + Date.now()); } catch (e) {} }
+  if (safety) {
+    league.drivers = new Map(safety.drivers.map((d) => [norm(d.name), d]));
+    league.settings = Object.assign({ kick_race: 30, kick_stream: 60 }, safety.settings || {});
+    league.cur = currentStream(safety.streams);
+  }
+  dot("d-sr", !!safety);
+  try {
+    const [al, corr] = await Promise.all([getJson(RAW + "aliases.json?t=" + Date.now()).catch(() => ({})),
+                                          getJson(RAW + "corrections.json?t=" + Date.now()).catch(() => ({}))]);
+    const aliases = new Map(Object.entries(al || {}).map(([a, b]) => [norm(a), b]));
+    const kicks = new Map();
+    for (const c of (corr && corr.changes) || []) {
+      if (c.type === "alias" && c.from && c.to) aliases.set(norm(c.from), c.to);
+      if (c.type === "split" && c.from) aliases.delete(norm(c.from));
+      if (c.type === "kick") {
+        const n = norm(String(c.driver || "").replace(/\s*\(hidden as .*\)$/, ""));
+        if (n) kicks.set(n, (kicks.get(n) || 0) + 1);
+      }
+    }
+    league.aliases = aliases; league.kicks = kicks;
+  } catch (e) {}
+  renderLobby();
+}
+
+function driverInfo(name) {
+  const key = norm(league.aliases.get(norm(name)) || name);
+  const d = league.drivers.get(key);
+  const out = { name, sr: null, change: 0, tags: [], level: "ok", kicked: league.kicks.get(key) || 0 };
+  if (/^Car #\d+$/.test(name)) { out.tags.push(["blue", "hidden name"]); out.level = "warn"; return out; }
+  if (!d) { out.tags.push(["", "new driver"]); return out; }
+  out.sr = d.sr;
+  const s = league.settings;
+  if (league.cur >= 0) {
+    const i = d.history.findIndex((h) => h.stream === league.cur);
+    if (i >= 0 && d.history[i].raced) out.change = d.history[i].sr - (i > 0 ? d.history[i - 1].sr : 50);
+  }
+  let raceLoss = 0;
+  for (const se of d.sessions || []) {
+    if (se.stream !== league.cur || !se.race) continue;
+    const net = se.netGrav ?? se.net ?? 0;
+    if (net < 0) raceLoss = Math.max(raceLoss, -net);
+  }
+  const streamLoss = Math.max(0, -out.change);
+  if (d.banned || d.sr <= 0) { out.level = "ban"; out.tags.push(["red", "BANNED"]); }
+  else if (raceLoss >= s.kick_race || streamLoss >= s.kick_stream) {
+    out.level = "kick"; out.tags.push(["red", "KICK"]);
+    out.tags.push(["", raceLoss >= s.kick_race ? `lost ${raceLoss.toFixed(1)} in one race (line ${s.kick_race})`
+                                                : `lost ${streamLoss.toFixed(1)} this stream (line ${s.kick_stream})`]);
+  } else if (raceLoss >= 0.75 * s.kick_race || streamLoss >= 0.75 * s.kick_stream) {
+    out.level = "warn";
+    out.tags.push(["amber", raceLoss >= 0.75 * s.kick_race ? `close to kick: −${raceLoss.toFixed(1)} in a race (line ${s.kick_race})`
+                                                            : `close to kick: −${streamLoss.toFixed(1)} this stream (line ${s.kick_stream})`]);
+  }
+  if (d.provisional) out.tags.push(["", "provisional"]);
+  return out;
+}
+
+// ---------------------------------------------------------------- lobby (live session)
+let session = store.get("session", null);   // {uid, track, session}
+let cars = [];
+
+async function pollLive() {
+  try {
+    const live = await getJson(LIVE + "/live.json");
+    dot("d-live", true);
+    const s = (live.sessions || [])[0];
+    if (s && (!session || s.uid !== session.uid)) { session = { uid: s.uid, track: s.track, session: s.session }; store.set("session", session); }
+    if (session) {
+      const hex = typeof session.uid === "number" ? BigInt(session.uid).toString(16).padStart(16, "0") : String(session.uid);
+      const m = await getJson(`${LIVE}/s/${hex}/manifest.json`).catch(() => null);
+      if (m) {
+        cars = Object.values(m.cars || {}).filter((c) => !c.ai && c.name && !HOSTS.test(c.name)).map((c) => c.name);
+        session.track = m.track; session.session = m.session; session.live = !!s && s.uid === session.uid && !m.finished;
+      }
+    }
+  } catch (e) { dot("d-live", false); }
+  renderLobby();
+}
+
+function renderLobby() {
+  if (!session || !cars.length) return;
+  $("session").textContent = `${session.track} · ${session.session} · ${cars.length} drivers${session.live ? "" : " (last session)"}`;
+  const order = { ban: 0, kick: 1, warn: 2, ok: 3 };
+  const rows = cars.map(driverInfo).sort((a, b) => order[a.level] - order[b.level] || (b.sr ?? -1) - (a.sr ?? -1));
+  $("lobby").innerHTML = rows.map((r) => {
+    const chg = r.change > 0.05 ? `<span class="chg up">+${r.change.toFixed(1)}</span>` :
+                r.change < -0.05 ? `<span class="chg down">−${Math.abs(r.change).toFixed(1)}</span>` : `<span class="chg flat">±0</span>`;
+    const tags = r.tags.slice();
+    if (r.kicked) tags.push(["amber", `kicked ${r.kicked}× before`]);
+    return `<div class="row ${r.level}"><span class="name" title="${esc(r.name)}">${esc(r.name)}</span>${chg}` +
+      `<span class="sr">${r.sr == null ? "–" : Math.round(r.sr)}</span>` +
+      (tags.length ? `<div class="tags">${tags.map(([c, t]) => `<span class="tag ${c}">${esc(t)}</span>`).join("")}</div>` : "") + `</div>`;
+  }).join("");
+}
+
+// ---------------------------------------------------------------- waitlist
+let cfg = { size: 10, keep_hours: 8, commands: ["!join", "!ea", "!lobby"], interest: {}, tiktok_action: "Join message Tiktok" };
+let cloud = [];                              // Twitch + YouTube, from Race Control
+let tiktok = store.get("tiktok", []);        // read here
+let invited = store.get("invited", {});      // entry key|at -> true
+
+async function pollWaitlist() {
+  try {
+    const d = await getJson("/dock.json");
+    cloud = d.entries || []; cfg = Object.assign(cfg, d);
+    dot("d-chat", true);
+  } catch (e) { dot("d-chat", false); }
+  renderWaitlist();
+}
+
+function entries() {
+  const now = Date.now() / 1000;
+  return cloud.concat(tiktok).filter((e) => now - e.at <= cfg.keep_hours * 3600)
+    .sort((a, b) => a.at - b.at).slice(-cfg.size);
+}
+
+function ago(t) {
+  const s = Math.max(0, Date.now() / 1000 - t);
+  return s < 60 ? "now" : s < 3600 ? Math.floor(s / 60) + "m" : Math.floor(s / 3600) + "h";
+}
+
+function renderWaitlist() {
+  const list = entries().reverse();
+  if (!list.length) { $("waitlist").innerHTML = '<div class="empty">Nobody asked to join yet.</div>'; return; }
+  $("waitlist").innerHTML = list.map((e) => {
+    const id = e.key + "|" + e.at;
+    return `<div class="wait ${invited[id] ? "done" : ""}" data-id="${esc(id)}">` +
+      `<span class="pf ${esc(e.platform)}">${{ twitch: "TW", youtube: "YT", tiktok: "TT" }[e.platform] || "?"}</span>` +
+      `<span class="name">${esc(e.name)}</span><span class="ago">${ago(e.at)}</span>` +
+      `<span class="msg">${esc(e.text)}</span></div>`;
+  }).join("");
+}
+
+$("waitlist").addEventListener("click", (ev) => {
+  const el = ev.target.closest(".wait"); if (!el) return;
+  const id = el.dataset.id;
+  if (invited[id]) delete invited[id]; else invited[id] = true;
+  store.set("invited", invited); renderWaitlist();
+});
+
+function re(src) { try { return src ? new RegExp(src, "i") : null; } catch (e) { return null; } }
+function interested(text) {
+  const a = cfg.interest || {}, topic = re(a.topic), cue = re(a.cue), not = re(a.not);
+  return !!topic && topic.test(text) && (!cue || cue.test(text)) && !(not && not.test(text));
+}
+
+function onTikTokChat(user, name, text) {
+  if (!user || !text) return;
+  const low = text.trim().toLowerCase();
+  const command = cfg.commands.includes(low.split(/\s+/)[0]);
+  if (!command && !interested(low)) return;
+  const key = "tiktok:" + user.toLowerCase();
+  if (entries().some((e) => e.key === key)) return;   // already in the last 10
+  const now = Date.now() / 1000;
+  tiktok.push({ key, platform: "tiktok", name: name || user, at: now, text: text.slice(0, 120) });
+  tiktok = tiktok.slice(-50); store.set("tiktok", tiktok);
+  renderWaitlist();
+  // !join on TikTok is already answered by Streamer.bot itself; interest gets the same answer here
+  if (!command || q.has("tiktokcommands")) sbAction(cfg.tiktok_action, { user: name || user });
+}
+
+function tikfinity() {
+  let ws;
+  try { ws = new WebSocket(TIKFINITY); } catch (e) { return setTimeout(tikfinity, 10000); }
+  ws.onopen = () => dot("d-tt", true);
+  ws.onmessage = (m) => {
+    let msg; try { msg = JSON.parse(m.data); } catch (e) { return; }
+    const ev = msg.event || msg.type || "", d = msg.data || msg;
+    if (ev === "chat") onTikTokChat(d.uniqueId || d.userId, d.nickname || d.uniqueId, d.comment || "");
+  };
+  ws.onclose = () => { dot("d-tt", false); setTimeout(tikfinity, 10000); };
+}
+
+// ---------------------------------------------------------------- Streamer.bot (TikTok answers)
+let sb = null, sbReady = false;
+async function sha256b64(s) {
+  const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(s));
+  return btoa(String.fromCharCode(...new Uint8Array(buf)));
+}
+function streamerbot() {
+  sbReady = false;
+  try { sb = new WebSocket(SB); } catch (e) { return setTimeout(streamerbot, 15000); }
+  sb.onmessage = async (m) => {
+    let msg; try { msg = JSON.parse(m.data); } catch (e) { return; }
+    if (msg.request === "Hello") {
+      if (msg.authentication && q.get("sbpass")) {
+        const secret = await sha256b64(q.get("sbpass") + msg.authentication.salt);
+        sb.send(JSON.stringify({ request: "Authenticate", id: "auth", authentication: await sha256b64(secret + msg.authentication.challenge) }));
+      }
+      sbReady = true; dot("d-sb", true);
+    }
+  };
+  sb.onclose = () => { sbReady = false; dot("d-sb", false); setTimeout(streamerbot, 15000); };
+}
+function sbAction(name, args) {
+  if (!name || !sb || !sbReady) return;
+  sb.send(JSON.stringify({ request: "DoAction", id: "dock" + Date.now(), action: { name }, args: args || {} }));
+}
+
+// ---------------------------------------------------------------- start
+function demo() {
+  league.settings = { kick_race: 30, kick_stream: 60 };
+  session = { track: "Monza", session: "Race", live: true };
+  const now = Date.now() / 1000;
+  const fake = { "Fast Freddie": [78, 2.4], "DDRK": [64, -8.2], "Crashy McCrash": [41, -26], "Banned Bob": [0, 0] };
+  league.drivers = new Map(Object.entries(fake).map(([n, [sr, c]]) => [norm(n), { name: n, sr, banned: sr === 0,
+    history: [{ stream: 0, sr: sr - c, raced: true }, { stream: 1, sr, raced: true }], sessions: [] }]));
+  league.cur = 1; league.kicks = new Map([["crashy mccrash", 2]]);
+  cars = ["Fast Freddie", "DDRK", "Crashy McCrash", "Banned Bob", "Car #27", "Newbie_77"];
+  cloud = [{ key: "twitch:a", platform: "twitch", name: "speedy_sam", at: now - 300, text: "can i join next race?" },
+           { key: "youtube:b", platform: "youtube", name: "Lisa Racing", at: now - 120, text: "hoe kan ik meedoen?" }];
+  tiktok = [{ key: "tiktok:c", platform: "tiktok", name: "f1fan_nl", at: now - 30, text: "how do I get an invite" }];
+  renderLobby(); renderWaitlist();
+}
+
+if (q.has("demo")) demo();
+else {
+  pollLive(); setInterval(pollLive, 10000);
+  loadLeague(); setInterval(loadLeague, 120000);
+  pollWaitlist(); setInterval(pollWaitlist, 5000);
+  setInterval(renderWaitlist, 30000);
+  tikfinity(); streamerbot();
+}
+</script>
+</body>
+</html>

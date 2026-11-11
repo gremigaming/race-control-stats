@@ -1,0 +1,17 @@
+{
+  "_about": "Lobby waitlist (GreMi 2026-11-11): Race Control spots chatters who want to race with GreMi (no command needed), answers them once with how to join, and lists the last `size` of them in the OBS lobby dock (/dock on the staff server). Someone already in the last `size` is not added or answered again. commands = always answered (cooldown per person). texts = the answer, picked by the Twitch stream category (the first key the category contains, else default); {name} = the chatter. interest = {topic, cue, not} regexes like twitch_timers.json ask (topic AND cue, and NOT not). The dock reads TikTok chat itself (TikFinity) with the same interest regexes and answers there through Streamer.bot (action `tiktok_action`).",
+  "size": 10,
+  "keep_hours": 8,
+  "command_cooldown": 60,
+  "commands": ["!join", "!ea", "!lobby"],
+  "texts": {
+    "le mans": "@{name} In LMU look for the lobby called GreMI_Gaming, the password is GreMi",
+    "default": "@{name} Add me as a Friend on EA: GreMi_Gaming - And ask for an invite when we are in the Lobby."
+  },
+  "tiktok_action": "Join message Tiktok",
+  "interest": {
+    "topic": "\\b(join|joinen|jump in|hop in|mee ?doen|mee ?racen|mee ?spelen|mee ?rijden|lobby|invite|inv|uitnodig\\w*|add (me|u|you)|friend ?(request|req)|vriend(schaps)?verzoek|ea ?(id|name|naam|account)|race (with|against|tegen) (you|u|jou|je|jullie|us|ons)|play with (you|u|jullie)|racen met (jou|je|jullie))\\b",
+    "cue": "(\\?|\\b(can|could|may|how|hoe|kan|mag|kun|kunnen|wanna|want|wil|willen|let me|plz|please|pls|graag|send|stuur|space|room|plek|spot|spots|open|full|vol|next|volgende|me too|ik ook|when|wanneer|would like|i'?d like|i'?ll|lemme|gimme|allowed|anyone|what|whats|wat|where|waar)\\b)",
+    "not": "\\bjoin(ed|ing|s)? (the |your |ur |je |de |jouw )?(discord|server|giveaway|stream|chat|call|vc|voice|channel|kanaal|community|team|sub)\\b|\\bjust joined\\b|\\b(i|we|ik|he|she|they|you|u) (just )?joined\\b|\\bdiscord\\b|\\blobby (music|song|muziek)\\b"
+  }
+}

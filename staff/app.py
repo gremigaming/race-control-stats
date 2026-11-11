@@ -1697,6 +1697,16 @@ class Handler(BaseHTTPRequestHandler):
                 body = socials_live.public(socials_live.read_state(), time.time())
                 return self.send(200, json.dumps(body), {"Content-Type": "application/json",
                                                          "Access-Control-Allow-Origin": "*"})
+            if url.path in ("/dock", "/dock.json"):  # OBS lobby dock (GreMi 2026-11-11), public
+                import importlib
+                from bot import lobby_queue
+                lobby_queue = importlib.reload(lobby_queue)
+                if url.path == "/dock":
+                    return self.send(200, (lobby_queue.HERE / "lobby_dock.html").read_text(encoding="utf-8"),
+                                     {"X-Frame-Options": "SAMEORIGIN"})
+                body = lobby_queue.public(lobby_queue.read_state(), lobby_queue.load_config(), time.time())
+                return self.send(200, json.dumps(body), {"Content-Type": "application/json",
+                                                         "Access-Control-Allow-Origin": "*"})
             if url.path == "/setup-login":  # the Setup manager on the site
                 return self.login(setup_back=q.get("back", [""])[0])
             if url.path == "/login":
