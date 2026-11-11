@@ -9,7 +9,9 @@ or a grayed "No setup yet" placeholder.
 The post's opening message holds the overview, so that's the forum thumbnail;
 the full cards follow as one message each. Messages are edited when a picture
 changes, so posts don't jump around. New posts are made last track first: the
-forum sorts newest on top, so the posts end up in calendar order.
+forum sorts newest on top, so the posts end up in calendar order (normal tracks,
+then the reverse layouts). When the posts are out of that order, they're all
+removed and posted again.
 """
 import hashlib
 import json
@@ -220,6 +222,25 @@ def sync_track(stats, me, track, post, tags):
         stats.discord("PATCH", f"/channels/{post['id']}", {"archived": True})
 
 
+def in_order(tracks, posts):
+    """Whether our posts show top to bottom in the manifest's order (normal
+    tracks in calendar order, reverse layouts last). Thread ids grow with
+    creation time and the forum shows the newest on top, so each post must be
+    newer than the next one. A post missing below an existing one counts as
+    out of order, since its new post would land on top."""
+    ids = [int(posts[t["post"].strip().lower()]["id"]) if t["post"].strip().lower() in posts else None
+           for t in tracks]
+    seen = [i for i in ids if i is not None]
+    if not seen:
+        return True
+    # missing posts are fine only before the first existing one (they get
+    # posted last first, so they land on top in order)
+    first = ids.index(seen[0])
+    if any(i is None for i in ids[first:]):
+        return False
+    return all(a > b for a, b in zip(seen, seen[1:]))
+
+
 def update(stats):
     if not SETUPS_FORUM_ID:
         return
@@ -227,6 +248,16 @@ def update(stats):
     me = stats.discord("GET", "/users/@me")["id"]
     posts = forum_posts(stats, me)
     tags = tag_ids(stats)
+    if not in_order(manifest["tracks"], posts):
+        # The forum sorts by creation date, newest on top, so a post can only
+        # move by posting it again: remove ours and post them all, last first.
+        for track in manifest["tracks"]:
+            post = posts.pop(track["post"].strip().lower(), None)
+            if post and not (post.get("thread_metadata") or {}).get("locked"):
+                stats.discord("DELETE", f"/channels/{post['id']}")
+                print(f"removed:   {track['post']} post (new order)")
+            elif post:
+                posts[track["post"].strip().lower()] = post
     # last track first: the forum shows the newest post on top
     for track in reversed(manifest["tracks"]):
         post = posts.get(track["post"].strip().lower())

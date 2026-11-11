@@ -122,6 +122,22 @@ class Update(unittest.TestCase):
         self.assertEqual(deleted, ["/channels/55/messages/m-race", "/channels/55/messages/m-wet"])
         self.assertEqual([s[3][0][0].split("-")[2] for s in sent], ["quali", "race", "wet"])
 
+    def test_order_check(self):
+        tracks = [{"post": n} for n in ("Australia", "China", "Japan")]
+        post = lambda i: {"id": str(i)}  # noqa: E731
+        self.assertTrue(sp.in_order(tracks, {"australia": post(3), "china": post(2), "japan": post(1)}))
+        self.assertTrue(sp.in_order(tracks, {"china": post(2), "japan": post(1)}))
+        self.assertTrue(sp.in_order(tracks, {}))
+        self.assertFalse(sp.in_order(tracks, {"australia": post(1), "china": post(2), "japan": post(3)}))
+        self.assertFalse(sp.in_order(tracks, {"australia": post(3), "japan": post(1)}))
+
+    def test_out_of_order_posts_are_posted_again(self):
+        threads = [{"id": "55", "name": "Japan", "owner_id": ME}]
+        with mock.patch.object(sp, "in_order", lambda *_: False):
+            calls, sent = self.run_update(threads, self.existing())
+        self.assertIn(("DELETE", "/channels/55", None), calls)
+        self.assertEqual(sent[0][:2], ("POST", "/channels/42/threads"))
+
     def test_off_without_forum_id(self):
         with mock.patch.object(sp, "SETUPS_FORUM_ID", ""):
             self.assertIsNone(sp.update(types.SimpleNamespace()))
