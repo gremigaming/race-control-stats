@@ -67,6 +67,8 @@ jobs:
       # Twitch stream windows (stream_log.py): the race stats site keeps only races driven during a stream
       - name: Save stream log
         if: always()
+        env:
+          GH_TOKEN: ${{ secrets.GH_SECRETS_TOKEN }}
         run: |
           if [ -z "$(git status --porcelain streams.json)" ]; then exit 0; fi
           git config user.name "github-actions"
@@ -74,6 +76,12 @@ jobs:
           git add streams.json
           git commit -m "Stream log"
           git pull --rebase origin main && git push
+          # A stream just ended: rebuild the race stats site now, so the award roles move
+          # soon after the stream instead of at the next 6-hourly build (GreMi 2026-11-12)
+          if python3 -c "import json,sys; s=json.load(open('streams.json'))['streams']; sys.exit(0 if s and s[-1].get('end') else 1)"; then
+            gh workflow run site.yml --repo gremigaming/race-stats --ref main \
+              || echo "race-stats rebuild not started; the 6-hourly build picks the stream up"
+          fi
 
       # TikTok can hand out a new login token on each run; store it or the next run fails
       - name: Save new TikTok login

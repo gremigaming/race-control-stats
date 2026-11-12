@@ -67,25 +67,29 @@ class GiveawayTests(unittest.TestCase):
 
 
 class AwardTests(unittest.TestCase):
-    RANK = [{"name": "TTV/GreMi_Gaming", "text": "16 wins"}, {"name": "Shw1ks", "text": "4 wins"},
-            {"name": "DDRK", "text": "1 win"}]
+    RANK = [{"name": "TTV/GreMi_Gaming", "value": 16, "text": "16 wins"},
+            {"name": "Shw1ks", "value": 4, "text": "4 wins"}, {"name": "DDRK", "value": 1, "text": "1 win"}]
     LINKED = {"ttv/gremi_gaming": 1, "shw1ks": 2, "ddrk": 3}
 
     def test_never_gremi(self):
-        uid, row = ar.choose({}, self.RANK, self.LINKED, {1, 2, 3}, 1, 0)
+        uid, row = ar.choose({}, self.RANK, self.LINKED, {1, 2, 3}, 1, True)
         self.assertEqual((uid, row["name"]), (2, "Shw1ks"))
 
-    def test_holder_keeps_it_for_a_day(self):
+    def test_holder_keeps_it_until_the_next_stream(self):
         state = {"uid": 3, "since": 0}
-        self.assertEqual(ar.choose(state, self.RANK, self.LINKED, {1, 2, 3}, 1, 20 * 3600)[0], 3)
-        self.assertEqual(ar.choose(state, self.RANK, self.LINKED, {1, 2, 3}, 1, 86400)[0], 2)
+        self.assertEqual(ar.choose(state, self.RANK, self.LINKED, {1, 2, 3}, 1, False)[0], 3)
+        self.assertEqual(ar.choose(state, self.RANK, self.LINKED, {1, 2, 3}, 1, True)[0], 2)
+
+    def test_tie_keeps_the_holder(self):
+        rank = [{"name": "Shw1ks", "value": 6, "text": "6 wins"}, {"name": "DDRK", "value": 6, "text": "6 wins"}]
+        self.assertEqual(ar.choose({"uid": 3}, rank, self.LINKED, {2, 3}, 1, True)[0], 3)
 
     def test_holder_who_left_is_replaced(self):
-        self.assertEqual(ar.choose({"uid": 3, "since": 0}, self.RANK, self.LINKED, {1, 2}, 1, 10)[0], 2)
+        self.assertEqual(ar.choose({"uid": 3, "since": 0}, self.RANK, self.LINKED, {1, 2}, 1, False)[0], 2)
 
     def test_unlinked_drivers_are_skipped(self):
-        self.assertEqual(ar.choose({}, self.RANK, {"ddrk": 3}, {3}, 1, 0)[0], 3)
-        self.assertEqual(ar.choose({}, self.RANK, {}, set(), 1, 0), (None, None))
+        self.assertEqual(ar.choose({}, self.RANK, {"ddrk": 3}, {3}, 1, False)[0], 3)
+        self.assertEqual(ar.choose({}, self.RANK, {}, set(), 1, True), (None, None))
 
     def test_lost_announcement_is_sent_later(self):
         import asyncio

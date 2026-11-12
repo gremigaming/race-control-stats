@@ -1,12 +1,15 @@
 """The five award roles and the VIP role (GreMi 2026-10-13).
 
-Award roles: race-stats ranks the drivers over the last 5 streams
+Award roles: race-stats ranks the drivers over the last 5 finished streams
 (league/awards.json, scripts/awards.py there). Each role goes to the best
 driver who has linked their Discord (bot/links.py), never GreMi (then the next
-one). A holder keeps the role for at least HOLD_DAYS; after that the best
-driver takes it over, and Race Control says so in F1-CHAT (old ➜ new); that line
-is kept in the state file until it is really posted, so a restart can't lose it. A driver can hold
-several. The roles always have a holder while anyone linked qualifies.
+one). GreMi 2026-11-12 (members: "it changes when there is no stream"): roles
+move only when a new finished stream enters awards.json's "streams" list, never
+on a timer or mid-stream, and a tie keeps the current holder. Between streams a
+holder is only replaced when they leave the server. Race Control says each
+change in F1-CHAT (old ➜ new); that line is kept in the state file until it is
+really posted, so a restart can't lose it. A driver can hold several. The roles
+always have a holder while anyone linked qualifies.
 
 VIP: members whose name matches one of the Twitch channel's VIPs get the VIP
 role (GreMi's own Twitch login, channel:read:vips). It never removes VIP from
@@ -28,7 +31,6 @@ AWARDS_URL = "https://gremigaming.github.io/race-stats/league/awards.json"
 STATE = pathlib.Path(os.environ.get("RACE_CONTROL_AWARDS", "/var/lib/race-control/awards.json"))
 F1_CHAT_ID = 1556941705322692608
 VIP_ROLE = 1100007755332452472
-HOLD_DAYS = 1  # GreMi 2026-10-13: may switch every day
 EVERY = 1800  # seconds between checks
 AWARDS = {  # key in awards.json -> role id
     "wins": 1472160002243428487,
@@ -40,10 +42,10 @@ AWARDS = {  # key in awards.json -> role id
 log = logging.getLogger("race_control.awards")
 
 
-def choose(state, ranking, linked, present, owner_id, now, hold_days=HOLD_DAYS):
+def choose(state, ranking, linked, present, owner_id, new_stream):
     """The holder of one award: (uid, row) or (None, None).
-    state: {"uid", "since"} or {}; ranking: best first; linked: {driver lower: uid};
-    present: uids on the server."""
+    state: {"uid", ...} or {}; ranking: best first; linked: {driver lower: uid};
+    present: uids on the server; new_stream: a finished stream was added since the last pick."""
     best = None
     for row in ranking:
         uid = linked.get(row["name"].lower())
@@ -52,9 +54,9 @@ def choose(state, ranking, linked, present, owner_id, now, hold_days=HOLD_DAYS):
             break
     holder = state.get("uid")
     if holder and holder in present and holder != owner_id:
-        held_for = now - state.get("since", now)
-        if best is None or best[0] == holder or held_for < hold_days * 86400:
-            row = next((r for r in ranking if linked.get(r["name"].lower()) == holder), None)
+        row = next((r for r in ranking if linked.get(r["name"].lower()) == holder), None)
+        tied = row is not None and best is not None and "value" in row and row["value"] == best[1].get("value")
+        if not new_stream or best is None or best[0] == holder or tied:
             return holder, row
     return best if best else (None, None)
 
@@ -104,13 +106,18 @@ async def sync_awards(guild, owner_id, state):
     linked = {v["driver"].lower(): int(uid) for uid, v in L.Links().read().items()}
     present = {m.id for m in guild.members if not m.bot}
     now = time.time()
+    streams = data.get("streams") or []
+    if "applied" not in state:  # first run with this rule: keep today's holders
+        state["applied"] = streams
+        save_state(state)
+    new_stream = streams != state["applied"]
     try:
         for key, role_id in AWARDS.items():
             role = guild.get_role(role_id)
             if role is None:
                 continue
             old = state.get(key, {})
-            uid, row = choose(old, data["awards"].get(key, []), linked, present, owner_id, now)
+            uid, row = choose(old, data["awards"].get(key, []), linked, present, owner_id, new_stream)
             if uid is None:
                 continue
             if uid != old.get("uid"):
@@ -129,6 +136,9 @@ async def sync_awards(guild, owner_id, state):
                     await m.remove_roles(role, reason="Award role moved to the best driver")
             if member and role not in member.roles:
                 await member.add_roles(role, reason="Best over the last 5 streams")
+        if new_stream:
+            state["applied"] = streams
+            save_state(state)
     finally:
         await announce(guild, state, discord)
 
@@ -146,7 +156,7 @@ async def announce(guild, state, discord):
     channel = guild.get_channel(F1_CHAT_ID) or await guild.fetch_channel(F1_CHAT_ID)
     winners = {p["uid"] for p in pending}
     await channel.send("\n".join(p["text"] for p in pending) + "\n-# Over the last 5 streams, "
-                       "checked every day. Link your driver name in "
+                       "updated after each stream. Link your driver name in "
                        "<#1558730257593409628> to compete.",
                        allowed_mentions=discord.AllowedMentions(users=[
                            discord.Object(u) for u in winners if wants_pings(guild.get_member(u))]))
