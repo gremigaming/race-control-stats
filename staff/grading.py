@@ -159,10 +159,21 @@ def engine_verdict(inc):
 
 
 def _num(v, what):
+    """A time on the race timer: minutes:seconds ("1:10.4") or plain seconds ("70.4"), both the
+    same moment (GreMi, 12 Nov 2026: type what the incident viewer's timer shows)."""
+    txt = str(v or "").strip().replace(",", ".")
     try:
-        return round(float(str(v).replace(",", ".")), 1)
+        if ":" in txt:
+            m, sec = txt.split(":", 1)
+            if not m.strip().isdigit() or float(sec) >= 60 or float(sec) < 0:
+                raise ValueError
+            return round(int(m) * 60 + float(sec), 1)
+        t = float(txt)
+        if t < 0:
+            raise ValueError
+        return round(t, 1)
     except ValueError:
-        raise ValueError(f"{what} must be a number of seconds")
+        raise ValueError(f"{what} must be a time like 1:10.4 (minutes:seconds) or 70.4 (seconds)")
 
 
 def parse_parts(inc, form):
@@ -280,7 +291,14 @@ def default_parts(i, g):
 
 
 def _clock(t):
-    return f"{int(t // 60)}:{t % 60:04.1f}"
+    """Seconds on the replay clock as the incident viewer's race timer shows them: 70.4 -> 1:10.4."""
+    t = max(0.0, round(float(t), 1))
+    m = int(t // 60)
+    return f"{m}:{t - m * 60:04.1f}"
+
+
+def _clock_or_blank(t):
+    return "" if t in (None, "") else _clock(t)
 
 
 def _part_html(i, n, p, e):
@@ -302,9 +320,11 @@ def _part_html(i, n, p, e):
     guessed = not p.get("kind") and bool(kind)
     return (f"<fieldset class=part data-n={n}><legend><b>Incident <span class=pn>{n + 1}</span></b> "
             f"<button type=button class=link onclick='rmPart(this)'>remove</button></legend>"
-            f"<p>From <input type=number step=0.1 name=p{n}_t0 value='{e(p.get('t0', ''))}' required style='width:80px'> to "
-            f"<input type=number step=0.1 name=p{n}_t1 value='{e(p.get('t1', ''))}' required style='width:80px'> "
-            f"<span class=muted>seconds on the replay clock</span></p>"
+            f"<p>From <input name=p{n}_t0 value='{e(_clock_or_blank(p.get('t0')))}' required inputmode=decimal "
+            f"pattern='\\s*(\\d+:[0-5]?\\d([.,]\\d+)?|\\d+([.,]\\d+)?)\\s*' placeholder='1:10.4' style='width:80px'> to "
+            f"<input name=p{n}_t1 value='{e(_clock_or_blank(p.get('t1')))}' required inputmode=decimal "
+            f"pattern='\\s*(\\d+:[0-5]?\\d([.,]\\d+)?|\\d+([.,]\\d+)?)\\s*' placeholder='1:15.0' style='width:80px'> "
+            f"<span class=muted>race timer, minutes:seconds as the incident viewer shows it (70 or 1:10 both work)</span></p>"
             f"<p><b>Real incident?</b> <label><input type=radio name=p{n}_real value=yes required{' checked' if real is True else ''}> Yes</label> "
             f"<label><input type=radio name=p{n}_real value=no{' checked' if real is False else ''}> No, just contact without consequence</label></p>"
             f"<p><b>Type</b> <span>{calls.type_select(e, f'p{n}_type', kind, guessed)}</span></p>"
@@ -323,8 +343,11 @@ function addPart(btn){const f=btn.closest('form');const parts=f.querySelectorAll
  c.querySelectorAll('[name]').forEach(el=>{el.name=el.name.replace(/^p\\d+_/,'p'+n+'_');
   if(el.type==='radio'||el.type==='checkbox')el.checked=false;else if(el.tagName!=='SELECT')el.value='';});
  const t1=last.querySelector('[name$=_t1]').value;c.querySelector('[name$=_t0]').value=t1;
- c.querySelector('[name$=_t1]').value=t1?(+t1+5).toFixed(1):'';
+ const s=secs(t1);c.querySelector('[name$=_t1]').value=s===null?'':clk(s+5);
  c.querySelectorAll('select').forEach(s=>s.value='clear');last.after(c);renum(f);}
+function secs(v){v=String(v||'').trim().replace(',','.');if(!v)return null;
+ const m=/^(\\d+):(\\d+(?:\\.\\d+)?)$/.exec(v);const s=m?(+m[1])*60+(+m[2]):+v;return isFinite(s)?s:null;}
+function clk(s){s=Math.round(s*10)/10;const m=Math.floor(s/60);return m+':'+(s-m*60).toFixed(1).padStart(4,'0');}
 function rmPart(b){const f=b.closest('form');if(f.querySelectorAll('fieldset.part').length>1){b.closest('fieldset').remove();renum(f);}}
 function renum(f){f.querySelectorAll('fieldset.part .pn').forEach((s,i)=>s.textContent=i+1);}
 </script>""" % MAX_PARTS
@@ -343,7 +366,7 @@ def _timeline(i, e):
         return ""
     nm = {d["car"]: d["name"] for d in i["drivers"]}
     return ("<details class=tl><summary class=muted style='cursor:pointer'>Contacts the telemetry saw (" + str(len(cs)) + ")</summary>"
-            + "".join(f"<div>{_clock(c['t'])} ({c['t']:.1f} s): {e(nm.get(c['a'], 'car %s' % c['a']))} ↔ {e(nm.get(c['b'], 'car %s' % c['b']))}</div>" for c in cs)
+            + "".join(f"<div>{_clock(c['t'])}: {e(nm.get(c['a'], 'car %s' % c['a']))} ↔ {e(nm.get(c['b'], 'car %s' % c['b']))}</div>" for c in cs)
             + "</details>")
 
 
@@ -424,7 +447,7 @@ def grade_html(g, e):
                         + (f" {d['severity']}/10" if d.get("severity") and d["call"] in ("fault", "shared") else "")
                         + (f" <i>({e(d['note'])})</i>" if d.get("note") else "")
                         for d in p["drivers"] if d["call"] != "out")
-        out += (f"<div class=muted style='font-size:12px'>{n}) {p['t0']}–{p['t1']} s: {drv}"
+        out += (f"<div class=muted style='font-size:12px'>{n}) {_clock(p['t0'])}–{_clock(p['t1'])}: {drv}"
                 + (f" · {e(', '.join(p['tags']))}" if p.get("tags") else "") + (f" · {e(p['note'])}" if p.get("note") else "") + "</div>")
     if g.get("note"):
         out += f"<div class=muted>{e(g['note'])}</div>"

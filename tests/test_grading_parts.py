@@ -66,7 +66,19 @@ class Parts(unittest.TestCase):
         out = G.grading_page({"id": "1", "name": "GreMi"}, {}, h)
         self.assertIn("Split: add another incident", out)
         self.assertIn("name=p0_call_2", out)
-        self.assertIn("value='32.8'", out)
+        self.assertIn("value='0:32.8'", out)   # the race timer's minutes:seconds
+
+    def test_times_as_minutes_or_seconds(self):
+        """GreMi, 12 Nov 2026: 70 and 1:10 are the same moment on the race timer."""
+        for typed, s in (("70", 70.0), ("70,4", 70.4), ("1:10", 70.0), ("1:10.4", 70.4), (" 0:05 ", 5.0)):
+            self.assertEqual(G._num(typed, "from"), s)
+        for bad in ("1:70", "abc", "-3", ""):
+            with self.assertRaises(ValueError):
+                G._num(bad, "from")
+        self.assertEqual(G._clock(70.4), "1:10.4")
+        self.assertEqual(G._clock(59.96), "1:00.0")
+        parts = G.parse_parts(INC, form(p0_t0="0:32", p0_t1="0:34.5"))
+        self.assertEqual((parts[0]["t0"], parts[0]["t1"]), (32.0, 34.5))
 
     def test_fix_used_until_regraded(self):
         fx = json.loads((G.BATCH_DIR / "fixes.json").read_text())["fixes"]["b4-12"]
