@@ -133,4 +133,14 @@ def public(state, config, now):
             "entries": [{k: e.get(k) for k in ("key", "platform", "name", "at", "text")}
                         for e in recent(config, state.get("entries", []), now)],
             "commands": config["commands"], "interest": config.get("interest", {}),
-            "tiktok_action": config.get("tiktok_action", ""), "now": now}
+            "tiktok_action": config.get("tiktok_action", ""), "now": now,
+            "sent": _sent(now)}
+
+
+def _sent(now):
+    """What Race Control posted lately (bot/sent_log.py), for the dock's small chat lines."""
+    try:
+        from bot import sent_log
+        return sent_log.recent(now)
+    except Exception:
+        return []

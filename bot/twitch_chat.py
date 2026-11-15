@@ -58,6 +58,8 @@ import pathlib
 import sys
 import time
 
+from bot import sent_log
+
 HERE = pathlib.Path(__file__).resolve().parent
 SEALED = {"chat": HERE / "twitch_chat.sealed", "owner": HERE / "twitch_owner.sealed"}
 TIMERS = HERE / "twitch_timers.json"
@@ -410,6 +412,7 @@ class Twitch:
         if not sent.get("is_sent", False):
             reason = (sent.get("drop_reason") or {}).get("message", "unknown reason")
             raise RuntimeError(f"Twitch dropped the message: {reason}")
+        sent_log.record("twitch", text)  # small line in GreMi's OBS dock
 
     # owner only
     async def run_ad(self, length):

@@ -34,7 +34,7 @@ import time
 import urllib.parse
 import urllib.request
 
-from bot import twitch_chat
+from bot import sent_log, twitch_chat
 
 HERE = pathlib.Path(__file__).resolve().parent
 SEALED = HERE / "youtube.sealed"
@@ -106,6 +106,7 @@ class YouTube:
             await self.call("POST", "/liveChat/messages", params={"part": "snippet"}, body={
                 "snippet": {"liveChatId": chat, "type": "textMessageEvent",
                             "textMessageDetails": {"messageText": text[:200]}}})
+        sent_log.record("youtube", text)  # small line in GreMi's OBS dock
 
 
 async def run(discord_token):
