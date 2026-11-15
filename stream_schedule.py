@@ -7,6 +7,11 @@
    (Monday to Sunday), edited whenever the schedule changes. A new week's post
    pings Notify Me; the very first post and all edits are silent. Older
    weeks' posts are deleted, so only the latest schedule stays.
+3. Approval (GreMi 2026-11-15, after many reschedules): with SCHEDULE_APPROVER_ID
+   set, a new week's post is first DMed to GreMi. It goes to the channel only
+   after he reacts ✅ on the DM of the current version; a schedule change
+   before that sends a new DM and marks the old one outdated. Once posted,
+   edits stay automatic and silent.
 
 Called by update_stats.main() every run.
 """
@@ -20,6 +25,9 @@ from zoneinfo import ZoneInfo
 TZ = ZoneInfo(os.environ.get("SCHEDULE_TIMEZONE", "Europe/Amsterdam"))
 SCHEDULE_CHANNEL_ID = os.environ.get("SCHEDULE_CHANNEL_ID", "")
 NOTIFY_ROLE_ID = os.environ.get("NOTIFY_ROLE_ID", "")
+APPROVER_ID = os.environ.get("SCHEDULE_APPROVER_ID", "")
+APPROVE = "\u2705"
+ASK_FROM_HOUR = 9  # Amsterdam time: the approval DM never goes out at night
 CHANNEL_NAME = "GreMi_Gaming"
 FILE_PREFIX = "stream-schedule-"
 HEADER = "**\U0001F4C5  STREAM SCHEDULE  ·  {week}**"
@@ -211,6 +219,50 @@ def fingerprint(days, today):
     return hashlib.sha1(json.dumps(data, sort_keys=True).encode()).hexdigest()[:12]
 
 
+def schedule_key(days):
+    """Fingerprint of the streams only (not today's date), for approvals."""
+    data = [(d.isoformat(), s) for d, s in days]
+    return hashlib.sha1(json.dumps(data, sort_keys=True).encode()).hexdigest()[:12]
+
+
+def check_approval(stats, monday, approve_name):
+    """(dm channel id, state, newest approval DM for this week or None).
+    state: "approved" (GreMi's ✅ on this exact version), "pending" (this
+    version sent, no ✅ yet) or "missing" (not sent, or the schedule changed)."""
+    channel = stats.discord("POST", "/users/@me/channels", {"recipient_id": APPROVER_ID})["id"]
+    me = stats.discord("GET", "/users/@me")["id"]
+    prefix = f"{FILE_PREFIX}{monday.isoformat()}-approve-"
+    for m in stats.discord("GET", f"/channels/{channel}/messages?limit=20"):  # newest first
+        files = [a.get("filename", "") for a in m.get("attachments", [])]
+        if m["author"]["id"] != me or not any(f.startswith(prefix) for f in files):
+            continue
+        if approve_name not in files:
+            return channel, "missing", m
+        users = stats.discord("GET", f"/channels/{channel}/messages/{m['id']}/reactions/"
+                              + urllib.parse.quote(APPROVE))
+        ok = any(u.get("id") == APPROVER_ID for u in users or [])
+        return channel, ("approved" if ok else "pending"), m
+    return channel, "missing", None
+
+
+def ask_approval(stats, channel, outdated, approve_name, picture, week):
+    import socials_board
+    if outdated:
+        stats.discord("PATCH", f"/channels/{channel}/messages/{outdated['id']}",
+                      {"content": "~~" + outdated.get("content", "").split("\n")[0]
+                       + "~~\nOutdated: the schedule changed, see the newer version below."})
+    text = (f"\U0001F4C5 **Stream schedule {week}** is ready.\n"
+            f"React {APPROVE} and I'll post it in <#{SCHEDULE_CHANNEL_ID}> with the Notify Me ping.\n"
+            "Want changes? Ask Claude to change Twitch first; I'll DM you the new version.")
+    msg = socials_board.send(stats, "POST", f"/channels/{channel}/messages",
+                             {"content": text, "attachments": [{"id": 0, "filename": approve_name}],
+                              "allowed_mentions": {"parse": []}}, [(approve_name, picture)])
+    if msg.get("id"):
+        stats.discord("PUT", f"/channels/{channel}/messages/{msg['id']}/reactions/"
+                      + urllib.parse.quote(APPROVE) + "/@me")
+    print("waiting:   stream schedule sent to GreMi for approval")
+
+
 def find_posts(stats):
     """Race Control's schedule posts in the channel, newest first."""
     me = stats.discord("GET", "/users/@me")["id"]
@@ -236,6 +288,20 @@ def update_picture(stats, segments, vacation, now):
         print("unchanged: stream schedule picture")
         delete_old(stats, posts, this_week)
         return
+    new_week = bool(posts and not this_week and NOTIFY_ROLE_ID)
+    if new_week and APPROVER_ID:
+        if now.astimezone(TZ).hour < ASK_FROM_HOUR:  # no DM in the night
+            print("waiting:   stream schedule approval DM goes out from 09:00")
+            return
+        approve_name = f"{FILE_PREFIX}{monday.isoformat()}-approve-{schedule_key(days)}.png"
+        channel, state, dm = check_approval(stats, monday, approve_name)
+        if state == "pending":
+            print("waiting:   stream schedule approval")
+            return
+        if state == "missing":
+            picture = schedule_image.render(days, today, tz_label(now), CHANNEL_NAME, week)
+            ask_approval(stats, channel, dm, approve_name, picture, week)
+            return
     picture = schedule_image.render(days, today, tz_label(now), CHANNEL_NAME, week)
     content = HEADER.format(week=week.upper())
     content += f"\n-# Times in {tz_label(now)} · updates automatically from Twitch"
@@ -249,7 +315,7 @@ def update_picture(stats, segments, vacation, now):
         print("updated:   stream schedule picture")
         delete_old(stats, posts, this_week)
         return
-    if posts and NOTIFY_ROLE_ID:  # a new week, and not the very first post
+    if new_week:  # a new week, and not the very first post
         message["content"] += f"\n<@&{NOTIFY_ROLE_ID}>"
         message["allowed_mentions"] = {"roles": [NOTIFY_ROLE_ID]}
     msg = socials_board.send(stats, "POST", f"/channels/{SCHEDULE_CHANNEL_ID}/messages",

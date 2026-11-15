@@ -181,5 +181,88 @@ class UpdatePicture(unittest.TestCase):
         self.assertEqual(self.run_update([post]), [])
 
 
+class ApprovalStats(FakeStats):
+    """Schedule channel holds `posts`; the DM channel "dm" holds `dms`."""
+    def __init__(self, posts, dms, approvers=()):
+        super().__init__(posts)
+        self.dms, self.approvers = dms, approvers
+
+    def discord(self, method, path, data=None):
+        self.calls.append((method, path))
+        if path == "/users/@me/channels":
+            return {"id": "dm"}
+        if path == "/users/@me":
+            return {"id": ME}
+        if path.startswith("/channels/dm/messages?"):
+            return self.dms
+        if "/reactions/" in path and method == "GET":
+            return [{"id": a} for a in self.approvers]
+        if "/messages" in path:
+            return self.messages
+        return []
+
+
+class Approval(unittest.TestCase):
+    OLD = {"id": "3", "author": {"id": ME}, "content": "x",
+           "attachments": [{"filename": "stream-schedule-2026-09-28-abc.png"}]}
+
+    def run_update(self, stats, now=NOW):
+        sent = []
+        with mock.patch.object(ss, "SCHEDULE_CHANNEL_ID", "55"), \
+                mock.patch.object(ss, "NOTIFY_ROLE_ID", "77"), \
+                mock.patch.object(ss, "APPROVER_ID", "42"), \
+                mock.patch("socials_board.send",
+                           side_effect=lambda st, m, p, msg, files: sent.append((m, p, msg)) or {"id": "9"}), \
+                contextlib.redirect_stdout(io.StringIO()):
+            ss.update_picture(stats, [seg("a", 7, 17)], None, now)
+        return sent
+
+    def approve_name(self):
+        days = ss.week_days(ss.week_start(NOW)[0], [seg("a", 7, 17)], None)
+        return f"stream-schedule-2026-10-05-approve-{ss.schedule_key(days)}.png"
+
+    def dm(self, name):
+        return {"id": "8", "author": {"id": ME}, "content": "first line\nmore",
+                "attachments": [{"filename": name}]}
+
+    def test_new_week_is_dmed_first_not_posted(self):
+        stats = ApprovalStats([self.OLD], [])
+        sent = self.run_update(stats)
+        self.assertEqual([(m, p) for m, p, _ in sent], [("POST", "/channels/dm/messages")])
+        self.assertEqual(sent[0][2]["attachments"][0]["filename"], self.approve_name())
+        self.assertIn(("PUT", "/channels/dm/messages/9/reactions/%E2%9C%85/@me"), stats.calls)
+        self.assertNotIn(("DELETE", "/channels/55/messages/3"), stats.calls)
+
+    def test_no_dm_at_night(self):
+        night = datetime.datetime(2026, 10, 5, 5, 0, tzinfo=UTC)  # Monday 07:00 Amsterdam
+        stats = ApprovalStats([self.OLD], [])
+        self.assertEqual(self.run_update(stats, night), [])
+        self.assertNotIn(("POST", "/users/@me/channels"), stats.calls)
+
+    def test_pending_sends_nothing(self):
+        stats = ApprovalStats([self.OLD], [self.dm(self.approve_name())], approvers=[ME])
+        self.assertEqual(self.run_update(stats), [])
+
+    def test_approved_posts_with_ping(self):
+        stats = ApprovalStats([self.OLD], [self.dm(self.approve_name())], approvers=[ME, "42"])
+        sent = self.run_update(stats)
+        self.assertEqual(sent[0][:2], ("POST", "/channels/55/messages"))
+        self.assertIn("<@&77>", sent[0][2]["content"])
+
+    def test_changed_schedule_sends_new_dm_and_marks_old(self):
+        stats = ApprovalStats([self.OLD], [self.dm("stream-schedule-2026-10-05-approve-old.png")],
+                              approvers=[ME, "42"])
+        sent = self.run_update(stats)
+        self.assertEqual(sent[0][:2], ("POST", "/channels/dm/messages"))
+        self.assertIn(("PATCH", "/channels/dm/messages/8"), stats.calls)
+
+    def test_edits_after_posting_need_no_approval(self):
+        post = {"id": "4", "author": {"id": ME}, "content": "kept",
+                "attachments": [{"filename": "stream-schedule-2026-10-05-old.png"}]}
+        stats = ApprovalStats([post], [])
+        sent = self.run_update(stats)
+        self.assertEqual(sent[0][:2], ("PATCH", "/channels/55/messages/4"))
+
+
 if __name__ == "__main__":
     unittest.main()
