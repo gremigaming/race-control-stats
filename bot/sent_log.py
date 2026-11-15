@@ -1,11 +1,9 @@
 """What Race Control just sent, for GreMi's OBS dock (GreMi 2026-11-15).
 
 The dock (race-stats public/overlay/gremi/dock.html) shows a small line in its chat
-whenever Race Control posts: the text for Twitch and YouTube chat, and only
-"Discord message sent in #channel" for Discord (GreMi doesn't need the whole post).
-Discord posts are caught in the bot's on_message (every message the bot account
-makes, also those sent by other scripts with the same token), so nothing else
-has to call this for Discord. Staff log channels are left out.
+whenever Race Control posts in Twitch chat (timers like Simgasm, Discord, join answers).
+GreMi only wants the Twitch chat messages, not Discord posts (2026-11-15).
+YouTube sends are logged too, but the dock leaves them out (same text as Twitch).
 
 The list lives on the server only and goes out in /dock.json as "sent".
 """

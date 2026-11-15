@@ -31,7 +31,7 @@ from bot.brain import Brain, HandOff
 from bot.members import GUILD_ID, Members
 from bot.profiles import write_profiles
 from bot import (award_roles, checkin, giveaway, leaves, league_promos, mod_alerts, scheduled_posts,
-                 sent_log, socials_live, twitch_chat, welcome, wordle, youtube_chat)
+                 socials_live, twitch_chat, welcome, wordle, youtube_chat)
 
 from bot.replies import (CHANGE_REQUESTS_ID, FIRE_HEADERS, FIRE_URL, Cooldown, approval_body,
                          change_request, is_approval, is_staff, load_staff, needs_restart,
@@ -252,8 +252,6 @@ async def hand_over(channel, message_id, body, failed_text, reply_to):
 
 @bot.event
 async def on_message(message):
-    if message.author == bot.user:
-        sent_log.record_discord(message)  # small line in GreMi's OBS dock
     if not message.guild:
         return
     if message.guild.id == GUILD_ID:
