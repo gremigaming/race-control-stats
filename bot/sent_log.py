@@ -10,7 +10,11 @@ The list lives on the server only and goes out in /dock.json as "sent".
 import json
 import os
 import pathlib
+import re
 import time
+
+HERE = pathlib.Path(__file__).resolve().parent
+NAMES = {"names": "Show names", "nlr": "Next Level Racing", "moza": "MOZA", "subs": "Sub"}
 
 STATE = pathlib.Path(os.environ.get("RACE_CONTROL_SENT", "/var/lib/race-control/sent_log.json"))
 KEEP = 40          # entries kept
@@ -26,6 +30,39 @@ def read(path=None):
         return []
 
 
+def _bits(template):
+    """The fixed parts of a message template ({name} etc. left out), longest first."""
+    return sorted((b.strip() for b in re.split(r"\{[^}]*\}", template or "")), key=len, reverse=True)
+
+
+def label_for(text):
+    """Which message this is, as GreMi knows it: "Simgasm", "Discord", "Join", "Ad", ...
+    GreMi only wants to see that one went out, not its text (2026-11-15)."""
+    text = text or ""
+    found = []
+    try:
+        timers = json.loads((HERE / "twitch_timers.json").read_text(encoding="utf-8"))
+        for t in timers.get("timers", []):
+            name = NAMES.get(t.get("id"), str(t.get("id", "")).capitalize())
+            found += [(name, t.get(k)) for k in ("text", "ask_text")]
+        ads = timers.get("ads") or {}
+        found += [("Ad", ads.get(k)) for k in ("notice_race", "notice_lobby")]
+    except (OSError, ValueError):
+        pass
+    try:
+        queue = json.loads((HERE / "lobby_queue.json").read_text(encoding="utf-8"))
+        found += [("Join", v) for v in (queue.get("texts") or {}).values()]
+    except (OSError, ValueError):
+        pass
+    for name, template in found:
+        bit = next(iter(_bits(template)), "")
+        if len(bit) >= 8 and bit[:60] in text:
+            return name
+    if re.search(r"giveaway", text, re.I):
+        return "Giveaway"
+    return "Race Control"
+
+
 def record(where, text="", channel="", now=None, path=None):
     """Adds one sent message. where: discord | twitch | youtube. Never raises."""
     try:
@@ -35,6 +72,7 @@ def record(where, text="", channel="", now=None, path=None):
         last = items[-1]["id"] if items else 0
         items.append({"id": max(last + 1, int(now * 1000)),
                       "at": now, "where": where, "channel": channel[:60],
+                      "label": "" if where == "discord" else label_for(text),
                       "text": "" if where == "discord" else " ".join(str(text).split())[:200]})
         path.parent.mkdir(parents=True, exist_ok=True)
         tmp = path.with_suffix(".tmp")

@@ -31,5 +31,18 @@ class SentLogTest(unittest.TestCase):
         sent_log.record("twitch", "x", path=pathlib.Path("/proc/nope/sent.json"))
 
 
+
+class LabelTest(unittest.TestCase):
+    def test_known_messages(self):
+        import json
+        timers = json.loads((sent_log.HERE / "twitch_timers.json").read_text(encoding="utf-8"))
+        simgasm = next(t for t in timers["timers"] if t["id"] == "simgasm")
+        self.assertEqual(sent_log.label_for(simgasm["text"]), "Simgasm")
+        self.assertEqual(sent_log.label_for("@sam " + simgasm["ask_text"]), "Simgasm")
+        queue = json.loads((sent_log.HERE / "lobby_queue.json").read_text(encoding="utf-8"))
+        self.assertEqual(sent_log.label_for(queue["texts"]["default"].replace("{name}", "sam")), "Join")
+        self.assertEqual(sent_log.label_for("something new"), "Race Control")
+
+
 if __name__ == "__main__":
     unittest.main()
