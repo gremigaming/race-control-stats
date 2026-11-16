@@ -1,5 +1,5 @@
 {
-  "_about": "Check-in DMs for quiet members (GreMi 2026-10-14), run by bot/checkin.py and read live. 'on': false stops sending; the buttons keep working. {name} is the member's server name. 'welcome' is sent after ✅. 'last_chance' is shown after the first ❌; only a second ❌ removes them. No answer in remind_days: 'reminder'; still nothing remind_days later: 'goodbye' and removed.",
+  "_about": "Check-in DMs for quiet members (GreMi 2026-10-14), run by bot/checkin.py and read live. 'on': false stops sending; the buttons keep working. {name} is the member's server name. 'welcome' is sent after ✅. 'last_chance' is shown after the first ❌; only a second ❌ removes them. No answer in remind_days: 'reminder'; still nothing remind_days later: they stay, unless remove_no_answer is true (then 'goodbye' and removed).",
   "on": true,
   "months": 6,
   "per_day": 20,
@@ -35,6 +35,7 @@
   "reminder": [
     "Hey {name}, quick reminder 👋 Still up for being part of GreMi's gang? Just tap a button. 🏁"
   ],
+  "remove_no_answer": false,
   "goodbye": [
     "We didn't hear back from you, so I've taken you off GreMi's server for now. 👋",
     "No hard feelings, you're always welcome back: {invite}"

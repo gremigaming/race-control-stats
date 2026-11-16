@@ -6,7 +6,7 @@ time get one friendly DM from Race Control with two buttons:
   ❌ Not anymore      shows a short "before you go" with what's new; only a
                       second no removes them (a kick, so they can rejoin)
 No answer in `remind_days`: one short reminder; still nothing `remind_days`
-later: removed too. Posting or joining voice in the server counts as an answer.
+later: they stay (GreMi 2026-11-16), unless "remove_no_answer" is true. Posting or joining voice in the server counts as an answer.
 Members with DMs turned off are never reminded or removed. Nobody is asked twice. DMs go out a few per hour inside `hours` (Amsterdam),
 at most `per_day` a day, so Discord doesn't see it as spam. Every answer, and
 every DM sent, goes to LOGS.
@@ -241,6 +241,10 @@ class Runner:
             return
         self.state["answers"][uid] = "no answer"
         save_state(self.state)
+        if not config.get("remove_no_answer"):  # GreMi 2026-11-16: only a double ❌ removes
+            await self.report(f"🤷 Check-in: {member.display_name} ({member.name}, <@{member.id}>) didn't answer "
+                              "the DM or the reminder in two weeks. Kept in the server.")
+            return
         try:
             await self.api("POST", "/channels/{channel_id}/messages", params={"channel_id": self.state["dm"][uid]},
                            json={"content": "\n".join(config["goodbye"]).replace("{invite}", config["invite"]),
