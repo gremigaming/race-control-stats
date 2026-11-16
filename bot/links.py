@@ -111,6 +111,38 @@ def match(names, drivers):
     return scored[0][1]
 
 
+def is_name(text, driver):
+    """True when the typed text is this driver's name, apart from case, spaces,
+    symbols and a clan tag ("gremi gaming" for "TTV/GreMi_Gaming")."""
+    t, tf = key(text or ""), full(text or "")
+    return bool(tf) and (full(driver) == tf or (bool(t) and key(driver) == t))
+
+
+def suggest(text, drivers, n=5):
+    """The drivers a typed name most likely means, best first: [] when nothing is
+    close, [name] alone when the text is the name (case, spaces, symbols and a
+    clan tag aside). For the "Link my name" form, so members never scroll lists."""
+    t, tf = key(text or ""), full(text or "")
+    if not tf:
+        return []
+    pool = [d for d in drivers if not HIDDEN.search(d)]
+    exact = [d for d in pool if is_name(text, d)]
+    if len(exact) == 1:
+        return exact
+    scored = []
+    for d in pool:
+        dk = key(d) or full(d)
+        q = t or tf
+        r = difflib.SequenceMatcher(None, q, dk).ratio()
+        if len(q) >= 3 and (q in dk or (len(dk) >= 3 and dk in q)):
+            r = max(r, 0.7 + 0.3 * min(len(q), len(dk)) / max(len(q), len(dk)))
+        if d in exact:
+            r = 2.0
+        if r >= 0.5:
+            scored.append((-r, d.lower(), d))
+    return [d for _, _, d in sorted(scored)[:n]]
+
+
 class Links:
     def __init__(self, path=PATH):
         self.path = pathlib.Path(path)

@@ -82,3 +82,26 @@ class LinksTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class SuggestTests(unittest.TestCase):
+    """The "Link my name" form: typed text to the drivers it likely means."""
+    def test_exact_name_alone(self):
+        self.assertEqual(links.suggest("gremi gaming", DRIVERS), ["TTV/GreMi_Gaming"])
+        self.assertTrue(links.is_name("gremi gaming", "TTV/GreMi_Gaming"))
+        self.assertTrue(links.is_name("[QDR] Shw1ks", "QDR_SHW1KS"))
+        self.assertFalse(links.is_name("jakub", "Jakubm18_F1"))
+
+    def test_part_and_typos(self):
+        self.assertEqual(links.suggest("jakub", DRIVERS + ["Jakub_F1"])[:2], ["Jakub_F1", "Jakubm18_F1"])
+        self.assertIn("EthanMoonski", links.suggest("ethan monski", DRIVERS))
+        self.assertIn("niet_Lars123", links.suggest("lars", DRIVERS))
+
+    def test_nothing_close(self):
+        self.assertEqual(links.suggest("zzzz", DRIVERS), [])
+        self.assertEqual(links.suggest("", DRIVERS), [])
+        self.assertEqual(links.suggest("Ferrari '26 #28", DRIVERS), [])  # AI cars never
+
+    def test_at_most_n(self):
+        many = [f"Driver{i}" for i in range(40)]
+        self.assertEqual(len(links.suggest("driver", many)), 5)

@@ -22,7 +22,10 @@ ROLES_ON = True
 # F1 channels GreMi asked for on 2026-10-11, in the RACING category
 PANEL_CHANNEL_ID = 1558730257593409628  # link-your-name: the "pick your driver name" panel
 PANEL_TITLE = "Link your driver name"
-PICK = "srlink:pick:"
+PICK = "srlink:pick:"  # + driver name (cut to 88): a name button under the form's answer
+OPEN = "srlink:open"  # "Link my name": opens the form
+FORM = "srlink:form"
+FORM_NAME = "srlink:name"
 UNLINK = "srlink:unlink"
 
 store = L.Links()
@@ -96,30 +99,10 @@ async def ensure_roles(guild):
     return out
 
 
-def panel_names(drivers):
-    """Driver names for the dropdowns in the site's order (last race day first, then
-    A to Z), in groups of at most 25 (4 dropdowns)."""
-    def last_day(d):
-        days = [m.group(0) for s in d.get("sessions", []) for m in [re.search(r"\d{4}_\d\d_\d\d", s["file"])] if m]
-        return max(days, default="")
-    names = sorted((n for n, d in drivers.items() if not d.get("banned")), key=str.lower)
-    names = sorted(names, key=lambda n: last_day(drivers[n]), reverse=True)[:100]
-    size = max(1, -(-len(names) // max(1, -(-len(names) // 25))))  # even groups
-    return [names[i:i + size] for i in range(0, len(names), size)]
-
-
-def linked_to(guild):
-    """{driver name lowercased: member display name} for the dropdown descriptions."""
-    out = {}
-    for uid, v in store.read().items():
-        m = guild.get_member(int(uid)) if guild else None
-        out[v["driver"].lower()] = m.display_name if m else "a member who left"
-    return out
-
-
-def panel(drivers, linked=None):
-    linked = linked or {}
-    groups = panel_names(drivers)
+def panel(drivers):
+    """The panel: a "Link my name" button opens a form to type the name in, so it
+    works for any number of drivers (dropdowns stop at 25 names each)."""
+    count = sum(1 for n, d in drivers.items() if not d.get("banned") and not L.HIDDEN.search(n))
     embed = discord.Embed(
         title=PANEL_TITLE, colour=0x4ADE80,
         description=(
@@ -132,44 +115,83 @@ def panel(drivers, linked=None):
             "• `/sr` shows your rating and your place in the ranking\n"
             "• your role follows your rating by itself after every stream\n\n"
             "**How?**\n"
-            "Pick your name as it shows in the game in the menu below. Only you see the answer.\n\n"
-            "Not in the list? Your name shows up after your first race with us. "
-            "Picked the wrong one? Pick again, or press Unlink me. "
+            "Press **Link my name** and type your name as it shows in the game. It doesn't have to be exact: "
+            "you get the names that look like it to pick from. Only you see the answer. "
+            "You can also type `/link` and pick your name from the list as you type.\n\n"
+            "Not found? Your name shows up after your first race with us. "
+            "Picked the wrong one? Link again, or press Unlink me. "
             "Someone else has your name? Ask a mod."))
-    embed.set_footer(text=f"{sum(len(g) for g in groups)} drivers · 🔗 means the name is already linked")
+    embed.set_footer(text=f"{count} drivers on the race stats site")
     view = discord.ui.View(timeout=None)
-    for i, g in enumerate(groups):
-        view.add_item(discord.ui.Select(
-            custom_id=f"{PICK}{i}", placeholder=("Pick your driver name" if len(groups) == 1
-                                                   else f"Pick your driver name ({i + 1} of {len(groups)})"),
-            options=[discord.SelectOption(
-                label=n[:100], value=n[:100], emoji="\U0001F517" if n.lower() in linked else None,
-                description=(f"Linked to {linked[n.lower()]}"[:100] if n.lower() in linked else "Not linked yet"))
-                for n in g]))
+    view.add_item(discord.ui.Button(label="Link my name", style=discord.ButtonStyle.success,
+                                    emoji="\U0001F517", custom_id=OPEN))
     view.add_item(discord.ui.Button(label="Unlink me", style=discord.ButtonStyle.secondary, custom_id=UNLINK))
-    view.add_item(discord.ui.Button(label="Full ranking", style=discord.ButtonStyle.link,
-                                    url=L.SITE_URL))
-    return embed, view, [(n, linked.get(n.lower())) for g in groups for n in g]
+    view.add_item(discord.ui.Button(label="Full ranking", style=discord.ButtonStyle.link, url=L.SITE_URL))
+    return embed, view
+
+
+def signature(rows):
+    """What a panel's buttons are, to see whether a posted panel is out of date."""
+    return [(getattr(c, "custom_id", None), getattr(c, "url", None), getattr(c, "label", None),
+             bool(getattr(c, "options", None))) for row in rows for c in getattr(row, "children", [row])]
 
 
 async def keep_panel(guild, drivers):
-    """Posts the panel once, and updates its dropdowns when new drivers show up."""
+    """Posts the panel once, and edits it when its text or buttons changed (the
+    old dropdown panel becomes the button panel the same way)."""
     channel = guild.get_channel(PANEL_CHANNEL_ID)
     if channel is None:
         return
-    linked = linked_to(guild)
-    embed, view, names = panel(drivers, linked)
+    embed, view = panel(drivers)
     async for msg in channel.history(limit=50):
         if msg.author == guild.me and msg.embeds and msg.embeds[0].title == PANEL_TITLE:
-            shown = [(o.value, o.description[len("Linked to "):] if (o.description or "").startswith("Linked to ") else None)
-                     for row in msg.components for c in getattr(row, "children", [])
-                     for o in getattr(c, "options", [])]
-            holders = [getattr(c, "placeholder", None) for row in msg.components
-                       for c in getattr(row, "children", []) if getattr(c, "options", None)]
-            if shown != names or holders != [i.placeholder for i in view.children if hasattr(i, "options")]:
+            old = msg.embeds[0]
+            if (signature(msg.components) != signature(view.children)
+                    or old.description != embed.description or old.footer.text != embed.footer.text):
                 await msg.edit(embed=embed, view=view)
             return
     await channel.send(embed=embed, view=view)
+
+
+class NameForm(discord.ui.Modal, title="Link your driver name"):
+    """The form behind "Link my name". Its answer is read in on_panel (raw), so a
+    bot restart while someone types doesn't lose it."""
+    name = discord.ui.TextInput(label="Your name in the game", custom_id=FORM_NAME, min_length=1,
+                                max_length=100, placeholder="As it shows in the race results")
+
+    def __init__(self):
+        super().__init__(custom_id=FORM, timeout=600)
+
+    async def interaction_check(self, interaction):
+        return False  # on_panel answers
+
+
+def typed_value(data):
+    """The text typed in the form, from the raw modal answer (old and new layouts)."""
+    stack = list((data or {}).get("components") or [])
+    while stack:
+        c = stack.pop(0)
+        if c.get("custom_id") == FORM_NAME and "value" in c:
+            return c.get("value") or ""
+        stack[:0] = list(c.get("components") or []) + ([c["component"]] if c.get("component") else [])
+    return ""
+
+
+def choices_view(names, uid):
+    """Buttons for the names that look like what was typed, plus "Type again"."""
+    data = store.read()
+    view = discord.ui.View(timeout=900)  # clicks are read in on_panel, also after this
+    for n in names:
+        owner = store.owner(n, data)
+        mine = owner == uid
+        taken = owner is not None and not mine and data[str(owner)]["how"] != "auto"
+        label = n[:70] + (" (you)" if mine else " (taken)" if taken else "")
+        view.add_item(discord.ui.Button(label=label, custom_id=PICK + n[:88],
+                                        style=discord.ButtonStyle.secondary if taken or mine
+                                        else discord.ButtonStyle.primary))
+    view.add_item(discord.ui.Button(label="Type again", emoji="\u270F\uFE0F", custom_id=OPEN,
+                                    style=discord.ButtonStyle.secondary))
+    return view
 
 
 async def link_member(interaction, driver, drivers):
@@ -186,24 +208,60 @@ async def link_member(interaction, driver, drivers):
     return msg
 
 
-async def refresh_panel(guild):
-    """Shows a new link in the dropdowns straight away."""
-    if guild is None:
+def known(drivers, picked):
+    """The driver a name button or old dropdown meant (button ids hold the name cut to 88)."""
+    if not picked:
+        return None
+    return next((n for n in drivers if n == picked), None) or next(
+        (n for n in drivers if n[:88] == picked or n[:100] == picked), None)
+
+
+async def on_form(interaction):
+    """The typed name: links straight away when it is a driver's name, else shows
+    the closest names as buttons."""
+    await interaction.response.defer(ephemeral=True, thinking=True)
+    typed = typed_value(interaction.data).strip()
+    drivers = await fetch_safety()
+    if not drivers:
+        await interaction.followup.send("The race stats site didn't answer. Try again in a minute.", ephemeral=True)
         return
-    try:
-        drivers = await fetch_safety()
-        if drivers:
-            await keep_panel(guild, drivers)
-    except discord.DiscordException as e:
-        log.warning("link panel not updated: %s", e)
+    names = L.suggest(typed, list(drivers))
+    shown = discord.utils.escape_markdown(typed)
+    if len(names) == 1 and L.is_name(typed, names[0]):
+        await interaction.followup.send(await link_member(interaction, names[0], drivers), ephemeral=True)
+        return
+    if not names:
+        await interaction.followup.send(
+            f"I can't find a driver called **{shown}**. Check how it shows in the race results, or type "
+            "part of it. You're in the list once you've raced with us since 7 Oct 2026.",
+            view=choices_view([], interaction.user.id), ephemeral=True)
+        return
+    await interaction.followup.send(f"No driver is called exactly **{shown}**. Which one are you?",
+                                    view=choices_view(names, interaction.user.id), ephemeral=True)
 
 
 async def on_panel(interaction):
-    """Dropdown picks and the Unlink button on the panel."""
-    if interaction.type != discord.InteractionType.component:
-        return
+    """The panel buttons, the form and the name buttons under the form's answer."""
     cid = (interaction.data or {}).get("custom_id", "")
     if not cid.startswith("srlink:"):
+        return
+    if interaction.type == discord.InteractionType.modal_submit:
+        if cid == FORM:
+            await on_form(interaction)
+        return
+    if interaction.type != discord.InteractionType.component:
+        return
+    if cid == OPEN:
+        await interaction.response.send_modal(NameForm())
+        return
+    values = (interaction.data or {}).get("values")
+    if cid.startswith(PICK) and not values:  # a name button under the form's answer
+        await interaction.response.defer()
+        drivers = await fetch_safety()
+        name = known(drivers, cid[len(PICK):]) if drivers else None
+        text = (await link_member(interaction, name, drivers) if name
+                else "That driver isn't on the site anymore. Press Link my name to try again.")
+        await interaction.edit_original_response(content=text, view=None)
         return
     await interaction.response.defer(ephemeral=True, thinking=True)
     if cid == UNLINK:
@@ -214,16 +272,14 @@ async def on_panel(interaction):
             except discord.DiscordException as e:
                 log.warning("SR role not removed: %s", e)
         await interaction.followup.send("Unlinked." if done else "You weren't linked to a driver.", ephemeral=True)
-        await refresh_panel(interaction.guild)
         return
+    # a dropdown on the old panel, until the panel is edited to buttons
     drivers = await fetch_safety()
-    picked = ((interaction.data or {}).get("values") or [""])[0]
-    name = next((n for n in drivers if n[:100] == picked), None)
+    name = known(drivers, (values or [""])[0]) if drivers else None
     if not name:
         await interaction.followup.send("That driver isn't in the list anymore. Try again.", ephemeral=True)
         return
     await interaction.followup.send(await link_member(interaction, name, drivers), ephemeral=True)
-    await refresh_panel(interaction.guild)
 
 
 async def sync(guild):
@@ -266,7 +322,9 @@ def setup(bot, guild_id):
     async def driver_choices(interaction, current):
         drivers = await fetch_safety()
         cur = current.lower()
-        names = sorted((n for n in drivers if cur in n.lower()), key=lambda n: (not n.lower().startswith(cur), n.lower()))
+        names = sorted((n for n in drivers if cur in n.lower() and not L.HIDDEN.search(n)),
+                       key=lambda n: (not n.lower().startswith(cur), n.lower()))
+        names += [n for n in L.suggest(current, list(drivers), 25) if n not in names]  # typos too
         return [app_commands.Choice(name=n, value=n) for n in names[:25]]
 
     @tree.command(name="link", description="Link your Discord to your driver name for the safety rating", guild=server)
@@ -277,12 +335,16 @@ def setup(bot, guild_id):
         drivers = await fetch_safety()
         name = next((n for n in drivers if n.lower() == driver.strip().lower()), None)
         if not name:
+            close = L.suggest(driver, list(drivers))
+            name = close[0] if len(close) == 1 and L.is_name(driver, close[0]) else None
+        if not name:
+            shown = discord.utils.escape_markdown(driver)
             await interaction.followup.send(
-                f"I don't know the driver **{discord.utils.escape_markdown(driver)}** yet. Pick a name from the list; "
-                "you're on it once you've raced with us since 7 Oct 2026.", ephemeral=True)
+                (f"No driver is called exactly **{shown}**. Which one are you?" if close else
+                 f"I don't know the driver **{shown}** yet. You're in the list once you've raced with us "
+                 "since 7 Oct 2026."), view=choices_view(close, interaction.user.id), ephemeral=True)
             return
         await interaction.followup.send(await link_member(interaction, name, drivers), ephemeral=True)
-        await refresh_panel(interaction.guild)
 
     @tree.command(name="unlink", description="Remove the link between your Discord and your driver name", guild=server)
     async def unlink(interaction: discord.Interaction):
@@ -295,8 +357,6 @@ def setup(bot, guild_id):
         await interaction.response.send_message(
             "Unlinked. Use /link to pick your name again." if done else "You weren't linked to a driver.",
             ephemeral=True)
-        if done:
-            await refresh_panel(interaction.guild)
 
     @tree.command(name="sr", description="Show a safety rating", guild=server)
     @app_commands.describe(member="Whose rating (yours if empty)")
