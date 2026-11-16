@@ -1,0 +1,60 @@
+name: Announce Short
+
+# Schedules a light Race Control post in NEW-CONTENT for a new Short
+# (announce_short.py -> bot/scheduled_posts.json; the bot restarts on the commit).
+
+on:
+  workflow_dispatch:
+    inputs:
+      title:
+        description: "Short title, e.g. P12 TO THE WIN ON THE LAST LAP 😳 | F1 26"
+        required: true
+      youtube:
+        description: "YouTube link of the Short"
+        required: true
+      at:
+        description: "Post time, Amsterdam, YYYY-MM-DD HH:MM (when the Short is public)"
+        required: true
+      tiktok:
+        description: "TikTok video link (empty = profile link)"
+        required: false
+      note:
+        description: "Optional extra line"
+        required: false
+      highlight:
+        description: "Optional full highlight link"
+        required: false
+
+permissions:
+  contents: write
+
+concurrency:
+  group: announce-short
+  cancel-in-progress: false
+
+jobs:
+  schedule:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Add the post
+        env:
+          TITLE: ${{ inputs.title }}
+          YOUTUBE: ${{ inputs.youtube }}
+          AT: ${{ inputs.at }}
+          TIKTOK: ${{ inputs.tiktok }}
+          NOTE: ${{ inputs.note }}
+          HIGHLIGHT: ${{ inputs.highlight }}
+        run: |
+          python3 announce_short.py --title "$TITLE" --youtube "$YOUTUBE" --at "$AT" \
+            --tiktok "$TIKTOK" --note "$NOTE" --highlight "$HIGHLIGHT"
+      - name: Commit it
+        env:
+          TITLE: ${{ inputs.title }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add bot/scheduled_posts.json
+          git commit -qm "Schedule Discord post for Short: $TITLE" || exit 0
+          for i in 1 2 3; do git pull -q --rebase origin main && git push -q origin HEAD:main && exit 0; sleep 5; done
+          exit 1
