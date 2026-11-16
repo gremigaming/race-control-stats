@@ -1593,6 +1593,54 @@ def sr_settings_page(user, q):
                 user, "sr-settings")
 
 
+_sr_engine = {"at": 0.0, "key": None, "mods": None}
+_sr_engine_lock = threading.Lock()
+_sr_preview_cache = {}
+
+
+def gh_text(path):
+    """(text, sha) of a file in the race-stats repo."""
+    r = gh_call(f"https://api.github.com/repos/{REPO}/contents/{path}?ref=main")
+    return base64.b64decode(r["content"]).decode("utf-8"), r["sha"]
+
+
+def sr_engine(ttl=300):
+    """race-stats' own SR code (scripts/sr_v24.py + scripts/sr_settings.py), so the SR settings preview
+    scores exactly like the site build. Fetched from GitHub, checked again every ttl seconds."""
+    import types
+    with _sr_engine_lock:
+        if _sr_engine["mods"] and time.time() - _sr_engine["at"] < ttl:
+            return _sr_engine["mods"]
+        (t1, s1), (t2, s2) = gh_text("scripts/sr_v24.py"), gh_text("scripts/sr_settings.py")
+        if (s1, s2) != _sr_engine["key"]:
+            mods = []
+            for name, text in (("rs_sr_v24", t1), ("rs_sr_settings", t2)):
+                m = types.ModuleType(name)
+                exec(compile(text, f"race-stats/scripts/{name[3:]}.py", "exec"), m.__dict__)
+                mods.append(m)
+            _sr_engine.update(key=(s1, s2), mods=tuple(mods))
+            _sr_preview_cache.clear()
+        _sr_engine["at"] = time.time()
+        return _sr_engine["mods"]
+
+
+def sr_preview(q):
+    """/sr-settings/preview.json: the SR ranking with the settings as typed (nothing is saved)."""
+    from staff import sr_settings
+    data = site_json("league/safety.json", ttl=60)
+    form = {k: v[0] for k, v in q.items()}
+    for key, _, _, _, kind, _, _ in sr_settings.FIELDS:   # a field left out keeps the live value
+        if key not in form:
+            lv = (data.get("settings") or {}).get(key, sr_settings.DEFAULTS[key])
+            form[key] = ("on" if lv else "off") if kind == "bool" else sr_settings.show(lv).replace(" ", "")
+    draft = sr_settings.from_form(form, {**sr_settings.DEFAULTS, **(data.get("settings") or {})})
+    engine = sr_engine()
+    if _sr_preview_cache.get("__gen__") != data.get("generated"):   # new league data: older results are stale
+        _sr_preview_cache.clear()
+        _sr_preview_cache["__gen__"] = data.get("generated")
+    return sr_settings.preview(data, engine, draft, _sr_preview_cache)
+
+
 def sr_settings_post(form, user):
     from staff import sr_settings
     if not is_owner(int(user["id"])):
@@ -1734,6 +1782,14 @@ class Handler(BaseHTTPRequestHandler):
                 from staff import grading
                 return self.send(200, grading.export(int(user["id"])), {"Content-Type": "application/json; charset=utf-8",
                                  "Content-Disposition": "attachment; filename=staff-grades.json"})
+            if url.path == "/sr-settings/preview.json":
+                try:
+                    body = sr_preview(q)
+                except ValueError as ex:
+                    body = {"error": str(ex)}
+                except Exception as ex:
+                    body = {"error": f"preview failed: {explain(ex)}"}
+                return self.send(200, json.dumps(body), {"Content-Type": "application/json", "Cache-Control": "no-store"})
             if url.path.startswith("/clip/"):
                 return self.send_clip(url.path[6:])
             if url.path in ("/incidents", "/results"):   # merged into Races (GreMi, 6 Nov 2026)

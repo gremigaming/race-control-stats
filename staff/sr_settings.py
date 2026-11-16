@@ -8,6 +8,7 @@ checks every value again; SR_FIELDS here must match its FIELDS (same keys and li
 Everyone on the staff list can look; only the owner can save.
 """
 import datetime
+import json
 
 PATH = "races/sr-settings.json"
 
@@ -170,13 +171,19 @@ def page_body(e, data, live, owner, csrf):
         rows.append(f"<h2>{e(title)}</h2><div class=muted>{e(about)}</div><div class=card><table>")
         for key, default, lo, hi, kind, label, hint in fs:
             v = vals[key]
+            lv = (live or {}).get(key, v)   # the value the site runs on now (the reset icon goes back to it)
+            lv_s = ("1" if lv else "0") if kind == "bool" else show(lv)
+            dl = f" data-live='{e(lv_s)}' data-kind={kind}"
             if kind == "bool":
-                inp = f"<input type=checkbox name={key}{' checked' if v else ''}{dis}>"
+                inp = f"<input type=checkbox name={key}{' checked' if v else ''}{dl}{dis}>"
             elif kind == "list":
-                inp = f"<input name={key} value='{e(show(v))}' style='width:220px'{dis}>"
+                inp = f"<input name={key} value='{e(show(v))}' style='width:190px'{dl}{dis}>"
             else:
                 step = "1" if kind == "int" else "any"
-                inp = f"<input type=number name={key} value='{e(show(v))}' min={lo:g} max={hi:g} step={step}{dis}>"
+                inp = f"<input type=number name={key} value='{e(show(v))}' min={lo:g} max={hi:g} step={step}{dl}{dis}>"
+            if owner:
+                inp += (f"<button type=button class=srreset data-for={key} title='Back to the live value ({e(show(lv))})' "
+                        f"aria-label='Back to the live value' hidden>↺</button>")
             note = []
             if hint:
                 note.append(e(hint))
@@ -187,13 +194,14 @@ def page_body(e, data, live, owner, csrf):
             rows.append(f"<tr><td style='width:42%'>{e(label)}</td><td style='width:240px'>{inp}</td>"
                         f"<td class=muted>{' · '.join(note)}</td></tr>")
         rows.append("</table></div>")
+    rows = ["<div class=srwrap><div>"] + rows + ["</div>", PREVIEW_ASIDE, "</div>"]
     window = vals["window_step"] * len(vals["window_weights"])
     summary = (f"<p class=muted>Window now: last {window} own races. Last saved "
                f"{e((data or {}).get('updated', 'never'))} by {e((data or {}).get('by', '-'))}"
                + (f": {e(data.get('reason'))}" if (data or {}).get("reason") else "") + "</p>")
     form = ""
     if owner:
-        form = (f"<form method=post action='/sr-settings'><input type=hidden name=csrf value='{e(csrf)}'>"
+        form = (f"<form id=srform method=post action='/sr-settings'><input type=hidden name=csrf value='{e(csrf)}'>"
                 + "".join(rows)
                 + "<div class=card style='display:flex;gap:8px;flex-wrap:wrap;align-items:center'>"
                   "<input name=reason placeholder='Why (kept in the history)' required maxlength=200 style='flex:1;min-width:220px'>"
@@ -203,7 +211,7 @@ def page_body(e, data, live, owner, csrf):
                   "<input type=hidden name=reason value='Back to the SR v2.5 defaults'>"
                   "<button class=red>Reset everything to the defaults</button></form>")
     else:
-        form = "<p class=muted>Only GreMi can change these.</p>" + "".join(rows)
+        form = "<p class=muted>Only GreMi can change these.</p><div id=srform>" + "".join(rows) + "</div>"
     hist = (data or {}).get("history") or []
     hrows = "".join(
         f"<tr><td class=mono>{e(h.get('at', '')[:16].replace('T', ' '))}</td><td>{e(h.get('by', ''))}</td>"
@@ -217,8 +225,9 @@ def page_body(e, data, live, owner, csrf):
     history = f"<h2>History</h2><div class=card><table>{hrows or '<tr><td class=muted>No changes yet.</td></tr>'}</table></div>"
     return (f"<h1>SR settings</h1><p class=muted>Every number of the safety rating (SR v2.5). Saving pushes it to the "
             "website and the live data; the rules text on the site follows automatically. A bad value can't be saved, "
-            "and the build falls back to the default for any value it can't use.</p>"
-            f"{status}{summary}{form}{history}")
+            "and the build falls back to the default for any value it can't use. The ranking on the right "
+            "recalculates as you type, before anything is saved.</p>"
+            f"{status}{summary}{form}{history}{PREVIEW_STYLE}{PREVIEW_SCRIPT}")
 
 
 def post(form, data, by):
@@ -242,3 +251,146 @@ def post(form, data, by):
     else:
         new = from_form(form, old)
     return apply(data, new, by, reason)
+
+
+# ---- Live preview (GreMi, 16 Nov 2026): the SR ranking with the settings as typed, next to the live one.
+# The staff page runs race-stats' own scripts/sr_v24.py + scripts/sr_settings.py (app.py sr_engine) on the
+# published league/safety.json, so the preview uses exactly the rules and races the site does.
+ACTIVE_STREAMS = 5   # like the site's ranking: drivers from the last 5 streams
+RANKS = [(100, "S+"), (90, "S"), (70, "A"), (50, "B"), (40, "C"), (30, "D"), (20, "E")]   # race-stats src/league/safety.ts
+
+
+def rank_of(sr):
+    return next((r for lo, r in RANKS if sr >= lo), "F")
+
+
+def preview(data, engine, draft, cache=None):
+    """The ranking with the live settings and with the draft ones. engine: (sr_v24, sr_settings) of race-stats."""
+    v24, rss = engine
+    live_set = {**DEFAULTS, **(data.get("settings") or {})}
+    new_set = {**live_set, **draft}
+
+    def run(vals):
+        key = json.dumps(vals, sort_keys=True)
+        if cache is not None and key in cache:
+            return cache[key]
+        res = v24.simulate_window(data, **dict(v24.V25, **rss.params(vals)))
+        if cache is not None:
+            if len(cache) > 50:
+                cache.clear()
+            cache[key] = res
+        return res
+    now, new = run(live_set), run(new_set)
+    n = len(data.get("streams") or [])
+    first = n - ACTIVE_STREAMS
+    rows, off = [], 0
+    for d in data.get("drivers") or []:
+        if d.get("banned") or not any((x.get("stream") or 0) >= first for x in d.get("sessions") or []):
+            continue
+        name = d["name"]
+        live = float(d.get("sr", 50.0))
+        if name in now and abs(now[name]["sr"] - live) > 0.5:
+            off += 1
+        after = new[name]["sr"] if name in new else live
+        rows.append(dict(name=name, live=live, new=after, liveRank=rank_of(live), newRank=rank_of(after),
+                         races=(new.get(name) or {}).get("races", 0)))
+    by_live = sorted(rows, key=lambda r: (-r["live"], r["name"].lower()))
+    for i, r in enumerate(by_live):
+        r["livePos"] = i + 1
+    rows.sort(key=lambda r: (-r["new"], r["name"].lower()))
+    for i, r in enumerate(rows):
+        r["newPos"] = i + 1
+    streams = data.get("streams") or []
+    return dict(rows=rows, changed=[k for k in DEFAULTS if new_set.get(k) != live_set.get(k)], mismatch=off,
+                lastStream=(streams[-1].get("date") if streams else None), generated=data.get("generated"),
+                window=int(new_set["window_step"]) * len(new_set["window_weights"]))
+
+
+PREVIEW_ASIDE = ("<aside class=srprev><div class=card><div class=srhead><b>SR ranking</b>"
+                 "<span class=muted id=srstate>loading…</span></div>"
+                 "<div class=muted id=srinfo></div><div id=srsum></div>"
+                 "<table><thead><tr><th>#</th><th>Driver</th><th>Live</th><th>New</th><th></th></tr></thead>"
+                 "<tbody id=srrows></tbody></table></div></aside>")
+
+PREVIEW_STYLE = """<style>
+.srwrap{display:grid;grid-template-columns:minmax(0,1fr) 380px;gap:18px;align-items:start}
+@media(max-width:1000px){.srwrap{grid-template-columns:1fr}.srprev{position:static!important;max-height:none!important}}
+.srprev{position:sticky;top:70px;max-height:calc(100vh - 84px);overflow:auto;margin-top:28px}
+.srprev .card{padding:12px 12px 6px}.srprev td,.srprev th{padding:4px 6px;font-size:12.5px;white-space:nowrap}
+.srprev td.nm{white-space:normal;word-break:break-word}.srhead{display:flex;justify-content:space-between;gap:8px;align-items:baseline}
+.srprev tr.moved td{background:rgba(124,58,237,.10)}.srrk{display:inline-block;min-width:22px;font-weight:700;font-family:var(--mono)}
+.srsum{display:flex;flex-wrap:wrap;gap:6px;margin:8px 0}.srsum span{font-size:11.5px;padding:1px 8px;border-radius:99px;background:rgba(255,255,255,.05)}
+.srreset{margin-left:6px;padding:3px 8px;background:rgba(255,255,255,.07);box-shadow:inset 0 0 0 1px rgba(255,255,255,.1);font-size:13px;line-height:1}
+.srreset:hover{background:rgba(225,29,72,.25)}input.srdiff{border-color:rgba(167,139,250,.7)}
+</style>"""
+
+PREVIEW_SCRIPT = r"""<script>
+(function(){
+  var box = document.getElementById('srform'); if (!box) return;
+  var COL = {'S+':'#fcd34d','S':'#c084fc','A':'#4ade80','B':'#facc15','C':'#fbbf24','D':'#fb923c','E':'#f87171','F':'#dc2626'};
+  var ORDER = ['S+','S','A','B','C','D','E','F'];
+  var inputs = Array.prototype.slice.call(box.querySelectorAll('input[data-live]'));
+  function esc(s){ return String(s).replace(/[&<>"']/g, function(c){ return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]; }); }
+  function norm(el){
+    if (el.type === 'checkbox') return el.checked ? '1' : '0';
+    var v = el.value.trim().replace(/,(?=\d)/g, el.dataset.kind === 'list' ? ',' : '.');
+    if (el.dataset.kind === 'list') return v.split(/[,;]/).map(function(x){ return x.trim() === '' ? null : String(parseFloat(x)); }).filter(function(x){ return x !== null; }).join(',');
+    return v === '' ? '' : String(parseFloat(v));
+  }
+  function liveNorm(el){
+    var v = el.dataset.live; if (el.type === 'checkbox') return v;
+    if (el.dataset.kind === 'list') return v.split(',').map(function(x){ return String(parseFloat(x)); }).join(',');
+    return String(parseFloat(v));
+  }
+  function marks(){
+    inputs.forEach(function(el){
+      var diff = norm(el) !== '' && norm(el) !== liveNorm(el);
+      el.classList.toggle('srdiff', diff);
+      var b = box.querySelector('.srreset[data-for="' + el.name + '"]'); if (b) b.hidden = !diff;
+    });
+  }
+  box.addEventListener('click', function(ev){
+    var b = ev.target.closest('.srreset'); if (!b) return;
+    var el = box.querySelector('input[name="' + b.dataset.for + '"]');
+    if (el.type === 'checkbox') el.checked = el.dataset.live === '1'; else el.value = el.dataset.live;
+    changed();
+  });
+  var timer = null, seq = 0;
+  function changed(){ marks(); clearTimeout(timer); timer = setTimeout(load, 250); }
+  box.addEventListener('input', changed); box.addEventListener('change', changed);
+  function arrow(r){
+    var d = r.livePos - r.newPos;
+    if (!d) return '';
+    return d > 0 ? '<span class=pos>▲' + d + '</span>' : '<span class=neg>▼' + (-d) + '</span>';
+  }
+  function rk(r){ return '<span class=srrk style="color:' + COL[r] + '">' + r + '</span>'; }
+  function load(){
+    var q = new URLSearchParams();
+    inputs.forEach(function(el){ q.set(el.name, el.type === 'checkbox' ? (el.checked ? 'on' : 'off') : el.value); });
+    var my = ++seq; document.getElementById('srstate').textContent = 'calculating…';
+    fetch('/sr-settings/preview.json?' + q.toString(), {headers: {'Accept': 'application/json'}})
+      .then(function(r){ return r.json(); }).then(function(j){
+        if (my !== seq) return;
+        var st = document.getElementById('srstate');
+        if (j.error) { st.innerHTML = '<span class=neg>' + esc(j.error) + '</span>'; return; }
+        st.textContent = j.changed.length ? j.changed.length + ' setting' + (j.changed.length > 1 ? 's' : '') + ' changed' : 'same as live';
+        document.getElementById('srinfo').textContent = 'Drivers from the last 5 streams, races up to ' + (j.lastStream || '?')
+          + ' · window ' + j.window + ' races' + (j.mismatch ? ' · ' + j.mismatch + ' driver(s) differ from the site by more than 0.5, so treat this as an estimate' : '');
+        var cl = {}, cn = {};
+        j.rows.forEach(function(r){ cl[r.liveRank] = (cl[r.liveRank] || 0) + 1; cn[r.newRank] = (cn[r.newRank] || 0) + 1; });
+        document.getElementById('srsum').innerHTML = '<div class=srsum>' + ORDER.filter(function(k){ return cl[k] || cn[k]; }).map(function(k){
+          var a = cl[k] || 0, b = cn[k] || 0;
+          return '<span>' + rk(k) + ' ' + a + (a !== b ? ' → <b>' + b + '</b>' : '') + '</span>';
+        }).join('') + '</div>';
+        document.getElementById('srrows').innerHTML = j.rows.map(function(r){
+          var d = Math.round((r.new - r.live) * 10) / 10;
+          var dt = d ? '<span class=' + (d > 0 ? 'pos' : 'neg') + '>' + (d > 0 ? '+' : '') + d + '</span>' : '';
+          return '<tr' + (r.newRank !== r.liveRank ? ' class=moved' : '') + '><td class=muted>' + r.newPos + ' ' + arrow(r) + '</td>'
+            + '<td class=nm>' + esc(r.name) + '</td><td>' + rk(r.liveRank) + ' ' + r.live.toFixed(1) + '</td>'
+            + '<td>' + rk(r.newRank) + ' <b>' + r.new.toFixed(1) + '</b></td><td>' + dt + '</td></tr>';
+        }).join('');
+      }).catch(function(){ if (my === seq) document.getElementById('srstate').innerHTML = '<span class=neg>preview failed</span>'; });
+  }
+  marks(); load();
+})();
+</script>"""
