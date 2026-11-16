@@ -30,7 +30,7 @@ from staff import calls
 BATCH_DIR = pathlib.Path(__file__).resolve().parent / "grading"
 GRADES_FILE = pathlib.Path(os.environ.get("STAFF_GRADES_FILE", "/var/lib/race-control/grades.json"))
 NO, RACING = "Not an incident", "Racing incident"
-PICKS = {"low": "low severity", "high": "high severity", "gray": "gray area"}
+PICKS = {"low": "low severity", "high": "high severity", "gray": "gray area", "severe": "severity 7+"}
 CALLS = {"fault": "At fault", "shared": "Shared blame (half points)", "clear": "Involved, not at fault",
          "out": "Not involved"}
 TAGS = ["Too fast into the corner", "Moved across / squeezed", "Early turn-in", "Lost control", "Ran into the back",
