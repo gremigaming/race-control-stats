@@ -202,10 +202,10 @@ class Runner:
                                  "allowed_mentions": {"parse": []}})
             self.state["dm"][str(uid)] = channel.id
             self.state["sent_today"] += 1
-            await self.report(f"📬 Check-in DM sent to {member.display_name} ({member.name}).")
+            await self.report(f"📬 Check-in DM sent to {member.display_name} ({member.name}, <@{member.id}>).")
         except discord.Forbidden:
             self.state["dms_off"].append(member.display_name)
-            await self.report(f"📭 Check-in: {member.display_name} ({member.name}) has DMs turned off, not asked.")
+            await self.report(f"📭 Check-in: {member.display_name} ({member.name}, <@{member.id}>) has DMs turned off, not asked.")
         save_state(self.state)
 
     def last_seen(self, uid):
@@ -234,7 +234,7 @@ class Runner:
                                params={"channel_id": self.state["dm"][uid]},
                                json={"content": text_for(member.display_name, dict(config, text=config["reminder"])),
                                      "components": ASK, "allowed_mentions": {"parse": []}})
-                await self.report(f"⏰ Check-in reminder sent to {member.display_name} ({member.name}), "
+                await self.report(f"⏰ Check-in reminder sent to {member.display_name} ({member.name}, <@{member.id}>), "
                                   "no answer for a week.")
             except discord.DiscordException as e:
                 log.warning("check-in reminder failed: %s", e)
@@ -249,11 +249,11 @@ class Runner:
             pass
         try:
             await member.kick(reason="Check-in DM: no answer after two weeks")
-            await self.report(f"👋 Check-in: {member.display_name} ({member.name}) didn't answer the DM or "
+            await self.report(f"👋 Check-in: {member.display_name} ({member.name}, <@{member.id}>) didn't answer the DM or "
                               "the reminder in two weeks and was removed from the server.")
         except Exception as e:
             log.warning("check-in kick failed: %s", e)
-            await self.report(f"⚠️ Check-in: removing {member.display_name} ({member.name}) after two weeks "
+            await self.report(f"⚠️ Check-in: removing {member.display_name} ({member.name}, <@{member.id}>) after two weeks "
                               f"without an answer failed ({e}). Please remove them by hand.")
 
     async def step(self):
@@ -310,7 +310,7 @@ class Runner:
             await self.api("POST", "/channels/{channel_id}/messages",
                            params={"channel_id": interaction.channel_id},
                            json={"content": "\n".join(config["welcome"]), "allowed_mentions": {"parse": []}})
-            await self.report(f"✅ Check-in: {user.display_name} ({user.name}) is still here.")
+            await self.report(f"✅ Check-in: {user.display_name} ({user.name}, <@{user.id}>) is still here.")
             return
         # SURE: they confirmed they want to leave
         self.state["answers"][uid] = "left"
@@ -322,14 +322,14 @@ class Runner:
         guild = self.bot.get_guild(self.guild_id)
         member = guild.get_member(user.id) if guild else None
         if member is None:
-            await self.report(f"👋 Check-in: {user.display_name} ({user.name}) is no longer interested "
+            await self.report(f"👋 Check-in: {user.display_name} ({user.name}, <@{user.id}>) is no longer interested "
                               "(already left the server).")
             return
         try:
             await member.kick(reason="Check-in DM: said they're no longer interested")
-            await self.report(f"👋 Check-in: {user.display_name} ({user.name}) is no longer interested "
+            await self.report(f"👋 Check-in: {user.display_name} ({user.name}, <@{user.id}>) is no longer interested "
                               "and was removed from the server.")
         except Exception as e:
             log.warning("check-in kick failed: %s", e)
-            await self.report(f"⚠️ Check-in: {user.display_name} ({user.name}) asked to be removed, "
+            await self.report(f"⚠️ Check-in: {user.display_name} ({user.name}, <@{user.id}>) asked to be removed, "
                               f"but the kick failed ({e}). Please remove them by hand.")
