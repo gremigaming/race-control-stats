@@ -379,7 +379,7 @@ def viewer(i):
     """The incident viewer at a graded incident (GreMi, 6 Nov 2026: every staff link opens it)."""
     from staff import races
     names = [re.sub(r"^#\d+\s+", "", d["name"]) for d in i.get("drivers") or []]
-    return races.viewer_url(i["race_file"], i.get("lap"), names, races.watch_at(i)) if i.get("race_file") else replay(i)
+    return races.viewer_url(i["race_file"], i.get("lap"), names, src=i) if i.get("race_file") else replay(i)
 
 
 def grading_page(user, q, h):
