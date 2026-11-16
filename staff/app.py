@@ -547,7 +547,7 @@ def incident_detail(user, sr, file):
                               '<input type=checkbox name=learn value=1 checked> engine got it wrong (learn)</label>'
                               if it.get("cat") == "contact" else ""))
         extra = ((f"<span class=tag>{e(it['type'])}</span>" if it.get("type") else "") + calls.weather_badge(e, it.get("weather"))
-                 + (f" <a href=\"{e(races.viewer_url(file, it.get('lap'), involved(name, it)))}\" target=_blank rel=noopener class=muted>▶ incident viewer</a>"
+                 + (f" <a href=\"{e(races.viewer_url(file, it.get('lap'), involved(name, it), races.watch_at(it)))}\" target=_blank rel=noopener class=muted>▶ incident viewer</a>"
                     if it.get("cat") == "contact" else ""))
         html_rows += (f"<tr><td class='mono {pts_class(it['pts'])}'>{signed(it['pts'])}</td><td><b>{e(name)}</b>"
                       f"{' · lap ' + e(it['lap']) if it.get('lap') else ''} · {e(it['cat'])}{note}{extra}<div class=muted>{e(it['text'])}</div>"
@@ -601,7 +601,7 @@ def collisions_card(file, sr=None):
         sev = i.get("sev")
         badge = (f"<span class=tag>{e(i['type'])}</span>" if i.get("type") else "") + calls.weather_badge(e, i.get("weather"))
         if i.get("file"):
-            badge += (f" <a href=\"{e(races.viewer_url(i['file'], i.get('lap'), i.get('names') or []))}\" target=_blank rel=noopener "
+            badge += (f" <a href=\"{e(races.viewer_url(i['file'], i.get('lap'), i.get('names') or [], races.watch_at(i)))}\" target=_blank rel=noopener "
                       f"class=muted>▶ incident viewer</a>")
         rows += (f"<tr><td class=mono>{'L' + e(i['lap']) if i.get('lap') else ''}</td>"
                  f"<td><b>{e(i.get('where') or 'Contact')}</b>"
@@ -1066,7 +1066,7 @@ def protest_grade_form(p, staff, back="/protests"):
     text = it.get("text") or p.get("what") or ""
     kind = it.get("type") or calls.guess_type(None, text)
     head = ((f"<span class=tag>{e(kind)}</span>" if kind else "") + calls.weather_badge(e, it.get("weather"))
-            + (f" <a class=btn href=\"{e(races.viewer_url(p['file'], it.get('lap'), involved(p['driver'], it)))}\" target=_blank rel=noopener>▶ Incident viewer</a>"
+            + (f" <a class=btn href=\"{e(races.viewer_url(p['file'], it.get('lap'), involved(p['driver'], it), races.watch_at(it)))}\" target=_blank rel=noopener>▶ Incident viewer</a>"
                if p.get("file") and it else ""))
     data = calls.profiles()
     profs = "".join(calls.profile_html(e, calls.profile_of(n, data), short=True) for n in dict.fromkeys(involved(p["driver"], it or {"text": text})))

@@ -43,12 +43,22 @@ def stem(file):
     return re.sub(r"\.json$", "", (file or "").split("/")[-1])
 
 
-def viewer_url(file, lap=None, names=()):
-    """The incident viewer at this incident (the site finds the race from the file, then the contact)."""
+def watch_at(x):
+    """The contact's time from an item's or incident's race viewer link (?inc=), or None."""
+    m = re.search(r"[?&]inc=([\d.]+)", ((x or {}).get("watch") or (x or {}).get("replay") or ""))
+    return float(m.group(1)) if m else None
+
+
+def viewer_url(file, lap=None, names=(), at=None):
+    """The incident viewer at this incident (the site finds the race from the file, then the contact).
+    at = the contact's time (watch_at): GreMi 16 Nov 2026, without it the viewer guessed by lap + drivers
+    and opened the wrong incident of that lap (Stepino vs Shwiks: turn 15 opened turn 1)."""
     f = file if file.endswith(".json") else file + ".json"
     q = "file=" + urllib.parse.quote(f) + (f"&lap={lap}" if lap else "")
     if names:
         q += "&with=" + urllib.parse.quote("|".join(names))
+    if at is not None:
+        q += f"&at={at:.1f}"
     return f"{A().SITE}all/incidents?{q}"
 
 
@@ -228,7 +238,7 @@ def incident_rows(file, sr=None, data=None):
         kind = kind or calls.guess_type(None, " ".join(d["why"] or "" for d in drivers))
         rows.append({"file": file, "t": t, "inc": inc, "lap": i.get("lap"), "where": i.get("where") or "Contact", "sev": sev,
                      "kind": kind, "guessed": guessed and bool(kind), "weather": i.get("weather"),
-                     "viewer": viewer_url(file, i.get("lap"), [d["name"] for d in drivers]), "drivers": drivers,
+                     "viewer": viewer_url(file, i.get("lap"), [d["name"] for d in drivers], watch_at(i)), "drivers": drivers,
                      "staff": any(d["fix"] for d in drivers)})
     return rows
 
