@@ -23,10 +23,13 @@ ROLES_ON = True
 PANEL_CHANNEL_ID = 1558730257593409628  # link-your-name: the "pick your driver name" panel
 PANEL_TITLE = "Link your driver name"
 PICK = "srlink:pick:"  # + driver name (cut to 88): a name button under the form's answer
-OPEN = "srlink:open"  # "Link my name": opens the form
+OPEN = "srlink:open"  # "Type my name": opens the form
 FORM = "srlink:form"
 FORM_NAME = "srlink:name"
 UNLINK = "srlink:unlink"
+GROUP = "srlink:group"  # the letter dropdown on the panel
+NAMES = "srlink:names:"  # + i: a dropdown of names in the private answer to a letter pick
+GROUP_SIZE = 25  # names per letter group, so each group usually fits one dropdown
 
 store = L.Links()
 CLICKS = []  # more async fn(interaction) for buttons elsewhere (bot/giveaway.py)
@@ -99,10 +102,47 @@ async def ensure_roles(guild):
     return out
 
 
+def first_letter(name):
+    """A to Z, or # for a name that starts with a digit or symbol (clan tags and
+    TTV/ in front don't count)."""
+    k = L.key(name) or L.full(name)
+    return k[0].upper() if k and k[0].isalpha() else "#"
+
+
+def letter_groups(drivers):
+    """[(label, [names])]: the drivers A to Z in groups of letters, each about
+    GROUP_SIZE names (a big letter gets a group of its own), at most 25 groups."""
+    names = [n for n, d in drivers.items() if not d.get("banned") and not L.HIDDEN.search(n)]
+    by = {}
+    for n in sorted(names, key=lambda n: (L.key(n) or L.full(n), n.lower())):
+        by.setdefault(first_letter(n), []).append(n)
+    letters = sorted(by, key=lambda c: (c != "#", c))
+    size = GROUP_SIZE
+    while True:
+        groups, cur = [], []
+        for c in letters:
+            if cur and sum(len(by[x]) for x in cur) + len(by[c]) > size:
+                groups.append(cur)
+                cur = []
+            cur.append(c)
+        if cur:
+            groups.append(cur)
+        if len(groups) <= 25:
+            break
+        size *= 2
+    def label(g):
+        digits, g = g[0] == "#", [c for c in g if c != "#"]
+        letters = "" if not g else g[0] if len(g) == 1 else f"{g[0]} to {g[-1]}"
+        return ", ".join(x for x in ("0-9" if digits else "", letters) if x)
+    return [(label(g), [n for c in g for n in by[c]]) for g in groups]
+
+
 def panel(drivers):
-    """The panel: a "Link my name" button opens a form to type the name in, so it
-    works for any number of drivers (dropdowns stop at 25 names each)."""
-    count = sum(1 for n, d in drivers.items() if not d.get("banned") and not L.HIDDEN.search(n))
+    """The panel: one dropdown of letter groups; a pick opens a private dropdown
+    with the names in that group (a dropdown holds 25 names at most, so this
+    works for any number of drivers)."""
+    groups = letter_groups(drivers)
+    count = sum(len(g) for _, g in groups)
     embed = discord.Embed(
         title=PANEL_TITLE, colour=0x4ADE80,
         description=(
@@ -115,25 +155,57 @@ def panel(drivers):
             "• `/sr` shows your rating and your place in the ranking\n"
             "• your role follows your rating by itself after every stream\n\n"
             "**How?**\n"
-            "Press **Link my name** and type your name as it shows in the game. It doesn't have to be exact: "
-            "you get the names that look like it to pick from. Only you see the answer. "
-            "You can also type `/link` and pick your name from the list as you type.\n\n"
-            "Not found? Your name shows up after your first race with us. "
-            "Picked the wrong one? Link again, or press Unlink me. "
+            "1. Pick the first letter of your name as it shows in the game in the menu below.\n"
+            "2. Pick your name in the list that opens. Type in it to filter.\n"
+            "Only you see the answer. Clan tags and TTV/ in front don't count for the letter.\n\n"
+            "Can't find it? Press **Type my name**. Not on the site yet? Your name shows up after your "
+            "first race with us. Picked the wrong one? Pick again, or press Unlink me. "
             "Someone else has your name? Ask a mod."))
-    embed.set_footer(text=f"{count} drivers on the race stats site")
+    embed.set_footer(text=f"{count} drivers · 🔗 means the name is already linked")
     view = discord.ui.View(timeout=None)
-    view.add_item(discord.ui.Button(label="Link my name", style=discord.ButtonStyle.success,
-                                    emoji="\U0001F517", custom_id=OPEN))
+    view.add_item(discord.ui.Select(
+        custom_id=GROUP, placeholder="1. Pick the first letter of your driver name",
+        options=[discord.SelectOption(
+            label=f"{label}  ({len(g)} driver{'s' if len(g) != 1 else ''})"[:100], value=label,
+            description=", ".join(g)[:97] + ("..." if len(", ".join(g)) > 97 else ""))
+            for label, g in groups] or [discord.SelectOption(label="No drivers yet", value="-")]))
     view.add_item(discord.ui.Button(label="Unlink me", style=discord.ButtonStyle.secondary, custom_id=UNLINK))
+    view.add_item(discord.ui.Button(label="Type my name", style=discord.ButtonStyle.secondary,
+                                    emoji="\u270F\uFE0F", custom_id=OPEN))
     view.add_item(discord.ui.Button(label="Full ranking", style=discord.ButtonStyle.link, url=L.SITE_URL))
     return embed, view
+
+
+def linked_to(guild):
+    """{driver name lowercased: member display name} for the name dropdowns."""
+    out = {}
+    for uid, v in store.read().items():
+        m = guild.get_member(int(uid)) if guild else None
+        out[v["driver"].lower()] = m.display_name if m else "a member who left"
+    return out
+
+
+def names_view(names, linked):
+    """The private answer to a letter pick: the names in dropdowns of 25 (5 at most)."""
+    view = discord.ui.View(timeout=900)  # picks are read in on_panel, also after this
+    chunks = [names[i:i + 25] for i in range(0, min(len(names), 125), 25)]
+    for i, g in enumerate(chunks):
+        view.add_item(discord.ui.Select(
+            custom_id=f"{NAMES}{i}",
+            placeholder=("2. Pick your name (type to filter)" if len(chunks) == 1
+                         else f"2. Pick your name: {g[0][:20]} to {g[-1][:20]}"),
+            options=[discord.SelectOption(
+                label=n[:100], value=n[:100], emoji="\U0001F517" if n.lower() in linked else None,
+                description=(f"Linked to {linked[n.lower()]}"[:100] if n.lower() in linked else None))
+                for n in g]))
+    return view
 
 
 def signature(rows):
     """What a panel's buttons are, to see whether a posted panel is out of date."""
     return [(getattr(c, "custom_id", None), getattr(c, "url", None), getattr(c, "label", None),
-             bool(getattr(c, "options", None))) for row in rows for c in getattr(row, "children", [row])]
+             [(o.label, o.value, o.description) for o in getattr(c, "options", None) or []])
+            for row in rows for c in getattr(row, "children", [row])]
 
 
 async def keep_panel(guild, drivers):
@@ -154,7 +226,7 @@ async def keep_panel(guild, drivers):
 
 
 class NameForm(discord.ui.Modal, title="Link your driver name"):
-    """The form behind "Link my name". Its answer is read in on_panel (raw), so a
+    """The form behind "Type my name". Its answer is read in on_panel (raw), so a
     bot restart while someone types doesn't lose it."""
     name = discord.ui.TextInput(label="Your name in the game", custom_id=FORM_NAME, min_length=1,
                                 max_length=100, placeholder="As it shows in the race results")
@@ -241,7 +313,8 @@ async def on_form(interaction):
 
 
 async def on_panel(interaction):
-    """The panel buttons, the form and the name buttons under the form's answer."""
+    """The letter dropdown and buttons on the panel, the private name dropdowns,
+    the form and the name buttons under the form's answer."""
     cid = (interaction.data or {}).get("custom_id", "")
     if not cid.startswith("srlink:"):
         return
@@ -260,7 +333,27 @@ async def on_panel(interaction):
         drivers = await fetch_safety()
         name = known(drivers, cid[len(PICK):]) if drivers else None
         text = (await link_member(interaction, name, drivers) if name
-                else "That driver isn't on the site anymore. Press Link my name to try again.")
+                else "That driver isn't on the site anymore. Pick a letter again.")
+        await interaction.edit_original_response(content=text, view=None)
+        return
+    if cid == GROUP:  # a letter: answer privately with the names in it
+        await interaction.response.defer(ephemeral=True, thinking=True)
+        drivers = await fetch_safety()
+        group = dict(letter_groups(drivers or {})).get((values or [""])[0])
+        if not group:
+            await interaction.followup.send("That letter has no drivers anymore. Pick again.", ephemeral=True)
+            return
+        await interaction.followup.send(
+            f"Drivers starting with **{values[0]}**. Pick your name (type to filter):",
+            view=names_view(group, linked_to(interaction.guild)), ephemeral=True)
+        return
+    private = bool(getattr(getattr(interaction.message, "flags", None), "ephemeral", False))
+    if (cid.startswith(NAMES) or cid.startswith(PICK)) and values and private:  # a name in the private answer
+        await interaction.response.defer()
+        drivers = await fetch_safety()
+        name = known(drivers, values[0]) if drivers else None
+        text = (await link_member(interaction, name, drivers) if name
+                else "That driver isn't on the site anymore. Pick a letter again.")
         await interaction.edit_original_response(content=text, view=None)
         return
     await interaction.response.defer(ephemeral=True, thinking=True)
@@ -273,7 +366,7 @@ async def on_panel(interaction):
                 log.warning("SR role not removed: %s", e)
         await interaction.followup.send("Unlinked." if done else "You weren't linked to a driver.", ephemeral=True)
         return
-    # a dropdown on the old panel, until the panel is edited to buttons
+    # a name dropdown on an old panel, until the panel is edited
     drivers = await fetch_safety()
     name = known(drivers, (values or [""])[0]) if drivers else None
     if not name:
