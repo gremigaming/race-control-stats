@@ -141,9 +141,15 @@ OnUnitActiveSec=2min
 WantedBy=timers.target
 UNIT
 
+# /etc/caddy/conf.d/*.caddy: extra private routes kept on the server only (the private
+# track map viewer lives there, with its own password); they survive a re-run of this script
+mkdir -p /etc/caddy/conf.d
 cat > /etc/caddy/Caddyfile <<CADDY
 $HOST {
-	reverse_proxy 127.0.0.1:8100
+	import /etc/caddy/conf.d/*.caddy
+	handle {
+		reverse_proxy 127.0.0.1:8100
+	}
 }
 CADDY
 
