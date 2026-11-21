@@ -47,12 +47,22 @@ def merge(log, live_start, vods, now):
     def find(start):
         return next((s for s in streams if abs((s["start"] - start).total_seconds()) <= SAME), None)
 
-    for start, end in vods:
+    # Oldest first, and a window keeps the latest end of every broadcast that matches it:
+    # a short false start just before the real stream (20 Nov 2026: one ended 14:07,
+    # the real one started 14:10) must not cut the real stream's window back to 14:07.
+    touched = []
+    for start, end in sorted(vods):
         s = find(start)
         if s is None:
-            streams.append({"start": start, "end": end})
+            s = {"start": start, "end": end}
+            streams.append(s)
+            touched.append(s)
         elif s["end"] is not None or live_start is None or find(live_start) is not s:
-            s["end"] = end          # the broadcast's own end is the exact one
+            if any(t is s for t in touched):
+                s["start"], s["end"] = min(s["start"], start), max(s["end"], end)
+            else:
+                s["start"], s["end"] = min(s["start"], start), end   # the broadcast's own end is the exact one
+                touched.append(s)
     if live_start is not None:
         s = find(live_start)
         if s is None:

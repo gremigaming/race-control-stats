@@ -35,6 +35,19 @@ class StreamLogTest(unittest.TestCase):
         self.assertEqual(len(log["streams"]), 2)
         self.assertEqual(log["since"], "2026-11-10T18:00:00Z")
 
+    def test_false_start_does_not_cut_the_real_stream(self):
+        # 20 Nov 2026: a short broadcast ended 14:07, the real one ran 14:10-17:00 (Twitch lists newest first)
+        vods = [(t(14, 10, day=20), t(17, day=20)), (t(13, 58, day=20), t(14, 7, day=20))]
+        log = S.merge({}, None, vods, t(17, 15, day=20))
+        self.assertEqual(log["streams"], [{"start": "2026-11-20T13:58:00Z", "end": "2026-11-20T17:00:00Z"}])
+
+    def test_broken_window_is_repaired(self):
+        broken = {"since": "2026-11-10T18:00:00Z",
+                  "streams": [{"start": "2026-11-20T14:10:25Z", "end": "2026-11-20T14:07:28Z"}]}
+        vods = [(t(14, 10, day=20), t(17, day=20)), (t(13, 58, day=20), t(14, 7, day=20))]
+        log = S.merge(broken, None, vods, t(23, day=20))
+        self.assertEqual(log["streams"], [{"start": "2026-11-20T13:58:00Z", "end": "2026-11-20T17:00:00Z"}])
+
 
 if __name__ == "__main__":
     unittest.main()
