@@ -213,3 +213,18 @@ class QuestionTests(unittest.TestCase):
                         ("how do i enter the giveaway", "giveaway"), ("is subbing worth it", "subs"),
                         ("thanks for the sub!", None)]:
             self.assertEqual(ids(q), want, q)
+
+
+class RewardSpecTests(unittest.TestCase):
+    def test_channel_rewards_file_is_valid_for_twitch(self):
+        import json
+        spec = json.loads(tc.REWARDS.read_text())["rewards"]
+        titles = [r["title"] for r in spec]
+        self.assertEqual(len(titles), len(set(t.lower() for t in titles)))
+        for want in spec:
+            body = tc.reward_body(want)
+            self.assertLessEqual(len(body["title"]), 45)
+            self.assertLessEqual(len(body["prompt"]), 200)
+            self.assertGreaterEqual(body["cost"], 1)
+            self.assertRegex(body["background_color"], r"^#[0-9A-F]{6}$")
+            self.assertGreaterEqual(body["global_cooldown_seconds"], 1)

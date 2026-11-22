@@ -1,0 +1,26 @@
+{
+  "_about": "Channel point rewards Race Control owns on GreMi's Twitch. 'Twitch chat' workflow command 'rewards-sync' creates missing ones and updates the rest to match (add ' on' or ' off' to switch them all on or off). Streamer.bot on GreMi's PC does what each one does (group 'Channel Points', matched by reward id). Titles must not clash with any other reward on the channel.",
+  "rewards": [
+    {"title": "Hydrate, driver!", "cost": 300, "color": "#2E9BFF",
+     "prompt": "GreMi has to take a sip of water on camera. Stay hydrated, champ.",
+     "cooldown": 900},
+    {"title": "Safety Car", "cost": 800, "color": "#FFC400",
+     "prompt": "Deploy the Safety Car! Siren and a big yellow banner on stream.",
+     "cooldown": 300},
+    {"title": "Team Radio", "cost": 1500, "color": "#00B37A",
+     "prompt": "Your message is read out as team radio on stream. Max 120 characters, keep it clean (no links).",
+     "input": true, "cooldown": 120},
+    {"title": "Box Box Box!", "cost": 2500, "color": "#E10600",
+     "prompt": "Call GreMi into the pits! On the final challenge race he has to box next lap.",
+     "cooldown": 600, "per_stream": 3},
+    {"title": "Sponsor the Next Race", "cost": 3000, "color": "#9B5CFF",
+     "prompt": "Your name on screen as the official sponsor of the next race.",
+     "per_stream": 4, "cooldown": 300},
+    {"title": "Final Race Challenge", "cost": 4000, "color": "#FF7A00",
+     "prompt": "Pick the rule for today's final race: cockpit cam, no assists, back of the grid, one-stop or no racing line.",
+     "input": true, "per_stream": 1},
+    {"title": "Get a Walk-on Sound", "cost": 20000, "color": "#FFD700",
+     "prompt": "Your own sound plays with your first chat message every stream! DM GreMi on Discord which sound you want.",
+     "per_viewer_stream": 1}
+  ]
+}

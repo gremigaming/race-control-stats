@@ -43,6 +43,8 @@ Usage from the workflow (DISCORD_BOT_TOKEN in the environment):
   python3 -m bot.twitch_chat say "<message>"   one chat message now
   python3 -m bot.twitch_chat ad [seconds]       one ad now (only while live)
   python3 -m bot.twitch_chat ads                when Twitch's next ad is due
+  python3 -m bot.twitch_chat rewards            every channel point reward
+  python3 -m bot.twitch_chat rewards-sync [on|off]  rewards in bot/channel_rewards.json
 If Twitch renews a login there, the sealed file is rewritten so the bot gets it too.
 Never logs tokens.
 """
@@ -452,6 +454,30 @@ class Twitch:
         res = await self.call("GET", "/channel_points/custom_rewards",
                               params={"broadcaster_id": self.me["id"]})
         return [dict(r, ours=r["id"] in ours) for r in res.get("data", [])]
+
+    async def rewards_sync(self, spec, switch=None):
+        """Create the rewards in bot/channel_rewards.json that Race Control owns and
+        bring the existing ones in line (matched by title). switch "on"/"off" turns
+        them all on or off; otherwise new ones start off and others keep their state."""
+        mine = {r["title"]: r for r in (await self.call(
+            "GET", "/channel_points/custom_rewards", params={
+                "broadcaster_id": self.me["id"], "only_manageable_rewards": "true"})).get("data", [])}
+        out = []
+        for want in spec:
+            body = reward_body(want)
+            have = mine.get(want["title"])
+            if switch:
+                body["is_enabled"] = switch == "on"
+            elif not have:
+                body["is_enabled"] = False
+            params = {"broadcaster_id": self.me["id"]}
+            if have:
+                params["id"] = have["id"]
+                res = await self.call("PATCH", "/channel_points/custom_rewards", params=params, json=body)
+            else:
+                res = await self.call("POST", "/channel_points/custom_rewards", params=params, json=body)
+            out.append(dict(res["data"][0], ours=True, created=not have))
+        return out
 
     async def segments(self):
         """The channel's next scheduled streams (empty when there is no schedule)."""
@@ -905,6 +931,25 @@ async def run(discord_token):
             await asyncio.sleep(TICK)
 
 
+REWARDS = pathlib.Path(__file__).with_name("channel_rewards.json")
+
+
+def reward_body(want):
+    """Twitch's create/update body for one entry of bot/channel_rewards.json."""
+    return {
+        "title": want["title"], "cost": want["cost"], "prompt": want.get("prompt", ""),
+        "background_color": want.get("color", "#9146FF"),
+        "is_user_input_required": bool(want.get("input")),
+        "should_redemptions_skip_request_queue": not want.get("queue", False),
+        "is_max_per_stream_enabled": bool(want.get("per_stream")),
+        "max_per_stream": want.get("per_stream") or 1,
+        "is_max_per_user_per_stream_enabled": bool(want.get("per_viewer_stream")),
+        "max_per_user_per_stream": want.get("per_viewer_stream") or 1,
+        "is_global_cooldown_enabled": bool(want.get("cooldown")),
+        "global_cooldown_seconds": want.get("cooldown") or 1,
+    }
+
+
 # ---------------------------------------------------------------- one-off commands
 
 async def once(kind, discord_token, action):
@@ -956,6 +1001,12 @@ def main(argv):
                     "bitstier": "bits", "follower": "follower"}.get(e.get("emote_type"), e.get("emote_type"))
             print(f"{e['name']} | {kind} | {'animated' if 'animated' in e.get('format', []) else 'still'} | "
                   f"https://static-cdn.jtvnw.net/emoticons/v2/{e['id']}/default/dark/3.0")
+    elif len(argv) in (2, 3) and argv[1] == "rewards-sync" and argv[2:] in ([], ["on"], ["off"]):
+        spec = json.loads(REWARDS.read_text())["rewards"]
+        switch = argv[2] if len(argv) == 3 else None
+        for r in asyncio.run(once("owner", token, lambda c: c.rewards_sync(spec, switch))):
+            print(f"{r['id']} | {r['title']} | {r['cost']} | {'on' if r['is_enabled'] else 'OFF'}"
+                  f"{' | new' if r['created'] else ''}")
     elif len(argv) == 2 and argv[1] == "rewards":
         for r in sorted(asyncio.run(once("owner", token, lambda c: c.rewards())), key=lambda r: r["cost"]):
             limits = [f"{k} {v}" for k, v in (
