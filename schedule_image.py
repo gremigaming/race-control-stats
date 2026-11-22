@@ -1,5 +1,6 @@
 """The stream schedule picture for the Stream Schedule channel: one card per day
-(Monday to Sunday), streams in colour, offline days muted, today outlined.
+(Monday to Sunday), streams in colour, highlight videos in their own colour,
+offline days muted, today outlined.
 
 Needs Pillow. Uses the fonts in fonts/ (Anton for the big letters, Montserrat for
 the small ones) and falls back to DejaVu when they are missing.
@@ -11,7 +12,7 @@ import os
 from PIL import Image, ImageDraw, ImageFilter, ImageFont
 
 # Bump when the picture is drawn differently, so the posted schedule is redrawn
-LAYOUT = 1
+LAYOUT = 2
 
 W, H = 1080, 1440
 S = 2  # drawn twice as large and shrunk, for smooth edges
@@ -20,6 +21,7 @@ FONT_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "fonts")
 TOP, BOTTOM = (74, 10, 34), (12, 38, 54)            # background, like GreMi's own
 OFFLINE = (128, 52, 88)
 STREAM_FROM, STREAM_TO = (214, 32, 64), (118, 46, 196)  # race red to Twitch purple
+VIDEO_FROM, VIDEO_TO = (0, 150, 160), (24, 82, 190)     # highlight videos: teal to blue
 TWITCH = (145, 70, 255)
 WHITE = (255, 255, 255)
 MUTED = (170, 150, 165)
@@ -138,13 +140,20 @@ def background():
     return img
 
 
-def _card(size, kind, radius):
-    """A day card as an RGBA image: 'stream', 'offline' or 'cancelled'."""
+def _card(size, kind, radius, rows=None):
+    """A day card as an RGBA image: 'stream', 'video', 'offline' or 'cancelled'.
+    rows: for a coloured card, the kind of each equal-height row ('stream' or
+    'video'), so a day with a stream and a highlight video gets both colours."""
     w, h = size
     mask = Image.new("L", size, 0)
     ImageDraw.Draw(mask).rounded_rectangle((0, 0, w - 1, h - 1), radius, fill=255)
-    if kind == "stream":
-        fill = _gradient(size, STREAM_FROM, STREAM_TO, horizontal=True).convert("RGBA")
+    if kind in ("stream", "video"):
+        rows = rows or [kind]
+        fill = Image.new("RGBA", size)
+        for k, row in enumerate(rows):
+            ry0, ry1 = round(h * k / len(rows)), round(h * (k + 1) / len(rows))
+            a, b = (VIDEO_FROM, VIDEO_TO) if row == "video" else (STREAM_FROM, STREAM_TO)
+            fill.paste(_gradient((w, max(1, ry1 - ry0)), a, b, horizontal=True), (0, ry0))
         over = Image.new("RGBA", size, (0, 0, 0, 0))
         d = ImageDraw.Draw(over)
         for x in range(-h, w, 46 * S):  # racing stripes
@@ -186,7 +195,8 @@ def render(days, today, tz_label, channel_name, week_label):
 
     days: seven (date, [stream, ...]) pairs, Monday first. A stream is a dict with
     "time" ("19:00"), "title", "category" (may be empty) and "cancelled" (bool).
-    A day can also be marked with the dict {"vacation": True} as its only entry.
+    A day can also be marked with the dict {"vacation": True}. A highlight
+    video is {"video": True, "time": "18:00"} (no title: that comes after the stream).
     """
     img = background()
     d = ImageDraw.Draw(img)
@@ -215,15 +225,20 @@ def render(days, today, tz_label, channel_name, week_label):
         size = (x1 - x0, y1 - y0)
         vacation = any(s.get("vacation") for s in streams)
         streams = [s for s in streams if not s.get("vacation")]
+        videos = [s for s in streams if s.get("video")]
+        streams = [s for s in streams if not s.get("video")]
         live = [s for s in streams if not s.get("cancelled")]
-        kind = "stream" if live else ("cancelled" if streams else "offline")
+        kind = ("stream" if live else "video" if videos
+                else "cancelled" if streams else "offline")
+        shown = sorted(live + videos, key=lambda s: s["time"]) or streams
+        rows = ["video" if s.get("video") else "stream" for s in shown]
         past = day < today
 
         layer = Image.new("RGBA", img.size, (0, 0, 0, 0))
-        if kind == "stream":
+        if kind in ("stream", "video"):
             sh, pad = _shadow(size, radius)
             layer.alpha_composite(sh, (x0 - pad, y0 - pad))
-        layer.alpha_composite(_card(size, kind, radius), (x0, y0))
+        layer.alpha_composite(_card(size, kind, radius, rows), (x0, y0))
         ld = ImageDraw.Draw(layer)
         if day == today:
             ld.rounded_rectangle((x0, y0, x1 - 1, y1 - 1), radius, outline=WHITE, width=4 * S)
@@ -232,8 +247,7 @@ def render(days, today, tz_label, channel_name, week_label):
         text_x0, text_x1 = x0 + 220 * S, x1 - 40 * S
         cy = (y0 + y1) / 2
 
-        if kind == "stream" or kind == "cancelled":
-            shown = live or streams
+        if kind != "offline":
             n = len(shown)
             sub_h = (y1 - y0) / n
             if n == 1:
@@ -247,8 +261,13 @@ def render(days, today, tz_label, channel_name, week_label):
             for k, s in enumerate(shown):
                 sy0 = y0 + sub_h * k
                 scy = sy0 + sub_h / 2
-                title = clean(s["title"]) or "LIVE ON TWITCH"
-                category = clean(s.get("category") or "")
+                if s.get("video"):
+                    title, category = "NEW HIGHLIGHT VIDEO", "ON YOUTUBE"
+                    if n > 1:
+                        title = "HIGHLIGHT VIDEO · YOUTUBE"
+                else:
+                    title = clean(s["title"]) or "LIVE ON TWITCH"
+                    category = clean(s.get("category") or "")
                 if s.get("cancelled"):
                     category = "CANCELLED"
                 box_w = text_x1 - text_x0
@@ -312,6 +331,10 @@ if __name__ == "__main__":
                    "cancelled": False}],
               6: [{"time": "19:00", "title": "F1 26 LOBBIES ∣ RANDOM GRID",
                    "category": "F1 25", "cancelled": False}]}
+    sample[3] = [{"time": "18:00", "video": True}]
+    sample[0] = [{"time": "18:00", "video": True}]
+    sample[5].insert(0, {"time": "18:00", "video": True})
+    sample[5] = sorted(sample[5], key=lambda s: s["time"])
     days = [(monday + datetime.timedelta(i), sample.get(i, [])) for i in range(7)]
     with open(sys.argv[1] if len(sys.argv) > 1 else "schedule.png", "wb") as fh:
         fh.write(render(days, monday + datetime.timedelta(2), "GMT+2", "GreMi_Gaming",

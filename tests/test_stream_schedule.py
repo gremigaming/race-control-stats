@@ -111,6 +111,41 @@ class Picture(unittest.TestCase):
                                      "GreMi_Gaming", "5 - 11 Oct")
         self.assertTrue(data.startswith(b"\x89PNG"))
 
+    def test_highlight_comes_the_day_after_at_18(self):
+        videos = ss.highlight_times([seg("a", 7, 17), seg("b", 7, 19, "Night"),
+                                     seg("c", 9, 13, cancelled=True)], planned={})
+        self.assertEqual([v.astimezone(ss.TZ).strftime("%a %H:%M") for v in videos],
+                         ["Thu 18:00"])
+
+    def test_planned_highlight_post_wins(self):
+        when = datetime.datetime(2026, 10, 9, 20, 30, tzinfo=ss.TZ)
+        videos = ss.highlight_times([seg("a", 7, 17)], planned={datetime.date(2026, 10, 7): when})
+        self.assertEqual(videos, [when])
+
+    def test_planned_highlights_read_from_scheduled_posts(self):
+        import json
+        import tempfile
+        posts = {"posts": [{"key": "youtube-highlight-2026-11-20", "post_at": "2026-11-21 18:30"},
+                           {"key": "short-x", "post_at": "2026-11-21 19:00"}]}
+        with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as fh:
+            json.dump(posts, fh)
+        self.addCleanup(os.remove, fh.name)
+        with mock.patch.object(ss, "POSTS_FILE", fh.name):
+            planned = ss.planned_highlights()
+        self.assertEqual({d: t.strftime("%Y-%m-%d %H:%M") for d, t in planned.items()},
+                         {datetime.date(2026, 11, 20): "2026-11-21 18:30"})
+
+    def test_videos_sit_between_streams_and_render(self):
+        videos = ss.highlight_times([seg("a", 7, 17), seg("b", 10, 13)], planned={})
+        days = ss.week_days(datetime.date(2026, 10, 5),
+                            [seg("a", 7, 17), seg("b", 10, 13), seg("c", 11, 13)], None, videos)
+        self.assertEqual(days[3][1], [{"time": "18:00", "video": True}])
+        self.assertEqual([("video" in e, e["time"]) for e in days[6][1]],
+                         [(False, "15:00"), (True, "18:00")])
+        data = schedule_image.render(days, datetime.date(2026, 10, 7), "GMT+2",
+                                     "GreMi_Gaming", "5 - 11 Oct")
+        self.assertTrue(data.startswith(b"\x89PNG"))
+
     def test_clean_title(self):
         self.assertEqual(schedule_image.clean("F1 26 lobbies ∣ random grid \U0001F3CE"),
                          "F1 26 LOBBIES | RANDOM GRID")

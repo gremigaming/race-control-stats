@@ -12,6 +12,11 @@
    after he reacts ✅ on the DM of the current version; a schedule change
    before that sends a new DM and marks the old one outdated. Once posted,
    edits stay automatic and silent.
+4. Highlight videos (GreMi 2026-11-22): each stream's highlight video is shown
+   on the picture in its own colour, without a title (that is only known after
+   the stream). It comes out the day after the stream at 18:00 Amsterdam, or
+   at the post_at of its "youtube-highlight-<stream date>" entry in
+   bot/scheduled_posts.json once that is planned.
 
 Called by update_stats.main() every run.
 """
@@ -33,6 +38,10 @@ FILE_PREFIX = "stream-schedule-"
 HEADER = "**\U0001F4C5  STREAM SCHEDULE  ·  {week}**"
 DEFAULT_LENGTH = datetime.timedelta(hours=2)
 WINDOW = datetime.timedelta(days=7)
+HIGHLIGHT_AFTER_DAYS = 1  # highlight video the day after the stream ...
+HIGHLIGHT_TIME = datetime.time(18, 0)  # ... at 18:00 Amsterdam
+POSTS_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "bot",
+                          "scheduled_posts.json")
 EXTERNAL = 3  # Discord event type for "somewhere else" (a link)
 SCHEDULED = 1
 
@@ -195,19 +204,59 @@ def tz_label(when):
     return f"GMT{hours:+d}" if hours else "GMT"
 
 
-def week_days(monday, segments, vacation):
-    """Seven (date, [stream]) pairs for the picture, Monday first."""
+def planned_highlights():
+    """{stream date: release time} from the highlight posts already planned in
+    bot/scheduled_posts.json ("youtube-highlight-2026-11-20", post_at local)."""
+    try:
+        with open(POSTS_FILE, encoding="utf-8") as fh:
+            posts = json.load(fh).get("posts", [])
+    except (OSError, ValueError):
+        return {}
+    out = {}
+    for p in posts:
+        key = p.get("key") or ""
+        if not key.startswith("youtube-highlight-"):
+            continue
+        try:
+            day = datetime.date.fromisoformat(key[len("youtube-highlight-"):])
+            when = datetime.datetime.strptime(p["post_at"], "%Y-%m-%d %H:%M").replace(tzinfo=TZ)
+        except (KeyError, ValueError):
+            continue
+        out[day] = when
+    return out
+
+
+def highlight_times(segments, planned=None):
+    """When each stream's highlight video comes out: one per stream day that
+    isn't cancelled, sorted."""
+    planned = planned if planned is not None else planned_highlights()
+    days = sorted({s["start"].astimezone(TZ).date() for s in segments if not s["cancelled"]})
+    out = []
+    for day in days:
+        when = planned.get(day) or datetime.datetime.combine(
+            day + datetime.timedelta(days=HIGHLIGHT_AFTER_DAYS), HIGHLIGHT_TIME, TZ)
+        out.append(when)
+    return out
+
+
+def week_days(monday, segments, vacation, videos=()):
+    """Seven (date, [stream]) pairs for the picture, Monday first. videos are
+    highlight video release times; they become {"video": True, "time": ...}
+    entries next to the streams."""
     days = []
     for i in range(7):
         day = monday + datetime.timedelta(days=i)
-        streams = [{"time": s["start"].astimezone(TZ).strftime("%H:%M"), "title": s["title"],
-                    "category": s["category"], "cancelled": s["cancelled"]}
-                   for s in sorted(segments, key=lambda s: s["start"])
-                   if s["start"].astimezone(TZ).date() == day]
-        if vacation and not streams:
+        items = [(s["start"], {"time": s["start"].astimezone(TZ).strftime("%H:%M"),
+                               "title": s["title"], "category": s["category"],
+                               "cancelled": s["cancelled"]})
+                 for s in segments if s["start"].astimezone(TZ).date() == day]
+        items += [(v, {"time": v.astimezone(TZ).strftime("%H:%M"), "video": True})
+                  for v in videos if v.astimezone(TZ).date() == day]
+        streams = [entry for _, entry in sorted(items, key=lambda x: x[0])]
+        if vacation and not any(not e.get("video") for e in streams):
             noon = datetime.datetime.combine(day, datetime.time(12), TZ)
             if vacation[0] <= noon <= vacation[1]:
-                streams = [{"vacation": True}]
+                streams = [{"vacation": True}] + streams
         days.append((day, streams))
     return days
 
@@ -272,13 +321,13 @@ def find_posts(stats):
                     for a in m.get("attachments", []))]
 
 
-def update_picture(stats, segments, vacation, now):
+def update_picture(stats, segments, vacation, now, videos=()):
     import schedule_image
     import socials_board
     monday, _ = week_start(now)
     today = now.astimezone(TZ).date()
     week = week_label(monday)
-    days = week_days(monday, segments, vacation)
+    days = week_days(monday, segments, vacation, videos)
     name = f"{FILE_PREFIX}{monday.isoformat()}-{fingerprint(days, today)}.png"
     posts = find_posts(stats)
     this_week = next((m for m in posts if any(
@@ -337,7 +386,8 @@ def delete_old(stats, posts, keep):
 def update(stats, now=None):
     now = now or datetime.datetime.now(datetime.timezone.utc)
     _, since = week_start(now)
-    segments, vacation = fetch_schedule(stats, since)
+    # from the Sunday before: its stream's highlight video comes out this Monday
+    segments, vacation = fetch_schedule(stats, since - datetime.timedelta(days=1))
     if segments is None:
         print("stream schedule: Twitch isn't configured, skipping")
         return
@@ -352,4 +402,6 @@ def update(stats, now=None):
     # the week's streams only (Twitch also sends next week's)
     monday, start = week_start(now)
     end = start + datetime.timedelta(days=7)
-    update_picture(stats, [s for s in segments if start <= s["start"] < end], vacation, now)
+    videos = [v for v in highlight_times(segments) if start <= v < end]
+    update_picture(stats, [s for s in segments if start <= s["start"] < end], vacation, now,
+                   videos)
