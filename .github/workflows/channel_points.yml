@@ -5,12 +5,15 @@ name: Channel points kit
 #   alerts.html                   OBS browser source for the reward alerts
 #   sounds\*.wav                  reward sounds (made by make_sounds.py)
 # and checks that the Streamer.bot inline C# compiles and the listener hears a test word.
-# Output: the "GreMiChannelPoints" artifact.
+# Output: GreMiChannelPoints.zip on the release "channel-points-kit" (and the run's artifact).
 
 on:
   workflow_dispatch:
   push:
     paths: ["channel_points/**", ".github/workflows/channel_points.yml"]
+
+permissions:
+  contents: write
 
 jobs:
   build:
@@ -62,6 +65,16 @@ jobs:
           Write-Host "heard: $($r.text) / hits: $($r.hits)"
           if ($r.hits -lt 1) { throw "the listener did not hear 'okay'" }
           Remove-Item "$kit\wordban\listener.log" -ErrorAction SilentlyContinue
+      - name: Publish as release asset (GreMi's PC downloads it from there)
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          Compress-Archive -Path dist\GreMiChannelPoints\* -DestinationPath GreMiChannelPoints.zip -Force
+          gh release view channel-points-kit 2>$null
+          if ($LASTEXITCODE) { gh release create channel-points-kit --title "Channel points kit" --notes "Built by channel_points.yml. Unzip into Documents\GreMiChannelPoints." --target $env:GITHUB_SHA }
+          gh release upload channel-points-kit GreMiChannelPoints.zip --clobber
+          $global:LASTEXITCODE = 0
       - uses: actions/upload-artifact@v4
         with:
           name: GreMiChannelPoints
