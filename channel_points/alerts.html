@@ -1,0 +1,104 @@
+<!doctype html>
+<!--
+  Channel point alerts for GreMi's stream: OBS browser source "Channel Points Alerts"
+  (local file Documents\GreMiChannelPoints\alerts.html, 1920x1080, transparent).
+  Streamer.bot's "Channel Points Fun" action broadcasts {cp, user, text} over its
+  websocket server (ws://127.0.0.1:8080, General.Custom); this page shows them.
+  ?sb=<port> and ?sbpass=<password> if the Streamer.bot websocket uses them; ?demo shows each alert once.
+-->
+<html><head><meta charset="utf-8"><title>Channel Points Alerts</title>
+<style>
+  html, body { margin: 0; background: transparent; overflow: hidden; width: 1920px; height: 1080px;
+    font-family: "Titillium Web", "Segoe UI", Arial, sans-serif; color: #fff; }
+  #banner { position: absolute; top: 40px; left: 50%; min-width: 760px; max-width: 1300px;
+    transform: translate(-50%, -160%); transition: transform .45s cubic-bezier(.2,.9,.3,1.2);
+    background: linear-gradient(100deg, #15151e 0%, #22222c 100%); border-radius: 6px;
+    border-left: 14px solid var(--c, #e10600); box-shadow: 0 10px 40px rgba(0,0,0,.55); padding: 18px 34px 20px; }
+  #banner.show { transform: translate(-50%, 0); }
+  #banner .t { font-size: 54px; font-weight: 900; letter-spacing: 2px; text-transform: uppercase; color: var(--c); line-height: 1.05; }
+  #banner .s { font-size: 32px; font-weight: 600; margin-top: 6px; word-break: break-word; }
+  #banner.flash { animation: flash .5s steps(2) infinite; }
+  @keyframes flash { 50% { box-shadow: 0 0 0 8px var(--c), 0 10px 40px rgba(0,0,0,.55); } }
+  .tag { position: absolute; right: 30px; background: rgba(21,21,30,.88); border-left: 8px solid var(--c);
+    padding: 8px 18px; font-size: 24px; font-weight: 700; border-radius: 4px; display: none; }
+  .tag b { color: var(--c); text-transform: uppercase; margin-right: 8px; }
+  #challenge { top: 300px; --c: #ff7a00; }
+  #sponsor { top: 350px; --c: #9b5cff; }
+</style></head>
+<body>
+<div id="banner"><div class="t"></div><div class="s"></div></div>
+<div class="tag" id="challenge"><b>Final race challenge</b><span></span></div>
+<div class="tag" id="sponsor"><b>Race sponsor</b><span></span></div>
+<script>
+const q = new URLSearchParams(location.search);
+const KINDS = {
+  hydrate:   { c: "#2e9bff", t: () => "💧 Hydrate, driver!", s: a => `${a.user} says: drink up!`, ms: 8000 },
+  safety:    { c: "#ffc400", t: () => "🚨 Safety Car deployed", s: a => `Called by ${a.user}`, ms: 10000, flash: true },
+  radio:     { c: "#00d68f", t: () => "📻 Team radio", s: a => `${a.user}: “${a.text}”`, ms: 12000 },
+  box:       { c: "#e10600", t: () => "Box box, box box!", s: a => `${a.user} calls GreMi into the pits`, ms: 9000, flash: true },
+  sponsor:   { c: "#9b5cff", t: () => "Official race sponsor", s: a => `This race is brought to you by ${a.user}`, ms: 10000 },
+  challenge: { c: "#ff7a00", t: () => "🏁 Final race challenge", s: a => `${a.text} · picked by ${a.user}`, ms: 12000 },
+  walkon:    { c: "#ffd700", t: () => "🔊 New walk-on sound!", s: a => `${a.user} gets their own entrance sound`, ms: 9000 },
+};
+const TAG_MS = { sponsor: 40 * 60e3, challenge: 4 * 3600e3 };
+const queue = []; let busy = false; const tagTimers = {};
+const banner = document.getElementById("banner");
+
+function show(a) {
+  const k = KINDS[a.cp];
+  if (!k) return;
+  busy = true;
+  banner.style.setProperty("--c", k.c);
+  banner.querySelector(".t").textContent = k.t(a);
+  banner.querySelector(".s").textContent = k.s(a);
+  banner.classList.toggle("flash", !!k.flash);
+  banner.classList.add("show");
+  setTimeout(() => { banner.classList.remove("show", "flash"); setTimeout(next, 700); }, k.ms);
+}
+function next() { busy = false; if (queue.length) show(queue.shift()); }
+function tag(id, text) {
+  const el = document.getElementById(id);
+  clearTimeout(tagTimers[id]);
+  if (!text) { el.style.display = "none"; return; }
+  el.querySelector("span").textContent = text;
+  el.style.display = "block";
+  tagTimers[id] = setTimeout(() => (el.style.display = "none"), TAG_MS[id]);
+}
+function handle(a) {
+  if (!a || !a.cp) return;
+  a.user = String(a.user || "Someone").slice(0, 40);
+  a.text = String(a.text || "").slice(0, 140);
+  if (a.cp === "race-end") return tag("sponsor", "");
+  if (a.cp === "stream-end") { tag("sponsor", ""); return tag("challenge", ""); }
+  if (a.cp === "sponsor") tag("sponsor", a.user);
+  if (a.cp === "challenge") tag("challenge", a.text);
+  busy ? queue.push(a) : show(a);
+}
+
+async function sha256b64(s) {
+  const h = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(s));
+  return btoa(String.fromCharCode(...new Uint8Array(h)));
+}
+function connect() {
+  const ws = new WebSocket("ws://127.0.0.1:" + (q.get("sb") || 8080) + "/");
+  ws.onmessage = async e => {
+    let msg; try { msg = JSON.parse(e.data); } catch { return; }
+    if (msg.authentication && q.get("sbpass")) {
+      const secret = await sha256b64(q.get("sbpass") + msg.authentication.salt);
+      ws.send(JSON.stringify({ request: "Authenticate", id: "auth", authentication: await sha256b64(secret + msg.authentication.challenge) }));
+    }
+    if (msg.info || msg.authentication) {
+      ws.send(JSON.stringify({ request: "Subscribe", id: "sub", events: { General: ["Custom"] } }));
+      return;
+    }
+    handle(msg.data && msg.data.cp ? msg.data : msg);
+  };
+  ws.onclose = () => setTimeout(connect, 3000);
+}
+connect();
+if (q.has("demo")) {
+  [["hydrate"], ["safety"], ["radio", "Plan B, plan B! Push now!"], ["box"], ["sponsor"],
+   ["challenge", "Cockpit cam only"], ["walkon"]].forEach(([cp, text]) => handle({ cp, user: "DemoViewer", text }));
+}
+</script>
+</body></html>
