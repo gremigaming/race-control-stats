@@ -137,7 +137,7 @@ def publish_league(folder, pending=False, s3=None):
         for name in names:
             path = os.path.join(root, name)
             rel = os.path.relpath(path, folder).replace(os.sep, "/")
-            if rel != "index.json":
+            if rel != "index.json" and not name.endswith(".tmp"):   # .tmp: a step stopped mid-write
                 files.append((rel, path))
     files.sort()
 

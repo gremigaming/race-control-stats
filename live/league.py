@@ -10,8 +10,10 @@ import hashlib
 import json
 import os
 import re
+import signal
 import subprocess
 import sys
+import threading
 import time
 import uuid
 from live import final, publish
@@ -24,6 +26,14 @@ MAX_CAPTURE = 64 * 1024 * 1024
 PUBLISH_DELAY = 2.0
 _changed = asyncio.Event()
 _loop = None
+# A new race or qualifying save arrived (GreMi 2026-11-22): its results must go out within seconds,
+# so it stops the slow incident analysis of the build before it (on 20 Nov a rulebook change made
+# that analysis run 30+ minutes, and the results overlay and the Streamer.bot scene switch gave up).
+_race_in = threading.Event()
+
+
+class Preempted(Exception):
+    """A slow analysis step was stopped because a new race save is waiting to be published."""
 
 
 def notify():
@@ -100,6 +110,8 @@ async def receive(ws, data_dir):
             duplicate = old.hexdigest() == hexdigest
         if not duplicate:
             os.replace(temp, target)
+            if meta["kind"] == "race":
+                _race_in.set()
         else:
             os.remove(temp)
         notify()
@@ -147,18 +159,44 @@ def needs_reconcile(data_dir):
             or old.get("sr_rules") != sr_rules(checkout) or old.get("league_code") != LEAGUE_CODE)
 
 
-def _run(cmd, cwd, env, label, timeout=1800):
-    result = subprocess.run(cmd, cwd=cwd, env=env, capture_output=True, text=True,
-                            timeout=timeout, check=False)
-    if result.stdout.strip():
-        print(f"[{label}] {result.stdout.strip()[-5000:]}", flush=True)
-    if result.stderr.strip():
-        print(f"[{label}] {result.stderr.strip()[-3000:]}", flush=True)
-    if result.returncode:   # the last error line goes into /status, so a crash can be read without the server logs
-        lines = [x.strip() for x in (result.stderr or "").strip().splitlines() if x.strip()]
+def _kill(proc):
+    """Stop a step with all its helpers (the fault engine runs a process pool)."""
+    try:
+        os.killpg(proc.pid, signal.SIGKILL)
+    except (ProcessLookupError, PermissionError, AttributeError):
+        proc.kill()
+
+
+def _run(cmd, cwd, env, label, timeout=1800, abortable=False):
+    """Run one build step. abortable: a new race save stops it (Preempted), the next build redoes it.
+
+    Only steps that write their files atomically (or only into the telemetry cache) are abortable,
+    so a stopped step never leaves a half-written file for the next publish.
+    """
+    proc = subprocess.Popen(cmd, cwd=cwd, env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                            text=True, start_new_session=True)
+    deadline = time.time() + timeout
+    while True:
+        try:
+            out, err = proc.communicate(timeout=0.5)
+            break
+        except subprocess.TimeoutExpired:
+            stop = abortable and _race_in.is_set()
+            if stop or time.time() > deadline:
+                _kill(proc)
+                proc.communicate()
+                if stop:
+                    raise Preempted(f"{label} stopped for a new race save")
+                raise RuntimeError(f"{label} timed out after {timeout} seconds")
+    if out.strip():
+        print(f"[{label}] {out.strip()[-5000:]}", flush=True)
+    if err.strip():
+        print(f"[{label}] {err.strip()[-3000:]}", flush=True)
+    if proc.returncode:   # the last error line goes into /status, so a crash can be read without the server logs
+        lines = [x.strip() for x in (err or "").strip().splitlines() if x.strip()]
         where = [x for x in lines if x.startswith("File ")][-1:]
         tail = " | ".join(where + lines[-1:])
-        raise RuntimeError(f"{label} exited with status {result.returncode}: {tail[-400:]}")
+        raise RuntimeError(f"{label} exited with status {proc.returncode}: {tail[-400:]}")
 
 
 def rebuild(data_dir, status, note):
@@ -194,7 +232,9 @@ def rebuild(data_dir, status, note):
     py = sys.executable
 
     # Get result JSON onto R2 first; network OCR and historical telemetry work
-    # can continue while the visitor sees the new race as provisional.
+    # can continue while the visitor sees the new race as provisional. Every save that is in
+    # now goes out with this publish; one arriving later stops the analysis below.
+    _race_in.clear()
     _run(["node", os.path.join(checkout, "scripts", "build-league-data.mjs")], checkout, env, "league results")
     first = publish.publish_league(output, pending=True)
     status.update({"league_pending": True, "league_generation": first["generation"],
@@ -208,19 +248,24 @@ def rebuild(data_dir, status, note):
     first = publish.publish_league(output, pending=True)
     status.update({"league_generation": first["generation"], "league_last_publish": time.time()})
 
-    _run([py, os.path.join(checkout, "scripts", "telemetry", "fault_engine.py"), telemetry], checkout, env, "fault engine")
+    _run([py, os.path.join(checkout, "scripts", "telemetry", "fault_engine.py"), telemetry], checkout, env,
+         "fault engine", abortable=True)
     # Graded incidents as precedents (race-stats grading/), the same step as the site build,
     # so the website (live data) and the Pages build / staff page give the same points.
     try:
         _run([py, os.path.join(checkout, "scripts", "telemetry", "precedents.py"), "apply", telemetry],
-             checkout, env, "precedents", timeout=900)
+             checkout, env, "precedents", timeout=900, abortable=True)
+    except Preempted:
+        raise
     except Exception as ex:
         print("precedents not applied, verdicts are the rulebook's:", ex, flush=True)
     # Frozen calls (GreMi, 16 Nov 2026): past races keep the calls in race-stats grading/frozen-calls.json
     # (the site build freezes them; read only here, so the live data and Pages never disagree)
     try:
         _run([py, os.path.join(checkout, "scripts", "telemetry", "freeze_calls.py"), telemetry, "--read"],
-             checkout, env, "frozen calls", timeout=300)
+             checkout, env, "frozen calls", timeout=300, abortable=True)
+    except Preempted:
+        raise
     except Exception as ex:
         print("frozen calls not applied:", ex, flush=True)
     try:
@@ -231,7 +276,8 @@ def rebuild(data_dir, status, note):
         note(f"SR {env['SR_RULES']} failed, published with v2.2 instead: {ex}")
         _run([py, os.path.join(checkout, "scripts", "safety_rating.py")], checkout, dict(env, SR_RULES="v2.2"), "safety rating v2.2")
     _run([py, os.path.join(checkout, "scripts", "awards.py")], checkout, env, "awards")
-    _run([py, os.path.join(checkout, "scripts", "telemetry", "incident_replays.py"), telemetry], checkout, env, "incident replays")
+    _run([py, os.path.join(checkout, "scripts", "telemetry", "incident_replays.py"), telemetry], checkout, env, "incident replays",
+         abortable=True)
     result = publish.publish_league(output, pending=False)
 
     state_path = os.path.join(data_dir, "league", "publish-state.json")
@@ -263,6 +309,10 @@ async def publish_worker(data_dir, status, note):
         status["league_stage"] = "building"
         try:
             await asyncio.to_thread(rebuild, data_dir, status, note)
+        except Preempted as ex:   # publish the new save now, then start the analysis again
+            status["league_stage"] = "restarting for a new race"
+            print(f"live league: {ex}", flush=True)
+            notify()
         except Exception as ex:
             status["league_pending"] = True
             status["league_stage"] = "error"

@@ -145,5 +145,77 @@ class LeaguePublisherTest(unittest.TestCase):
             self.assertEqual(index["assetPaths"]["replays/abc.json"], old["assetPaths"]["replays/abc.json"])
 
 
+class PreemptTest(unittest.TestCase):
+    """A new race save stops the slow analysis so its results publish at once (GreMi 2026-11-22)."""
+
+    def setUp(self):
+        league._race_in.clear()
+
+    def tearDown(self):
+        league._race_in.clear()
+
+    def test_new_race_stops_an_abortable_step_with_its_helpers(self):
+        import sys
+        import threading
+        import time
+        with tempfile.TemporaryDirectory() as tmp:
+            marker = os.path.join(tmp, "helper-still-running")
+            # the step starts a helper (like the fault engine's process pool) that would write later
+            helper = os.path.join(tmp, "helper.py")
+            with open(helper, "w") as fh:
+                fh.write(f"import time\ntime.sleep(1.5)\nopen({marker!r}, 'w').close()\n")
+            code = f"import subprocess, sys, time\nsubprocess.Popen([sys.executable, {helper!r}])\ntime.sleep(30)\n"
+            threading.Timer(0.3, league._race_in.set).start()
+            start = time.time()
+            with self.assertRaises(league.Preempted):
+                league._run([sys.executable, "-c", code], tmp, os.environ.copy(), "fault engine", abortable=True)
+            self.assertLess(time.time() - start, 5)
+            time.sleep(2)
+            self.assertFalse(os.path.exists(marker))
+
+    def test_other_steps_finish_even_when_a_race_arrives(self):
+        import sys
+        league._race_in.set()
+        with tempfile.TemporaryDirectory() as tmp:
+            league._run([sys.executable, "-c", "import time; time.sleep(1)"], tmp, os.environ.copy(), "safety rating")
+
+    def test_timeout_still_raises(self):
+        import sys
+        with tempfile.TemporaryDirectory() as tmp:
+            with self.assertRaises(RuntimeError):
+                league._run([sys.executable, "-c", "import time; time.sleep(30)"], tmp, os.environ.copy(), "x", timeout=1)
+
+    def test_a_race_upload_flags_the_build_but_telemetry_does_not(self):
+        async def upload(tmp, kind, name):
+            raw = b"{}"
+            header = json.dumps({"type": "artifact", "kind": kind, "day": "2026_11_22", "name": name, "size": len(raw)})
+            await league.receive(FakeWebSocket([header, raw]), tmp)
+        with tempfile.TemporaryDirectory() as tmp:
+            asyncio.run(upload(tmp, "telemetry", "2026-11-22_20-00-00_Monza_Race.gmtel.gz"))
+            self.assertFalse(league._race_in.is_set())
+            asyncio.run(upload(tmp, "race", "Race_Monza_2026_11_22_20_00_00.json"))
+            self.assertTrue(league._race_in.is_set())
+
+    def test_preempted_build_publishes_again_without_the_error_pause(self):
+        calls, notes = [], []
+        def rebuild(data_dir, status, note):
+            calls.append(1)
+            if len(calls) == 1:
+                raise league.Preempted("fault engine stopped for a new race save")
+            raise asyncio.CancelledError
+        async def go():
+            old = league.rebuild
+            league.rebuild = rebuild
+            try:
+                status = {}
+                with self.assertRaises(asyncio.CancelledError):
+                    await asyncio.wait_for(league.publish_worker("/nonexistent", status, notes.append), 10)
+            finally:
+                league.rebuild = old
+        asyncio.run(go())
+        self.assertEqual(len(calls), 2)
+        self.assertEqual(notes, [])
+
+
 if __name__ == "__main__":
     unittest.main()
