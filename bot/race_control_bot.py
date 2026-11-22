@@ -30,8 +30,8 @@ import discord
 from bot.brain import Brain, HandOff
 from bot.members import GUILD_ID, Members
 from bot.profiles import write_profiles
-from bot import (award_roles, checkin, giveaway, leaves, league_promos, mod_alerts, scheduled_posts,
-                 socials_live, twitch_chat, welcome, wordle, youtube_chat)
+from bot import (award_roles, checkin, giveaway, leaves, league_promos, mod_alerts, prestream,
+                 scheduled_posts, socials_live, twitch_chat, welcome, wordle, youtube_chat)
 
 from bot.replies import (CHANGE_REQUESTS_ID, FIRE_HEADERS, FIRE_URL, Cooldown, approval_body,
                          change_request, is_approval, is_staff, load_staff, needs_restart,
@@ -58,6 +58,7 @@ except Exception as e:  # pragma: no cover
     logging.getLogger("race_control").warning("safety rating commands off: %s", e)
 welcomer = welcome.Welcomer(bot, GUILD_ID)
 posts = scheduled_posts.Runner(bot, GUILD_ID)
+reminder = prestream.Runner(bot, GUILD_ID, OWNER_ID)
 promos = league_promos.Watcher(bot, lambda m: is_staff(m.id, OWNER_ID, MOD_IDS) or getattr(
     getattr(m, "guild_permissions", None), "manage_messages", False))
 try:  # a problem with the Wordle board must not stop the bot
@@ -110,6 +111,7 @@ async def on_ready():
         asyncio.create_task(socials_live.run(bot, GUILD_ID))
         asyncio.create_task(welcomer.run())
         asyncio.create_task(posts.run())
+        asyncio.create_task(reminder.run())
         asyncio.create_task(promos.run())
         asyncio.create_task(wordle.run(wordle_api))
 

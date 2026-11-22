@@ -1,0 +1,11 @@
+{
+  "_about": "Today's pre-stream content, rewritten each stream day by the 'Race Control: pre-stream prep' scheduled task. Used only on 'date' (Amsterdam). bot/prestream.py DMs GreMi 1 hour before each Twitch stream. already_sent = sent by hand, skip that day.",
+  "date": "2026-11-22",
+  "already_sent": true,
+  "news": "Verstappen won a wild Las Vegas GP; Leclerc got 10 s for spinning teammate Hamilton and Ferrari's boss called it 'unacceptable'.",
+  "source": "https://www.skysports.com/f1/news/13615083/las-vegas-gp-max-verstappen-wins-wild-race-as-ferraris-lewis-hamilton-and-charles-leclerc-collide-again",
+  "topic": "Leclerc vs Hamilton, round two. Should Ferrari bring in team orders, or let them race? Ask chat whose fault it was.",
+  "line_a": "🚨 LECLERC SPINS HAMILTON?! 😱 COULD YOU STAY CLEAN? 👀🏁",
+  "line_b": "🎲 RANDOM GRID, ZERO EXCUSES 😤 CLEANER THAN ME? 🏁",
+  "challenge": "BACK OF THE GRID"
+}

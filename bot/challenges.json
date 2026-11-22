@@ -1,0 +1,25 @@
+{
+  "_about": "Final-race challenges for GreMi's streams (GreMi 2026-11-22). The pre-stream DM (bot/prestream.py) suggests one per stream, least recently used first. All self-imposed and clean: never anything that makes other lobby drivers' race worse. 'clip' says why it makes a good highlight.",
+  "challenges": [
+    {"name": "BACK OF THE GRID", "rules": "Start last, finish in the points with zero contact.", "clip": "Every overtake is a mini highlight; the comeback is the story."},
+    {"name": "COCKPIT CAM ONLY", "rules": "Whole race in cockpit cam, no T-cam or chase cam.", "clip": "Raw, scary onboard shots and close calls feel real."},
+    {"name": "HUD OFF", "rules": "No HUD, no minimap, no position tower. Chat tells you your position.", "clip": "Chat becomes the race engineer; funny wrong calls."},
+    {"name": "CHAT PICKS THE STRATEGY", "rules": "A chat poll before the start picks the tyres and the lap you pit.", "clip": "Viewers own the result, good or terrible."},
+    {"name": "WRONG TYRE START", "rules": "Start on the hardest compound (or inters on a dry track if the lobby allows) and make it work.", "clip": "Struggle early, payoff late: built-in story arc."},
+    {"name": "PIT LANE START", "rules": "Start from the pit lane and score points.", "clip": "Clear before/after: P20 to the points."},
+    {"name": "NO BOOST", "rules": "No Overtake mode / boost button all race, pure racecraft.", "clip": "Old-school overtakes under braking only."},
+    {"name": "MANUAL AND NO ASSISTS", "rules": "Manual gears, traction control and ABS off.", "clip": "Lockups, slides and saves make great shorts."},
+    {"name": "TEN PLACES", "rules": "Gain at least 10 places from the start, cleanly.", "clip": "A counter on screen keeps viewers watching to the end."},
+    {"name": "LAP ONE HERO", "rules": "Gain 5 places on lap 1 without touching anyone.", "clip": "The whole highlight is in the first 90 seconds."},
+    {"name": "NEMESIS", "rules": "Chat picks one driver on the grid; finish ahead of them.", "clip": "A personal duel is the easiest story to follow."},
+    {"name": "FASTEST LAP HUNT", "rules": "Set the fastest lap of the race, whatever it costs.", "clip": "Late pit stop for softs and a final flying lap."},
+    {"name": "CLEAN SHEET", "rules": "Zero contact, zero penalties, zero track limit warnings. One warning and chat picks a forfeit.", "clip": "Fits the clean racing brand; the tension builds every lap."},
+    {"name": "SLOWEST CAR", "rules": "Take the slowest car in the lobby and beat at least one faster car.", "clip": "Underdog stories always land."},
+    {"name": "CHAT PICKS THE TRACK", "rules": "Chat votes the track and the weather for the last race.", "clip": "Viewers come back to see their pick."},
+    {"name": "RAIN MASTER", "rules": "Last race in the wet, or mixed conditions with a forecast gamble.", "clip": "Spray, spins and tyre calls look great on video."},
+    {"name": "PREDICT YOUR FINISH", "rules": "Say your finishing position before the start. Miss it and chat picks the next stream's livery or car.", "clip": "Clear hook in the first second: will he hit P5?"},
+    {"name": "SELF COMMENTARY", "rules": "Commentate your own race like a TV commentator, all race long.", "clip": "Funny voice lines carry the clip without music."},
+    {"name": "TWO STOPS MINIMUM", "rules": "Make at least two pit stops and still finish ahead of where you started.", "clip": "Undercut battles and pit exit fights."},
+    {"name": "MIRRORS ONLY DEFENCE", "rules": "No look-back button: defend using only your mirrors, cleanly.", "clip": "Tense defending with the cam on the mirrors."}
+  ]
+}
