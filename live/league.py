@@ -30,6 +30,10 @@ _loop = None
 # so it stops the slow incident analysis of the build before it (on 20 Nov a rulebook change made
 # that analysis run 30+ minutes, and the results overlay and the Streamer.bot scene switch gave up).
 _race_in = threading.Event()
+# How fast each race save reached the website (GreMi 2026-11-25: within 2 minutes of the save):
+# name -> arrival time until a publish includes it, then a row in /status league_recent
+_arrived = {}
+_recent = []
 
 
 class Preempted(Exception):
@@ -111,6 +115,7 @@ async def receive(ws, data_dir):
         if not duplicate:
             os.replace(temp, target)
             if meta["kind"] == "race":
+                _arrived.setdefault(meta["name"], time.time())
                 _race_in.set()
         else:
             os.remove(temp)
@@ -170,8 +175,9 @@ def _kill(proc):
 def _run(cmd, cwd, env, label, timeout=1800, abortable=False):
     """Run one build step. abortable: a new race save stops it (Preempted), the next build redoes it.
 
-    Only steps that write their files atomically (or only into the telemetry cache) are abortable,
-    so a stopped step never leaves a half-written file for the next publish.
+    The next build starts by wiping the league output folder (build-league-data.mjs), so a stopped
+    step's half-written output there is never published; steps that keep files elsewhere (telemetry
+    cache, OCR cache) write them atomically. Only the first results build is not abortable.
     """
     proc = subprocess.Popen(cmd, cwd=cwd, env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                             text=True, start_new_session=True)
@@ -202,7 +208,9 @@ def _run(cmd, cwd, env, label, timeout=1800, abortable=False):
 def rebuild(data_dir, status, note):
     """Build provisional results, publish them, then enrich and atomically republish."""
     started = time.time()
-    checkout = final.checkout(data_dir)   # league builds need the current scripts + races
+    # No git pull here: the server pulls race-stats every few minutes in the background (server.warm),
+    # so a new race never waits on GitHub. The new save itself comes in through the overlay folder.
+    checkout = final.checkout(data_dir, pull=False)
     source_revision = _head(checkout)
     source = os.path.join(checkout, "races")
     overlay = os.path.join(data_dir, "league", "incoming", "races")
@@ -235,16 +243,25 @@ def rebuild(data_dir, status, note):
     # can continue while the visitor sees the new race as provisional. Every save that is in
     # now goes out with this publish; one arriving later stops the analysis below.
     _race_in.clear()
+    waiting = dict(_arrived)   # every save that is in now goes out with this first publish
     _run(["node", os.path.join(checkout, "scripts", "build-league-data.mjs")], checkout, env, "league results")
     first = publish.publish_league(output, pending=True)
     status.update({"league_pending": True, "league_generation": first["generation"],
-                   "league_last_publish": time.time(), "league_stage": "analysis"})
+                   "league_last_publish": time.time(), "league_stage": "analysis",
+                   "league_first_publish_s": round(time.time() - started, 1)})
+    _visible(waiting, status)
+
+    def go_on():   # a save that came in during a step without a subprocess: publish it first
+        if _race_in.is_set():
+            raise Preempted("build stopped for a new race save")
 
     # Captures may arrive after the race JSON. Apply OCR and publish hidden-name
     # joins as a second provisional generation before fault analysis completes.
     _run([py, os.path.join(checkout, "scripts", "telemetry", "classification_ocr.py"),
-          telemetry, env["CLASSIFICATION_FILE"]], checkout, env, "classification OCR", timeout=300)
-    _run(["node", os.path.join(checkout, "scripts", "build-league-data.mjs")], checkout, env, "league names")
+          telemetry, env["CLASSIFICATION_FILE"]], checkout, env, "classification OCR", timeout=300, abortable=True)
+    _run(["node", os.path.join(checkout, "scripts", "build-league-data.mjs")], checkout, env, "league names",
+         abortable=True)
+    go_on()
     first = publish.publish_league(output, pending=True)
     status.update({"league_generation": first["generation"], "league_last_publish": time.time()})
 
@@ -269,15 +286,18 @@ def rebuild(data_dir, status, note):
     except Exception as ex:
         print("frozen calls not applied:", ex, flush=True)
     try:
-        _run([py, os.path.join(checkout, "scripts", "safety_rating.py")], checkout, env, "safety rating")
+        _run([py, os.path.join(checkout, "scripts", "safety_rating.py")], checkout, env, "safety rating",
+             abortable=True)
     except RuntimeError as ex:   # a new SR rule set that crashes here must not stop live publishing
         if env["SR_RULES"] == "v2.2":
             raise
         note(f"SR {env['SR_RULES']} failed, published with v2.2 instead: {ex}")
-        _run([py, os.path.join(checkout, "scripts", "safety_rating.py")], checkout, dict(env, SR_RULES="v2.2"), "safety rating v2.2")
-    _run([py, os.path.join(checkout, "scripts", "awards.py")], checkout, env, "awards")
+        _run([py, os.path.join(checkout, "scripts", "safety_rating.py")], checkout, dict(env, SR_RULES="v2.2"),
+             "safety rating v2.2", abortable=True)
+    _run([py, os.path.join(checkout, "scripts", "awards.py")], checkout, env, "awards", abortable=True)
     _run([py, os.path.join(checkout, "scripts", "telemetry", "incident_replays.py"), telemetry], checkout, env, "incident replays",
          abortable=True)
+    go_on()
     result = publish.publish_league(output, pending=False)
 
     state_path = os.path.join(data_dir, "league", "publish-state.json")
@@ -291,6 +311,19 @@ def rebuild(data_dir, status, note):
                    "league_duration_s": round(time.time() - started, 1)})
     print(f"live league generation {result['generation']} published in {time.time() - started:.1f}s", flush=True)
     return result
+
+
+def _visible(waiting, status):
+    """Book how long each new race save took from arriving here to being on the website."""
+    now = time.time()
+    for name, at in waiting.items():
+        if _arrived.get(name) == at:
+            del _arrived[name]
+        _recent.append({"race": name, "received": time.strftime("%Y-%m-%d %H:%M:%S", time.gmtime(at)),
+                        "visible_in_s": round(now - at, 1)})
+        print(f"live league: {name} on the website {now - at:.1f}s after it arrived", flush=True)
+    del _recent[:-20]
+    status["league_recent"] = list(_recent)
 
 
 async def publish_worker(data_dir, status, note):

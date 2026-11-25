@@ -222,6 +222,7 @@ def status():
             "league_pending": state["league_pending"], "league_generation": state["league_generation"],
             "league_last_publish_s_ago": round(now - state["league_last_publish"], 1) if state["league_last_publish"] else None,
             "league_stage": state["league_stage"], "league_duration_s": state.get("league_duration_s"),
+            "league_first_publish_s": state.get("league_first_publish_s"), "league_recent": state.get("league_recent", []),
             "live_viewers": len(watchers), "live": [r["uid"] for r in live_sessions()],
             "sessions": [{"uid": s.meta["uid"], "track": s.manifest()["track"], "session": s.manifest()["session"],
                           "chunks": len(s.meta["chunks"]), "cars": len(s.meta["participants"]),

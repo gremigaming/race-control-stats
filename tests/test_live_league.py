@@ -196,6 +196,50 @@ class PreemptTest(unittest.TestCase):
             asyncio.run(upload(tmp, "race", "Race_Monza_2026_11_22_20_00_00.json"))
             self.assertTrue(league._race_in.is_set())
 
+    def _fake_build(self, tmp, on_step=None):
+        """rebuild() with every step and R2 faked; returns (steps run, publishes, status)."""
+        steps, pubs, status = [], [], {}
+        def run(cmd, cwd, env, label, timeout=1800, abortable=False):
+            steps.append((label, abortable))
+            if on_step:
+                on_step(label)
+        def pub(folder, pending=False, s3=None):
+            pubs.append(pending)
+            return {"generation": str(len(pubs))}
+        saved = (league._run, league.publish.publish_league, league.final.checkout, league._head, league.sr_rules)
+        league._run, league.publish.publish_league = run, pub
+        league.final.checkout = lambda d, pull=True: (steps.append(("pull", pull)), tmp)[1]
+        league._head, league.sr_rules = (lambda c: "abc"), (lambda c: "v2.5")
+        try:
+            try:
+                league.rebuild(tmp, status, lambda t: None)
+            except league.Preempted:
+                steps.append(("preempted", True))
+        finally:
+            league._run, league.publish.publish_league, league.final.checkout, league._head, league.sr_rules = saved
+        return steps, pubs, status
+
+    def test_a_new_race_never_waits_on_git_or_analysis(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            league._arrived.clear()
+            league._recent.clear()
+            league._arrived["Race_Monza_2026_11_22_20_00_00.json"] = __import__("time").time() - 3
+            steps, pubs, status = self._fake_build(tmp)
+            self.assertIn(("pull", False), steps)
+            self.assertEqual(steps[1], ("league results", False))   # only the first build can't be stopped
+            self.assertTrue(all(abortable for label, abortable in steps[2:] if label != "pull"))
+            self.assertEqual(pubs, [True, True, False])
+            row = status["league_recent"][-1]
+            self.assertEqual(row["race"], "Race_Monza_2026_11_22_20_00_00.json")
+            self.assertGreaterEqual(row["visible_in_s"], 3)
+            self.assertEqual(league._arrived, {})
+
+    def test_a_save_during_a_step_stops_the_build_before_the_next_publish(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            steps, pubs, status = self._fake_build(tmp, lambda label: label == "awards" and league._race_in.set())
+            self.assertEqual(steps[-1], ("preempted", True))
+            self.assertEqual(pubs, [True, True])   # the final publish waits for the build with the new save
+
     def test_preempted_build_publishes_again_without_the_error_pause(self):
         calls, notes = [], []
         def rebuild(data_dir, status, note):
