@@ -1,11 +1,11 @@
 {
   "_about": "Today's pre-stream content, rewritten each stream day by the 'Race Control: pre-stream prep' scheduled task. Used only on 'date' (Amsterdam). bot/prestream.py DMs GreMi 1 hour before each Twitch stream. already_sent = sent by hand, skip that day.",
-  "date": "2026-11-22",
-  "already_sent": true,
-  "news": "Verstappen won a wild Las Vegas GP; Leclerc got 10 s for spinning teammate Hamilton and Ferrari's boss called it 'unacceptable'.",
-  "source": "https://www.skysports.com/f1/news/13615083/las-vegas-gp-max-verstappen-wins-wild-race-as-ferraris-lewis-hamilton-and-charles-leclerc-collide-again",
-  "topic": "Leclerc vs Hamilton, round two. Should Ferrari bring in team orders, or let them race? Ask chat whose fault it was.",
-  "line_a": "🚨 LECLERC SPINS HAMILTON?! 😱 COULD YOU STAY CLEAN? 👀🏁",
-  "line_b": "🎲 RANDOM GRID, ZERO EXCUSES 😤 CLEANER THAN ME? 🏁",
-  "challenge": "BACK OF THE GRID"
+  "date": "2026-11-25",
+  "already_sent": false,
+  "news": "Guenther Steiner suggested Ferrari could demote Leclerc to Haas after he spun teammate Hamilton in Las Vegas.",
+  "source": "https://racingnews365.com/radical-charles-leclerc-punishment-proposed-after-lewis-hamilton-clash",
+  "topic": "Steiner wants Leclerc sent to Haas as punishment. Should teams ever demote a star driver for hitting his teammate? Ask chat: Leclerc to Haas, genius or madness?",
+  "line_a": "😱 LECLERC TO HAAS?! 🚨 STEINER GOES NUCLEAR 💥👀",
+  "line_b": "🎲 RANDOM GRID TONIGHT 😤 CAN YOU STAY CLEANER? 🏁🔥",
+  "challenge": ""
 }
