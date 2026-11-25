@@ -22,6 +22,10 @@ VERDICT_KEYS = ("verdict", "at_fault", "rule", "severity", "why")
 
 _state = {"pulled": 0.0, "head": None, "mods": None}
 _lock = threading.RLock()  # the background pull never swaps the modules under a running build
+# Git only (clone/fetch/reset). The league build takes just this one, so it never waits for a
+# finished race's bundle + verdicts, which hold _lock for minutes (25 Nov 2026: Jeddah 166 s).
+# Lock order is always _lock, then _git_lock.
+_git_lock = threading.RLock()
 
 
 def _update(git):
@@ -32,7 +36,7 @@ def _update(git):
 
 
 def checkout(data_dir, pull=True):
-    with _lock:
+    with _git_lock:
         return _checkout(data_dir, pull)
 
 
