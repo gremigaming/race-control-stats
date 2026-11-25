@@ -129,7 +129,7 @@ async def receive(ws, data_dir):
         raise
 
 
-LEAGUE_CODE = 6   # bump to make the live server rebuild its league data after a change here
+LEAGUE_CODE = 7   # bump to make the live server rebuild its league data after a change here
 
 
 def _head(checkout):
@@ -294,6 +294,16 @@ def rebuild(data_dir, status, note):
         note(f"SR {env['SR_RULES']} failed, published with v2.2 instead: {ex}")
         _run([py, os.path.join(checkout, "scripts", "safety_rating.py")], checkout, dict(env, SR_RULES="v2.2"),
              "safety rating v2.2", abortable=True)
+    # Performance Rating (GreMi, 25 Nov 2026), the same step as the site build. A failure here only
+    # leaves the previous performance.json out of this generation; it must not stop live publishing.
+    if os.path.exists(os.path.join(checkout, "scripts", "performance_rating.py")):
+        try:
+            _run([py, os.path.join(checkout, "scripts", "performance_rating.py"), telemetry], checkout, env,
+                 "performance rating", timeout=1800, abortable=True)
+        except Preempted:
+            raise
+        except Exception as ex:
+            print("performance rating not built:", ex, flush=True)
     _run([py, os.path.join(checkout, "scripts", "awards.py")], checkout, env, "awards", abortable=True)
     _run([py, os.path.join(checkout, "scripts", "telemetry", "incident_replays.py"), telemetry], checkout, env, "incident replays",
          abortable=True)

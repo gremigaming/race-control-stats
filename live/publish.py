@@ -162,7 +162,7 @@ def publish_league(folder, pending=False, s3=None):
     # are ready, while the new race sessions and results become visible now.
     if pending:
         for rel, old in previous_paths.items():
-            if rel not in asset_paths and (rel in ("safety.json", "incidents.json", "awards.json") or rel.startswith("replays/")):
+            if rel not in asset_paths and (rel in ("safety.json", "incidents.json", "awards.json", "performance.json") or rel.startswith("replays/")):
                 asset_paths[rel] = old
                 if rel in previous_hashes:
                     asset_hashes[rel] = previous_hashes[rel]
