@@ -1,11 +1,11 @@
 {
   "_about": "Today's pre-stream content, rewritten each stream day by the 'Race Control: pre-stream prep' scheduled task. Used only on 'date' (Amsterdam). bot/prestream.py DMs GreMi 1 hour before each Twitch stream. already_sent = sent by hand, skip that day.",
-  "date": "2026-11-25",
+  "date": "2026-11-27",
   "already_sent": false,
-  "news": "Guenther Steiner suggested Ferrari could demote Leclerc to Haas after he spun teammate Hamilton in Las Vegas.",
-  "source": "https://racingnews365.com/radical-charles-leclerc-punishment-proposed-after-lewis-hamilton-clash",
-  "topic": "Steiner wants Leclerc sent to Haas as punishment. Should teams ever demote a star driver for hitting his teammate? Ask chat: Leclerc to Haas, genius or madness?",
-  "line_a": "😱 LECLERC TO HAAS?! 🚨 STEINER GOES NUCLEAR 💥👀",
-  "line_b": "🎲 RANDOM GRID TONIGHT 😤 CAN YOU STAY CLEANER? 🏁🔥",
+  "news": "Leclerc says he has zero number one clause in his Ferrari contract, while Hamilton says he never asked to be number one after their Las Vegas clash.",
+  "source": "https://www.gpblog.com/en/news/leclerc-addresses-ferrari-number-1-clause-rumour-after-hamilton-clash",
+  "topic": "Leclerc and Hamilton both deny any number one status at Ferrari and say they are free to race in Qatar. Should Ferrari pick a number one driver now? Ask chat: Leclerc or Hamilton, who should Ferrari back?",
+  "line_a": "🚨 NO NUMBER ONE AT FERRARI?! 😱 LECLERC SPEAKS 🔥👀",
+  "line_b": "🎯 ONE SHOT QUALI 😤 ONE LAP, NO MISTAKES. YOU? 🏁⏱️",
   "challenge": ""
 }
